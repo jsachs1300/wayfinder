@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  wayfinder:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - PORT=3000
+      - ADMIN_API_KEY=dev-admin-key
+      - REDIS_ENABLED=true
+      - REDIS_URL=redis://redis:6379
+      - LOG_LEVEL=debug
+      - KNOWLEDGE_DECAY_RATE=0.05
+      - MIN_VOTES_FOR_STRONG_CONFIDENCE=5
+    volumes:
+      - ./src:/app/src:ro
+      - ./package.json:/app/package.json:ro
+    command: npm run dev
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    restart: unless-stopped

@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  wayfinder:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - ADMIN_API_KEY=${ADMIN_API_KEY:-change-me-in-production}
+      - REDIS_ENABLED=true
+      - REDIS_URL=redis://redis:6379
+      - LOG_LEVEL=info
+      - KNOWLEDGE_DECAY_RATE=0.05
+      - MIN_VOTES_FOR_STRONG_CONFIDENCE=5
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+volumes:
+  redis_data:
+
+networks:
+  default:
+    name: wayfinder-network
