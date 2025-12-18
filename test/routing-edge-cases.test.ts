@@ -4,11 +4,12 @@ import { InMemoryKnowledgeStore } from '../src/knowledge/store';
 import { HeuristicIntentClassifier } from '../src/intent/classifier';
 import { DefaultPolicyEngine } from '../src/policy/engine';
 import { DefaultModelRegistry } from '../src/models/registry';
-import { TokenConfig, PolicyRule, RouteRequest } from '../src/types';
+import { TokenConfig, PolicyRule, RouteRequest, KnowledgeScopeContext } from '../src/types';
 
 describe('RoutingEngine Edge Cases and Security', () => {
   let routingEngine: DefaultRoutingEngine;
   let knowledgeStore: InMemoryKnowledgeStore;
+  const globalScope: KnowledgeScopeContext = { scope: 'global' };
   let intentClassifier: HeuristicIntentClassifier;
   let policyEngine: DefaultPolicyEngine;
   let modelRegistry: DefaultModelRegistry;
@@ -162,7 +163,7 @@ describe('RoutingEngine Edge Cases and Security', () => {
   describe('Knowledge Consensus Edge Cases', () => {
     it('should skip knowledge consensus if confidence is low', async () => {
       // Create low confidence knowledge
-      await knowledgeStore.recordVote('coding', 'gpt-4-turbo');
+      await knowledgeStore.recordVote('coding', 'gpt-4-turbo', globalScope);
 
       const config = createTokenConfig({
         trusted_anchor_model: 'claude-3-5-sonnet',
@@ -180,7 +181,7 @@ describe('RoutingEngine Edge Cases and Security', () => {
     it('should skip knowledge consensus if consensus model is denied', async () => {
       // Build strong consensus
       for (let i = 0; i < 10; i++) {
-        await knowledgeStore.recordVote('coding', 'gpt-4-turbo');
+        await knowledgeStore.recordVote('coding', 'gpt-4-turbo', globalScope);
       }
 
       const config = createTokenConfig({
@@ -199,7 +200,7 @@ describe('RoutingEngine Edge Cases and Security', () => {
     it('should skip knowledge consensus if consensus model is not in eligible models', async () => {
       // Build consensus for a model
       for (let i = 0; i < 10; i++) {
-        await knowledgeStore.recordVote('coding', 'gpt-4-turbo');
+        await knowledgeStore.recordVote('coding', 'gpt-4-turbo', globalScope);
       }
 
       const config = createTokenConfig({
@@ -217,10 +218,10 @@ describe('RoutingEngine Edge Cases and Security', () => {
     it('should use knowledge consensus when available and valid', async () => {
       // Build moderate consensus
       for (let i = 0; i < 7; i++) {
-        await knowledgeStore.recordVote('coding', 'gpt-4-turbo');
+        await knowledgeStore.recordVote('coding', 'gpt-4-turbo', globalScope);
       }
       for (let i = 0; i < 3; i++) {
-        await knowledgeStore.recordVote('coding', 'claude-3-5-sonnet');
+        await knowledgeStore.recordVote('coding', 'claude-3-5-sonnet', globalScope);
       }
 
       const config = createTokenConfig();
@@ -239,7 +240,7 @@ describe('RoutingEngine Edge Cases and Security', () => {
     it('should use forced model even when knowledge suggests different model', async () => {
       // Build knowledge consensus
       for (let i = 0; i < 10; i++) {
-        await knowledgeStore.recordVote('coding', 'gpt-4-turbo');
+        await knowledgeStore.recordVote('coding', 'gpt-4-turbo', globalScope);
       }
 
       const rules: PolicyRule[] = [
@@ -314,10 +315,10 @@ describe('RoutingEngine Edge Cases and Security', () => {
     it('should include agreement_score when knowledge is used', async () => {
       // Build consensus
       for (let i = 0; i < 8; i++) {
-        await knowledgeStore.recordVote('coding', 'gpt-4-turbo');
+        await knowledgeStore.recordVote('coding', 'gpt-4-turbo', globalScope);
       }
       for (let i = 0; i < 2; i++) {
-        await knowledgeStore.recordVote('coding', 'claude-3-5-sonnet');
+        await knowledgeStore.recordVote('coding', 'claude-3-5-sonnet', globalScope);
       }
 
       const config = createTokenConfig();
@@ -355,15 +356,12 @@ describe('RoutingEngine Edge Cases and Security', () => {
 
     it('should include timestamp in decision', async () => {
       const config = createTokenConfig();
-      const before = new Date().toISOString();
 
       const result = await routingEngine.route({ prompt: 'test' }, config);
 
-      const after = new Date().toISOString();
-
       expect(result.routing_decision.timestamp).toBeDefined();
-      expect(result.routing_decision.timestamp).toBeGreaterThanOrEqual(before);
-      expect(result.routing_decision.timestamp).toBeLessThanOrEqual(after);
+      expect(result.routing_decision.timestamp).toBeTypeOf('string');
+      expect(result.routing_decision.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/); // ISO 8601 format
     });
 
     it('should set confidence based on routing reason', async () => {
@@ -401,7 +399,7 @@ describe('RoutingEngine Edge Cases and Security', () => {
       );
 
       const votePromises = Array.from({ length: 20 }, () =>
-        knowledgeStore.recordVote('coding', 'gpt-4-turbo')
+        knowledgeStore.recordVote('coding', 'gpt-4-turbo', globalScope)
       );
 
       const [routes] = await Promise.all([

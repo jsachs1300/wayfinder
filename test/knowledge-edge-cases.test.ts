@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { InMemoryKnowledgeStore } from '../src/knowledge/store';
+import { KnowledgeScopeContext } from '../src/types';
 
 describe('KnowledgeStore Edge Cases and Race Conditions', () => {
   let store: InMemoryKnowledgeStore;
+  const globalScope: KnowledgeScopeContext = { scope: 'global' };
 
   beforeEach(async () => {
     store = new InMemoryKnowledgeStore();
@@ -11,14 +13,14 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
   describe('Division by Zero and NaN Prevention', () => {
     it('should handle zero votes gracefully', async () => {
       // This shouldn't happen in practice, but test defensive code
-      const entry = await store.get('non-existent');
+      const entry = await store.get('non-existent', globalScope);
       expect(entry).toBeNull();
     });
 
     it('should handle agreement calculation with zero total votes', async () => {
       // Create entry with one vote
-      await store.recordVote('test', 'model-a');
-      const entry = await store.get('test');
+      await store.recordVote('test', 'model-a', globalScope);
+      const entry = await store.get('test', globalScope);
 
       // Verify no NaN or Infinity
       expect(entry!.agreement_score).toBeGreaterThanOrEqual(0);
@@ -29,14 +31,14 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
 
   describe('Floating Point Precision', () => {
     it('should handle fractional votes after decay without precision errors', async () => {
-      await store.recordVote('test', 'model-a');
+      await store.recordVote('test', 'model-a', globalScope);
 
       // Apply many decay cycles
       for (let i = 0; i < 50; i++) {
         await store.applyDecay();
       }
 
-      const entry = await store.get('test');
+      const entry = await store.get('test', globalScope);
 
       // Should still have valid numbers
       expect(Number.isFinite(entry!.total_votes)).toBe(true);
@@ -50,28 +52,28 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
 
     it('should maintain agreement score between 0 and 1', async () => {
       // Record votes with various distributions
-      await store.recordVote('test1', 'model-a');
-      await store.recordVote('test1', 'model-a');
-      await store.recordVote('test1', 'model-b');
+      await store.recordVote('test1', 'model-a', globalScope);
+      await store.recordVote('test1', 'model-a', globalScope);
+      await store.recordVote('test1', 'model-b', globalScope);
 
       await store.applyDecay();
       await store.applyDecay();
 
-      const entry = await store.get('test1');
+      const entry = await store.get('test1', globalScope);
 
       expect(entry!.agreement_score).toBeGreaterThanOrEqual(0);
       expect(entry!.agreement_score).toBeLessThanOrEqual(1);
     });
 
     it('should handle very small vote counts after extensive decay', async () => {
-      await store.recordVote('test', 'model-a');
+      await store.recordVote('test', 'model-a', globalScope);
 
       // Extreme decay
       for (let i = 0; i < 200; i++) {
         await store.applyDecay();
       }
 
-      const entry = await store.get('test');
+      const entry = await store.get('test', globalScope);
 
       // Should enforce minimum values to prevent underflow
       expect(entry!.model_votes['model-a']).toBeGreaterThan(0);
@@ -83,12 +85,12 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
   describe('Concurrent Vote Recording', () => {
     it('should handle concurrent votes for same cluster', async () => {
       const promises = Array.from({ length: 100 }, () =>
-        store.recordVote('coding', 'gpt-4-turbo')
+        store.recordVote('coding', 'gpt-4-turbo', globalScope)
       );
 
       await Promise.all(promises);
 
-      const entry = await store.get('coding');
+      const entry = await store.get('coding', globalScope);
       // All votes should be recorded
       expect(entry!.total_votes).toBe(100);
       expect(entry!.model_votes['gpt-4-turbo']).toBe(100);
@@ -96,13 +98,13 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
 
     it('should handle concurrent votes for different models in same cluster', async () => {
       const promises = [
-        ...Array.from({ length: 60 }, () => store.recordVote('coding', 'model-a')),
-        ...Array.from({ length: 40 }, () => store.recordVote('coding', 'model-b')),
+        ...Array.from({ length: 60 }, () => store.recordVote('coding', 'model-a', globalScope)),
+        ...Array.from({ length: 40 }, () => store.recordVote('coding', 'model-b', globalScope)),
       ];
 
       await Promise.all(promises);
 
-      const entry = await store.get('coding');
+      const entry = await store.get('coding', globalScope);
       expect(entry!.total_votes).toBe(100);
       expect(entry!.model_votes['model-a']).toBe(60);
       expect(entry!.model_votes['model-b']).toBe(40);
@@ -112,20 +114,20 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
     it('should handle concurrent votes across multiple clusters', async () => {
       const clusters = ['coding', 'legal', 'creative', 'reasoning'];
       const promises = clusters.flatMap(cluster =>
-        Array.from({ length: 10 }, () => store.recordVote(cluster, 'model-a'))
+        Array.from({ length: 10 }, () => store.recordVote(cluster, 'model-a', globalScope))
       );
 
       await Promise.all(promises);
 
       for (const cluster of clusters) {
-        const entry = await store.get(cluster);
+        const entry = await store.get(cluster, globalScope);
         expect(entry!.total_votes).toBe(10);
       }
     });
 
     it('should handle concurrent decay operations', async () => {
       // Set up initial data
-      await store.recordVote('test', 'model-a');
+      await store.recordVote('test', 'model-a', globalScope);
 
       // Run multiple decay operations concurrently
       const promises = Array.from({ length: 5 }, () => store.applyDecay());
@@ -134,7 +136,7 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
       // All should report successful decay
       expect(results.every(count => count >= 0)).toBe(true);
 
-      const entry = await store.get('test');
+      const entry = await store.get('test', globalScope);
       // Entry should still exist
       expect(entry).not.toBeNull();
       expect(entry!.model_votes['model-a']).toBeGreaterThan(0);
@@ -150,13 +152,13 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
       const votesAgainst = minVotes - votesFor;
 
       for (let i = 0; i < votesFor; i++) {
-        await store.recordVote('test', 'model-a');
+        await store.recordVote('test', 'model-a', globalScope);
       }
       for (let i = 0; i < votesAgainst; i++) {
-        await store.recordVote('test', 'model-b');
+        await store.recordVote('test', 'model-b', globalScope);
       }
 
-      const entry = await store.get('test');
+      const entry = await store.get('test', globalScope);
 
       // With exactly 80% agreement and enough votes, should be strong
       if (entry!.agreement_score >= 0.8 && entry!.total_votes >= minVotes) {
@@ -167,13 +169,13 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
     it('should handle exact boundary at 0.6 agreement', async () => {
       // 6 votes for A, 4 for B = exactly 60%
       for (let i = 0; i < 6; i++) {
-        await store.recordVote('test', 'model-a');
+        await store.recordVote('test', 'model-a', globalScope);
       }
       for (let i = 0; i < 4; i++) {
-        await store.recordVote('test', 'model-b');
+        await store.recordVote('test', 'model-b', globalScope);
       }
 
-      const entry = await store.get('test');
+      const entry = await store.get('test', globalScope);
 
       expect(entry!.agreement_score).toBe(0.6);
       // Should be moderate (>= 0.6 threshold)
@@ -183,13 +185,13 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
     it('should handle just below 0.6 agreement', async () => {
       // 59% agreement
       for (let i = 0; i < 59; i++) {
-        await store.recordVote('test', 'model-a');
+        await store.recordVote('test', 'model-a', globalScope);
       }
       for (let i = 0; i < 41; i++) {
-        await store.recordVote('test', 'model-b');
+        await store.recordVote('test', 'model-b', globalScope);
       }
 
-      const entry = await store.get('test');
+      const entry = await store.get('test', globalScope);
 
       expect(entry!.agreement_score).toBeCloseTo(0.59, 2);
       expect(entry!.confidence_level).toBe('low');
@@ -198,10 +200,10 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
     it('should handle transition from strong to moderate after decay', async () => {
       // Build strong confidence
       for (let i = 0; i < 10; i++) {
-        await store.recordVote('test', 'model-a');
+        await store.recordVote('test', 'model-a', globalScope);
       }
 
-      let entry = await store.get('test');
+      let entry = await store.get('test', globalScope);
       expect(entry!.confidence_level).toBe('strong');
 
       // Decay should reduce vote count below minimum for strong
@@ -209,7 +211,7 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
 
       while (entry!.total_votes >= minVotes) {
         await store.applyDecay();
-        entry = (await store.get('test'))!;
+        entry = (await store.get('test', globalScope))!;
       }
 
       // Should now be moderate (agreement still high but not enough votes)
@@ -220,11 +222,11 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
 
   describe('Model Vote Distribution Edge Cases', () => {
     it('should handle three-way tie', async () => {
-      await store.recordVote('test', 'model-a');
-      await store.recordVote('test', 'model-b');
-      await store.recordVote('test', 'model-c');
+      await store.recordVote('test', 'model-a', globalScope);
+      await store.recordVote('test', 'model-b', globalScope);
+      await store.recordVote('test', 'model-c', globalScope);
 
-      const entry = await store.get('test');
+      const entry = await store.get('test', globalScope);
 
       expect(entry!.agreement_score).toBeCloseTo(0.333, 2); // 1/3
       expect(entry!.confidence_level).toBe('low');
@@ -232,10 +234,10 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
 
     it('should handle many models with one vote each', async () => {
       for (let i = 0; i < 20; i++) {
-        await store.recordVote('test', `model-${i}`);
+        await store.recordVote('test', `model-${i}`, globalScope);
       }
 
-      const entry = await store.get('test');
+      const entry = await store.get('test', globalScope);
 
       expect(entry!.agreement_score).toBeCloseTo(0.05, 2); // 1/20
       expect(entry!.confidence_level).toBe('low');
@@ -244,10 +246,10 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
 
     it('should handle extreme agreement (100%)', async () => {
       for (let i = 0; i < 100; i++) {
-        await store.recordVote('test', 'model-a');
+        await store.recordVote('test', 'model-a', globalScope);
       }
 
-      const entry = await store.get('test');
+      const entry = await store.get('test', globalScope);
 
       expect(entry!.agreement_score).toBe(1);
       expect(entry!.confidence_level).toBe('strong');
@@ -255,11 +257,11 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
 
     it('should handle complete disagreement (50-50)', async () => {
       for (let i = 0; i < 50; i++) {
-        await store.recordVote('test', 'model-a');
-        await store.recordVote('test', 'model-b');
+        await store.recordVote('test', 'model-a', globalScope);
+        await store.recordVote('test', 'model-b', globalScope);
       }
 
-      const entry = await store.get('test');
+      const entry = await store.get('test', globalScope);
 
       expect(entry!.agreement_score).toBe(0.5);
       expect(entry!.confidence_level).toBe('low');
@@ -268,9 +270,9 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
 
   describe('Consensus Model Selection Edge Cases', () => {
     it('should return null when confidence is low even with votes', async () => {
-      await store.recordVote('test', 'model-a');
+      await store.recordVote('test', 'model-a', globalScope);
 
-      const consensus = await store.getConsensusModel('test');
+      const consensus = await store.getConsensusModel('test', globalScope);
 
       expect(consensus).toBeNull(); // Low confidence
     });
@@ -278,11 +280,11 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
     it('should handle tie-breaking (first alphabetically or highest in iteration order)', async () => {
       // Create exact tie with moderate confidence
       for (let i = 0; i < 5; i++) {
-        await store.recordVote('test', 'model-a');
-        await store.recordVote('test', 'model-b');
+        await store.recordVote('test', 'model-a', globalScope);
+        await store.recordVote('test', 'model-b', globalScope);
       }
 
-      const consensus = await store.getConsensusModel('test');
+      const consensus = await store.getConsensusModel('test', globalScope);
 
       // With 50-50 split at moderate confidence, should return one consistently
       expect(consensus).toBeNull(); // Actually null because 0.5 < 0.6
@@ -291,24 +293,24 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
     it('should handle consensus model selection after decay', async () => {
       // Strong initial consensus
       for (let i = 0; i < 8; i++) {
-        await store.recordVote('test', 'model-a');
+        await store.recordVote('test', 'model-a', globalScope);
       }
       for (let i = 0; i < 2; i++) {
-        await store.recordVote('test', 'model-b');
+        await store.recordVote('test', 'model-b', globalScope);
       }
 
-      const beforeDecay = await store.getConsensusModel('test');
+      const beforeDecay = await store.getConsensusModel('test', globalScope);
       expect(beforeDecay).toBe('model-a');
 
       await store.applyDecay();
 
-      const afterDecay = await store.getConsensusModel('test');
+      const afterDecay = await store.getConsensusModel('test', globalScope);
       // Proportions stay same, so consensus should remain
       expect(afterDecay).toBe('model-a');
     });
 
     it('should return null for non-existent cluster', async () => {
-      const consensus = await store.getConsensusModel('does-not-exist');
+      const consensus = await store.getConsensusModel('does-not-exist', globalScope);
       expect(consensus).toBeNull();
     });
   });
@@ -325,7 +327,7 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
     });
 
     it('should calculate average agreement correctly with one entry', async () => {
-      await store.recordVote('test', 'model-a');
+      await store.recordVote('test', 'model-a', globalScope);
 
       const stats = await store.getStats();
 
@@ -336,7 +338,7 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
     it('should handle all entries at same confidence level', async () => {
       // Create 5 low confidence entries
       for (let i = 0; i < 5; i++) {
-        await store.recordVote(`cluster-${i}`, 'model-a');
+        await store.recordVote(`cluster-${i}`, 'model-a', globalScope);
       }
 
       const stats = await store.getStats();
@@ -349,28 +351,28 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
 
   describe('Decay Factor Edge Cases', () => {
     it('should never decay below minimum threshold', async () => {
-      await store.recordVote('test', 'model-a');
+      await store.recordVote('test', 'model-a', globalScope);
 
       // Apply extreme decay
       for (let i = 0; i < 1000; i++) {
         await store.applyDecay();
       }
 
-      const entry = await store.get('test');
+      const entry = await store.get('test', globalScope);
 
       // Should enforce minimum decay_factor
       expect(entry!.decay_factor).toBeGreaterThanOrEqual(0.01);
     });
 
     it('should maintain decay_factor as multiplicative', async () => {
-      await store.recordVote('test', 'model-a');
+      await store.recordVote('test', 'model-a', globalScope);
 
-      const initial = await store.get('test');
+      const initial = await store.get('test', globalScope);
       const initialFactor = initial!.decay_factor;
 
       await store.applyDecay();
 
-      const after = await store.get('test');
+      const after = await store.get('test', globalScope);
       const decayRate = parseFloat(process.env.KNOWLEDGE_DECAY_RATE ?? '0.05');
 
       // decay_factor should be multiplied by (1 - decay_rate)
@@ -380,9 +382,9 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
 
   describe('Special Intent Cluster Names', () => {
     it('should handle empty string cluster name', async () => {
-      await store.recordVote('', 'model-a');
+      await store.recordVote('', 'model-a', globalScope);
 
-      const entry = await store.get('');
+      const entry = await store.get('', globalScope);
       expect(entry).not.toBeNull();
       expect(entry!.intent_cluster).toBe('');
     });
@@ -390,9 +392,9 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
     it('should handle very long cluster names', async () => {
       const longName = 'a'.repeat(10000);
 
-      await store.recordVote(longName, 'model-a');
+      await store.recordVote(longName, 'model-a', globalScope);
 
-      const entry = await store.get(longName);
+      const entry = await store.get(longName, globalScope);
       expect(entry).not.toBeNull();
       expect(entry!.intent_cluster).toBe(longName);
     });
@@ -400,18 +402,18 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
     it('should handle cluster names with special characters', async () => {
       const special = 'cluster-with-!@#$%^&*()-special';
 
-      await store.recordVote(special, 'model-a');
+      await store.recordVote(special, 'model-a', globalScope);
 
-      const entry = await store.get(special);
+      const entry = await store.get(special, globalScope);
       expect(entry).not.toBeNull();
     });
 
     it('should handle unicode cluster names', async () => {
       const unicode = '编程-意图-🎯';
 
-      await store.recordVote(unicode, 'model-a');
+      await store.recordVote(unicode, 'model-a', globalScope);
 
-      const entry = await store.get(unicode);
+      const entry = await store.get(unicode, globalScope);
       expect(entry).not.toBeNull();
       expect(entry!.intent_cluster).toBe(unicode);
     });
@@ -419,18 +421,18 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
 
   describe('Clear Operation', () => {
     it('should remove all entries', async () => {
-      await store.recordVote('cluster1', 'model-a');
-      await store.recordVote('cluster2', 'model-b');
-      await store.recordVote('cluster3', 'model-c');
+      await store.recordVote('cluster1', 'model-a', globalScope);
+      await store.recordVote('cluster2', 'model-b', globalScope);
+      await store.recordVote('cluster3', 'model-c', globalScope);
 
       await store.clear();
 
       const stats = await store.getStats();
       expect(stats.total_entries).toBe(0);
 
-      expect(await store.get('cluster1')).toBeNull();
-      expect(await store.get('cluster2')).toBeNull();
-      expect(await store.get('cluster3')).toBeNull();
+      expect(await store.get('cluster1', globalScope)).toBeNull();
+      expect(await store.get('cluster2', globalScope)).toBeNull();
+      expect(await store.get('cluster3', globalScope)).toBeNull();
     });
 
     it('should handle clear on empty store', async () => {
@@ -441,11 +443,11 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
     });
 
     it('should allow new votes after clear', async () => {
-      await store.recordVote('test', 'model-a');
+      await store.recordVote('test', 'model-a', globalScope);
       await store.clear();
-      await store.recordVote('test', 'model-b');
+      await store.recordVote('test', 'model-b', globalScope);
 
-      const entry = await store.get('test');
+      const entry = await store.get('test', globalScope);
       expect(entry).not.toBeNull();
       expect(entry!.model_votes['model-b']).toBe(1);
       expect(entry!.model_votes['model-a']).toBeUndefined();

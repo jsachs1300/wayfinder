@@ -4,11 +4,12 @@ import { InMemoryKnowledgeStore } from '../src/knowledge/store';
 import { HeuristicIntentClassifier } from '../src/intent/classifier';
 import { DefaultPolicyEngine } from '../src/policy/engine';
 import { DefaultModelRegistry } from '../src/models/registry';
-import { TokenConfig, PolicyRule } from '../src/types';
+import { TokenConfig, PolicyRule, KnowledgeScopeContext } from '../src/types';
 
 describe('RoutingEngine', () => {
   let routingEngine: DefaultRoutingEngine;
   let knowledgeStore: InMemoryKnowledgeStore;
+  const globalScope: KnowledgeScopeContext = { scope: 'global' };
   let intentClassifier: HeuristicIntentClassifier;
   let policyEngine: DefaultPolicyEngine;
   let modelRegistry: DefaultModelRegistry;
@@ -62,7 +63,7 @@ describe('RoutingEngine', () => {
     it('should use knowledge consensus when confidence is high', async () => {
       // Build up strong consensus for 'coding' intent
       for (let i = 0; i < 10; i++) {
-        await knowledgeStore.recordVote('coding', 'gpt-4-turbo');
+        await knowledgeStore.recordVote('coding', 'gpt-4-turbo', globalScope);
       }
 
       const config = createTokenConfig();
@@ -78,7 +79,7 @@ describe('RoutingEngine', () => {
 
     it('should use trusted anchor when knowledge confidence is low', async () => {
       // Only record a few votes (low confidence)
-      await knowledgeStore.recordVote('coding', 'gpt-4-turbo');
+      await knowledgeStore.recordVote('coding', 'gpt-4-turbo', globalScope);
 
       const config = createTokenConfig({
         trusted_anchor_model: 'claude-3-5-sonnet',
@@ -124,7 +125,7 @@ describe('RoutingEngine', () => {
     it('should respect policy even when knowledge suggests different model', async () => {
       // Build consensus for gpt-4-turbo
       for (let i = 0; i < 10; i++) {
-        await knowledgeStore.recordVote('coding', 'gpt-4-turbo');
+        await knowledgeStore.recordVote('coding', 'gpt-4-turbo', globalScope);
       }
 
       // But policy denies gpt-4-turbo
@@ -187,10 +188,10 @@ describe('RoutingEngine', () => {
     it('should include agreement score when knowledge is used', async () => {
       // Build moderate consensus
       for (let i = 0; i < 6; i++) {
-        await knowledgeStore.recordVote('coding', 'gpt-4-turbo');
+        await knowledgeStore.recordVote('coding', 'gpt-4-turbo', globalScope);
       }
       for (let i = 0; i < 2; i++) {
-        await knowledgeStore.recordVote('coding', 'claude-3-5-sonnet');
+        await knowledgeStore.recordVote('coding', 'claude-3-5-sonnet', globalScope);
       }
 
       const config = createTokenConfig();

@@ -40,8 +40,21 @@ export function createFeedbackRoutes(feedbackHandler: FeedbackHandler): Router {
         return;
       }
 
+      // Token config is set by auth middleware
+      if (!req.tokenConfig) {
+        res.status(401).json({
+          error: 'Unauthorized',
+          message: 'Token config not found',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
       const feedbackRequest: FeedbackRequest = parsed.data;
-      const response = await feedbackHandler.processFeedback(feedbackRequest);
+      const response = await feedbackHandler.processFeedback(
+        feedbackRequest,
+        req.tokenConfig
+      );
 
       res.json(response);
     } catch (error) {

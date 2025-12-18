@@ -1,4 +1,10 @@
-import { FeedbackRequest, FeedbackResponse, IntentLabel } from '../types';
+import {
+  FeedbackRequest,
+  FeedbackResponse,
+  IntentLabel,
+  TokenConfig,
+  KnowledgeScopeContext,
+} from '../types';
 import { KnowledgeStore } from '../knowledge';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -6,7 +12,10 @@ import { v4 as uuidv4 } from 'uuid';
  * Feedback handler interface
  */
 export interface FeedbackHandler {
-  processFeedback(request: FeedbackRequest): Promise<FeedbackResponse>;
+  processFeedback(
+    request: FeedbackRequest,
+    tokenConfig: TokenConfig
+  ): Promise<FeedbackResponse>;
 }
 
 /**
@@ -24,21 +33,40 @@ export class DefaultFeedbackHandler implements FeedbackHandler {
     this.knowledgeStore = knowledgeStore;
   }
 
-  async processFeedback(request: FeedbackRequest): Promise<FeedbackResponse> {
+  async processFeedback(
+    request: FeedbackRequest,
+    tokenConfig: TokenConfig
+  ): Promise<FeedbackResponse> {
     const feedbackId = uuidv4();
     let knowledgeUpdated = false;
+
+    // Build scope context from token config
+    const knowledgeScope = tokenConfig.knowledge_scope ?? 'global';
+    const scopeContext: KnowledgeScopeContext = {
+      scope: knowledgeScope,
+      token_id: knowledgeScope === 'token' ? tokenConfig.id : undefined,
+      // org_id would be added here in the future for org scope
+    };
 
     // Use intent label as the cluster key
     const intentCluster = request.intent_label;
 
-    // Process based on rating
+    // Process based on rating (scope-aware)
     if (request.rating === 'positive') {
       // Positive feedback reinforces the selected model
-      await this.knowledgeStore.recordVote(intentCluster, request.selected_model);
+      await this.knowledgeStore.recordVote(
+        intentCluster,
+        request.selected_model,
+        scopeContext
+      );
       knowledgeUpdated = true;
     } else if (request.rating === 'negative' && request.preferred_model) {
       // Negative feedback with preferred model: vote for preferred instead
-      await this.knowledgeStore.recordVote(intentCluster, request.preferred_model);
+      await this.knowledgeStore.recordVote(
+        intentCluster,
+        request.preferred_model,
+        scopeContext
+      );
       knowledgeUpdated = true;
     }
     // Neutral feedback is acknowledged but doesn't update knowledge
