@@ -72,6 +72,38 @@ The knowledge store is **not a traditional cache**:
 - Applies decay to reduce influence of old data
 - **Never deletes entries** - only reduces their weight
 
+### Knowledge Scope
+
+Wayfinder supports **configurable knowledge scope** for flexibility between shared learning and isolation:
+
+**Global Knowledge (Default)**
+- Shared learning across all tokens
+- Builds the primary knowledge flywheel
+- Best for most use cases
+- Default when `knowledge_scope` is not specified
+
+**Token-Scoped Knowledge (Enterprise)**
+- Isolated knowledge per token
+- Completely separate from global knowledge
+- Use for compliance, isolation, or custom learning
+- Does NOT merge with global knowledge
+- Set via `knowledge_scope: "token"` when creating a token
+
+**Future Scopes (Planned)**
+- **Org Scope**: Shared knowledge within an organization
+- **Hybrid Scope**: Combination of global + scoped knowledge
+
+**Key Design Decisions:**
+- Global scope is the default and recommended for most users
+- Token-scoped knowledge is opt-in for enterprise use cases
+- Scopes are completely isolated—no cross-scope leakage
+- Policy enforcement always takes precedence over knowledge scope
+- Knowledge remains long-lived with decay; it is not a cache
+
+**Tradeoffs:**
+- **Global**: Maximum shared learning, network effects, best consensus
+- **Token-scoped**: Isolation, compliance, custom tuning, but slower learning
+
 ### Confidence Levels
 
 - **Strong** (≥0.8 agreement + minimum votes): High confidence in consensus
@@ -220,8 +252,16 @@ DELETE /admin/tokens/:id
 #### Admin: Knowledge Store
 
 ```http
-# Get stats
+# Get stats (all scopes)
 GET /admin/knowledge/stats
+X-Admin-Api-Key: your-admin-key
+
+# Get stats for global scope only
+GET /admin/knowledge/stats?scope=global
+X-Admin-Api-Key: your-admin-key
+
+# Get stats for specific token scope
+GET /admin/knowledge/stats?scope=token&token_id=token_abc123
 X-Admin-Api-Key: your-admin-key
 ```
 
@@ -234,13 +274,27 @@ Response:
     "moderate": 18,
     "low": 12
   },
-  "average_agreement_score": 0.72
+  "average_agreement_score": 0.72,
+  "entries_by_scope": {
+    "global": 30,
+    "token": 12,
+    "org": 0,
+    "hybrid": 0
+  }
 }
 ```
 
 ```http
-# Trigger decay
+# Trigger decay (all scopes)
 POST /admin/knowledge/decay
+X-Admin-Api-Key: your-admin-key
+
+# Trigger decay for global scope only
+POST /admin/knowledge/decay?scope=global
+X-Admin-Api-Key: your-admin-key
+
+# Trigger decay for specific token scope
+POST /admin/knowledge/decay?scope=token&token_id=token_abc123
 X-Admin-Api-Key: your-admin-key
 ```
 
@@ -249,6 +303,7 @@ Response:
 {
   "message": "Decay applied",
   "entries_affected": 42,
+  "scope": "global",
   "timestamp": "2025-12-17T10:30:00.123Z"
 }
 ```
@@ -475,6 +530,7 @@ curl -X DELETE http://localhost:3000/admin/tokens/token_abc123 \
 | `logging_level` | "normal" \| "verbose" | Token-specific log level |
 | `default_model` | string | Default when no other selection |
 | `environment` | "prod" \| "dev" | Token environment |
+| `knowledge_scope` | "global" \| "token" \| "org" \| "hybrid" | Knowledge isolation level (default: "global") |
 
 ### Policy Rule Types
 
@@ -749,6 +805,49 @@ curl -X POST http://localhost:3000/admin/tokens \
     "default_model": "gpt-4o-mini"
   }'
 ```
+
+### Example 5: Token-Scoped Knowledge (Enterprise)
+
+Create a token with isolated knowledge for compliance or custom learning:
+
+```bash
+# Create a token with token-scoped knowledge
+TOKEN_RESPONSE=$(curl -s -X POST http://localhost:3000/admin/tokens \
+  -H "X-Admin-Api-Key: your-admin-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "default_model": "gpt-4o",
+    "knowledge_scope": "token",
+    "trusted_anchor_model": "claude-3-5-sonnet"
+  }')
+
+TOKEN=$(echo $TOKEN_RESPONSE | jq -r '.token')
+TOKEN_ID=$(echo $TOKEN_RESPONSE | jq -r '.id')
+
+# This token will build its own isolated knowledge
+# Feedback submitted with this token only affects this token's knowledge
+
+# Submit feedback to build token-specific knowledge
+curl -X POST http://localhost:3000/route \
+  -H "X-Wayfinder-Token: $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Write a Python function"}' | \
+jq -r '.request_id' | \
+xargs -I {} curl -X POST http://localhost:3000/feedback \
+  -H "X-Wayfinder-Token: $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"request_id\": \"{}\", \"selected_model\": \"gpt-4o\", \"intent_label\": \"coding\", \"rating\": \"positive\"}"
+
+# Check knowledge stats for this specific token
+curl "http://localhost:3000/admin/knowledge/stats?scope=token&token_id=$TOKEN_ID" \
+  -H "X-Admin-Api-Key: your-admin-key"
+```
+
+**When to use token-scoped knowledge:**
+- Compliance requirements (data isolation)
+- Multi-tenant applications (per-customer learning)
+- Custom model preferences that shouldn't affect global knowledge
+- Testing new routing strategies without polluting global data
 
 ## Troubleshooting
 

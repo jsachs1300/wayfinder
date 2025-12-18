@@ -58,6 +58,7 @@ export class InMemoryTokenStore implements TokenStore {
       logging_level: request.logging_level ?? 'normal',
       default_model: request.default_model,
       environment: request.environment ?? 'dev',
+      knowledge_scope: request.knowledge_scope ?? 'global', // Default to global scope
       created_at: now,
       updated_at: now,
     };
@@ -161,6 +162,7 @@ export class RedisTokenStore implements TokenStore {
       logging_level: request.logging_level ?? 'normal',
       default_model: request.default_model,
       environment: request.environment ?? 'dev',
+      knowledge_scope: request.knowledge_scope ?? 'global', // Default to global scope
       created_at: now,
       updated_at: now,
     };

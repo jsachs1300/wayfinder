@@ -6,6 +6,7 @@ import {
   RoutingReason,
   IntentLabel,
   ConfidenceLevel,
+  KnowledgeScopeContext,
 } from '../types';
 import { IntentClassifier } from '../intent';
 import { PolicyEngine } from '../policy';
@@ -71,7 +72,16 @@ export class DefaultRoutingEngine implements RoutingEngine {
     const intentClassification = this.intentClassifier.classify(request.prompt);
     const intent = intentClassification.label;
 
-    // Step 2: Get available models and apply policy
+    // Step 2: Build scope context for knowledge operations
+    // Default to global scope if not specified
+    const knowledgeScope = tokenConfig.knowledge_scope ?? 'global';
+    const scopeContext: KnowledgeScopeContext = {
+      scope: knowledgeScope,
+      token_id: knowledgeScope === 'token' ? tokenConfig.id : undefined,
+      // org_id would be added here in the future for org scope
+    };
+
+    // Step 3: Get available models and apply policy
     const availableModels = this.modelRegistry
       .getAvailableModels()
       .map((m) => m.id);
@@ -82,7 +92,7 @@ export class DefaultRoutingEngine implements RoutingEngine {
       tokenConfig
     );
 
-    // Step 3: If policy forced a model, return it
+    // Step 4: If policy forced a model, return it (bypasses knowledge)
     if (policyResult.forced_model) {
       return this.createResponse(
         policyResult.forced_model,
@@ -99,14 +109,15 @@ export class DefaultRoutingEngine implements RoutingEngine {
       );
     }
 
-    // Step 4: Load knowledge for intent cluster
+    // Step 5: Load knowledge for intent cluster (scope-aware)
     const intentCluster = intent; // Using intent label as cluster key for now
-    const knowledge = await this.knowledgeStore.get(intentCluster);
+    const knowledge = await this.knowledgeStore.get(intentCluster, scopeContext);
 
-    // Step 5: Check for high confidence knowledge consensus
+    // Step 6: Check for high confidence knowledge consensus
     if (knowledge && knowledge.confidence_level !== 'low') {
       const consensusModel = await this.knowledgeStore.getConsensusModel(
-        intentCluster
+        intentCluster,
+        scopeContext
       );
 
       if (consensusModel && policyResult.eligible_models.includes(consensusModel)) {
@@ -126,7 +137,7 @@ export class DefaultRoutingEngine implements RoutingEngine {
       }
     }
 
-    // Step 6: Low confidence or no knowledge - use trusted anchor
+    // Step 7: Low confidence or no knowledge - use trusted anchor
     if (tokenConfig.trusted_anchor_model) {
       const anchor = tokenConfig.trusted_anchor_model;
       if (
@@ -149,7 +160,7 @@ export class DefaultRoutingEngine implements RoutingEngine {
       }
     }
 
-    // Step 7: Use token's default model if specified
+    // Step 8: Use token's default model if specified
     if (tokenConfig.default_model) {
       const defaultModel = tokenConfig.default_model;
       if (
@@ -172,7 +183,7 @@ export class DefaultRoutingEngine implements RoutingEngine {
       }
     }
 
-    // Step 8: Final fallback - system default
+    // Step 9: Final fallback - system default
     const systemDefault = this.modelRegistry.getDefaultModel();
     const finalModel = policyResult.eligible_models.includes(systemDefault)
       ? systemDefault

@@ -1,4 +1,9 @@
-import { OpinionPollRequest, OpinionPollResult, IntentLabel } from '../types';
+import {
+  OpinionPollRequest,
+  OpinionPollResult,
+  IntentLabel,
+  KnowledgeScopeContext,
+} from '../types';
 import { KnowledgeStore } from '../knowledge';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -6,7 +11,10 @@ import { v4 as uuidv4 } from 'uuid';
  * Opinion polling interface
  */
 export interface OpinionPoller {
-  startPoll(request: OpinionPollRequest): Promise<string>;
+  startPoll(
+    request: OpinionPollRequest,
+    scopeContext?: KnowledgeScopeContext
+  ): Promise<string>;
   getPollResult(pollId: string): Promise<OpinionPollResult | null>;
   isComplete(pollId: string): Promise<boolean>;
 }
@@ -18,9 +26,13 @@ export interface OpinionPoller {
  * - Generates deterministic or seeded fake votes
  * - Updates knowledge store when poll completes
  * - Does NOT make real LLM calls
+ * - Supports scoped knowledge via scopeContext parameter
  */
 export class StubOpinionPoller implements OpinionPoller {
-  private polls: Map<string, OpinionPollResult> = new Map();
+  private polls: Map<
+    string,
+    { result: OpinionPollResult; scopeContext?: KnowledgeScopeContext }
+  > = new Map();
   private knowledgeStore: KnowledgeStore;
   private seed: number;
 
@@ -29,7 +41,10 @@ export class StubOpinionPoller implements OpinionPoller {
     this.seed = seed ?? Date.now();
   }
 
-  async startPoll(request: OpinionPollRequest): Promise<string> {
+  async startPoll(
+    request: OpinionPollRequest,
+    scopeContext?: KnowledgeScopeContext
+  ): Promise<string> {
     const pollId = uuidv4();
 
     // Initialize poll with empty votes
@@ -44,7 +59,11 @@ export class StubOpinionPoller implements OpinionPoller {
       result.votes[model] = 0;
     }
 
-    this.polls.set(pollId, result);
+    // Store poll result with scope context
+    this.polls.set(pollId, {
+      result,
+      scopeContext: scopeContext ?? { scope: 'global' }, // Default to global
+    });
 
     // Simulate async polling (complete after a short delay)
     this.simulatePollCompletion(pollId, request);
@@ -53,16 +72,18 @@ export class StubOpinionPoller implements OpinionPoller {
   }
 
   async getPollResult(pollId: string): Promise<OpinionPollResult | null> {
-    return this.polls.get(pollId) ?? null;
+    const entry = this.polls.get(pollId);
+    return entry?.result ?? null;
   }
 
   async isComplete(pollId: string): Promise<boolean> {
-    const poll = this.polls.get(pollId);
-    return poll?.completed ?? false;
+    const entry = this.polls.get(pollId);
+    return entry?.result.completed ?? false;
   }
 
   /**
    * Simulate poll completion with deterministic fake votes
+   * Writes to knowledge store using the provided scope context
    */
   private simulatePollCompletion(
     pollId: string,
@@ -70,8 +91,10 @@ export class StubOpinionPoller implements OpinionPoller {
   ): void {
     // Use setImmediate for non-blocking async behavior
     setImmediate(async () => {
-      const poll = this.polls.get(pollId);
-      if (!poll) return;
+      const entry = this.polls.get(pollId);
+      if (!entry) return;
+
+      const { result, scopeContext } = entry;
 
       // Generate deterministic votes based on seed and intent
       const votes: Record<string, number> = {};
@@ -93,15 +116,19 @@ export class StubOpinionPoller implements OpinionPoller {
       }
 
       // Update poll result
-      poll.votes = votes;
-      poll.consensus_model = consensusModel;
-      poll.completed = true;
+      result.votes = votes;
+      result.consensus_model = consensusModel;
+      result.completed = true;
 
-      this.polls.set(pollId, poll);
+      this.polls.set(pollId, { result, scopeContext });
 
-      // Update knowledge store with consensus vote
-      if (consensusModel) {
-        await this.knowledgeStore.recordVote(request.intent, consensusModel);
+      // Update knowledge store with consensus vote (scope-aware)
+      if (consensusModel && scopeContext) {
+        await this.knowledgeStore.recordVote(
+          request.intent,
+          consensusModel,
+          scopeContext
+        );
       }
     });
   }

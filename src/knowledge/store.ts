@@ -1,19 +1,35 @@
-import { KnowledgeEntry, ConfidenceLevel, KnowledgeStoreStats } from '../types';
+import {
+  KnowledgeEntry,
+  ConfidenceLevel,
+  KnowledgeStoreStats,
+  KnowledgeScopeContext,
+  KnowledgeScope,
+} from '../types';
 import Redis from 'ioredis';
+import { createLogger } from '../logging';
 
 const KNOWLEDGE_PREFIX = 'wayfinder:knowledge:';
 const MIN_VOTES_FOR_STRONG = parseInt(process.env.MIN_VOTES_FOR_STRONG_CONFIDENCE ?? '5', 10);
 const DECAY_RATE = parseFloat(process.env.KNOWLEDGE_DECAY_RATE ?? '0.05');
 
+const logger = createLogger(process.env.LOG_LEVEL);
+
 /**
- * Knowledge store interface
+ * Knowledge store interface - scope-aware
  */
 export interface KnowledgeStore {
-  get(intentCluster: string): Promise<KnowledgeEntry | null>;
-  recordVote(intentCluster: string, model: string): Promise<KnowledgeEntry>;
-  applyDecay(): Promise<number>;
-  getStats(): Promise<KnowledgeStoreStats>;
-  getConsensusModel(intentCluster: string): Promise<string | null>;
+  get(intentCluster: string, scopeContext: KnowledgeScopeContext): Promise<KnowledgeEntry | null>;
+  recordVote(
+    intentCluster: string,
+    model: string,
+    scopeContext: KnowledgeScopeContext
+  ): Promise<KnowledgeEntry>;
+  applyDecay(scopeContext?: KnowledgeScopeContext): Promise<number>;
+  getStats(scopeContext?: KnowledgeScopeContext): Promise<KnowledgeStoreStats>;
+  getConsensusModel(
+    intentCluster: string,
+    scopeContext: KnowledgeScopeContext
+  ): Promise<string | null>;
   clear(): Promise<void>;
 }
 
@@ -80,17 +96,106 @@ function applyDecayToEntry(entry: KnowledgeEntry, decayRate: number): KnowledgeE
 }
 
 /**
+ * Build scoped key for knowledge storage
+ * Examples:
+ *   global: wayfinder:knowledge:global:coding
+ *   token: wayfinder:knowledge:token:token_abc123:coding
+ *   org: wayfinder:knowledge:org:org_xyz789:coding (future)
+ *   hybrid: not stored directly, composed at read time (future)
+ */
+function buildScopedKey(intentCluster: string, scopeContext: KnowledgeScopeContext): string {
+  validateScopeContext(scopeContext);
+
+  switch (scopeContext.scope) {
+    case 'global':
+      return `${KNOWLEDGE_PREFIX}global:${intentCluster}`;
+    case 'token':
+      if (!scopeContext.token_id) {
+        throw new Error('token_id is required for token scope');
+      }
+      return `${KNOWLEDGE_PREFIX}token:${scopeContext.token_id}:${intentCluster}`;
+    case 'org':
+      // Future: org-level scoped knowledge
+      throw new Error('Org-scoped knowledge is not yet implemented');
+    case 'hybrid':
+      // Future: hybrid scope will merge global + scoped at read time
+      throw new Error('Hybrid knowledge scope is not yet implemented');
+    default:
+      throw new Error(`Unknown knowledge scope: ${scopeContext.scope}`);
+  }
+}
+
+/**
+ * Validate scope context has required fields
+ */
+function validateScopeContext(scopeContext: KnowledgeScopeContext): void {
+  if (!scopeContext.scope) {
+    throw new Error('Scope is required in KnowledgeScopeContext');
+  }
+
+  if (scopeContext.scope === 'token' && !scopeContext.token_id) {
+    throw new Error('token_id is required for token scope');
+  }
+
+  if (scopeContext.scope === 'org' && !scopeContext.org_id) {
+    throw new Error('org_id is required for org scope (not yet implemented)');
+  }
+}
+
+/**
+ * Build key pattern for scope-aware queries
+ * Used for applyDecay and getStats when filtering by scope
+ */
+function buildScopePattern(scopeContext?: KnowledgeScopeContext): string {
+  if (!scopeContext) {
+    // No scope context = all scopes
+    return `${KNOWLEDGE_PREFIX}*`;
+  }
+
+  validateScopeContext(scopeContext);
+
+  switch (scopeContext.scope) {
+    case 'global':
+      return `${KNOWLEDGE_PREFIX}global:*`;
+    case 'token':
+      if (!scopeContext.token_id) {
+        throw new Error('token_id is required for token scope');
+      }
+      return `${KNOWLEDGE_PREFIX}token:${scopeContext.token_id}:*`;
+    case 'org':
+      throw new Error('Org-scoped knowledge is not yet implemented');
+    case 'hybrid':
+      throw new Error('Hybrid knowledge scope is not yet implemented');
+    default:
+      throw new Error(`Unknown knowledge scope: ${scopeContext.scope}`);
+  }
+}
+
+/**
  * In-memory knowledge store for development and fallback
+ * Scope-aware: keys are now scoped (e.g., "global:coding" or "token:token_abc:coding")
  */
 export class InMemoryKnowledgeStore implements KnowledgeStore {
   private entries: Map<string, KnowledgeEntry> = new Map();
 
-  async get(intentCluster: string): Promise<KnowledgeEntry | null> {
-    return this.entries.get(intentCluster) ?? null;
+  async get(
+    intentCluster: string,
+    scopeContext: KnowledgeScopeContext
+  ): Promise<KnowledgeEntry | null> {
+    const key = buildScopedKey(intentCluster, scopeContext);
+    this.logScopeAccess('get', scopeContext, intentCluster);
+    return this.entries.get(key) ?? null;
   }
 
-  async recordVote(intentCluster: string, model: string): Promise<KnowledgeEntry> {
-    const existing = this.entries.get(intentCluster);
+  async recordVote(
+    intentCluster: string,
+    model: string,
+    scopeContext: KnowledgeScopeContext
+  ): Promise<KnowledgeEntry> {
+    const key = buildScopedKey(intentCluster, scopeContext);
+    this.logScopeAccess('recordVote', scopeContext, intentCluster);
+
+    const existing = this.entries.get(key);
     const now = new Date().toISOString();
 
     if (!existing) {
@@ -104,7 +209,7 @@ export class InMemoryKnowledgeStore implements KnowledgeStore {
         last_updated: now,
         decay_factor: 1,
       };
-      this.entries.set(intentCluster, entry);
+      this.entries.set(key, entry);
       return entry;
     }
 
@@ -124,14 +229,20 @@ export class InMemoryKnowledgeStore implements KnowledgeStore {
       last_updated: now,
     };
 
-    this.entries.set(intentCluster, updated);
+    this.entries.set(key, updated);
     return updated;
   }
 
-  async applyDecay(): Promise<number> {
+  async applyDecay(scopeContext?: KnowledgeScopeContext): Promise<number> {
     let decayedCount = 0;
+    const pattern = scopeContext ? buildScopePattern(scopeContext) : null;
 
     for (const [key, entry] of this.entries) {
+      // If scope context provided, only decay matching keys
+      if (pattern && !this.matchesPattern(key, pattern)) {
+        continue;
+      }
+
       const decayed = applyDecayToEntry(entry, DECAY_RATE);
       this.entries.set(key, decayed);
       decayedCount++;
@@ -140,30 +251,53 @@ export class InMemoryKnowledgeStore implements KnowledgeStore {
     return decayedCount;
   }
 
-  async getStats(): Promise<KnowledgeStoreStats> {
-    const entries = Array.from(this.entries.values());
+  async getStats(scopeContext?: KnowledgeScopeContext): Promise<KnowledgeStoreStats> {
+    const pattern = scopeContext ? buildScopePattern(scopeContext) : null;
     const entriesByConfidence: Record<ConfidenceLevel, number> = {
       strong: 0,
       moderate: 0,
       low: 0,
     };
+    const entriesByScope: Record<KnowledgeScope, number> = {
+      global: 0,
+      token: 0,
+      org: 0,
+      hybrid: 0,
+    };
 
     let totalAgreement = 0;
+    let entryCount = 0;
 
-    for (const entry of entries) {
+    for (const [key, entry] of this.entries) {
+      // If scope context provided, only include matching keys
+      if (pattern && !this.matchesPattern(key, pattern)) {
+        continue;
+      }
+
       entriesByConfidence[entry.confidence_level]++;
       totalAgreement += entry.agreement_score;
+      entryCount++;
+
+      // Track scope distribution
+      const scope = this.extractScopeFromKey(key);
+      if (scope) {
+        entriesByScope[scope]++;
+      }
     }
 
     return {
-      total_entries: entries.length,
+      total_entries: entryCount,
       entries_by_confidence: entriesByConfidence,
-      average_agreement_score: entries.length > 0 ? totalAgreement / entries.length : 0,
+      average_agreement_score: entryCount > 0 ? totalAgreement / entryCount : 0,
+      entries_by_scope: entriesByScope,
     };
   }
 
-  async getConsensusModel(intentCluster: string): Promise<string | null> {
-    const entry = await this.get(intentCluster);
+  async getConsensusModel(
+    intentCluster: string,
+    scopeContext: KnowledgeScopeContext
+  ): Promise<string | null> {
+    const entry = await this.get(intentCluster, scopeContext);
     if (!entry || entry.confidence_level === 'low') {
       return null;
     }
@@ -185,10 +319,60 @@ export class InMemoryKnowledgeStore implements KnowledgeStore {
   async clear(): Promise<void> {
     this.entries.clear();
   }
+
+  /**
+   * Simple pattern matching for in-memory keys
+   * Converts Redis-style pattern to regex
+   */
+  private matchesPattern(key: string, pattern: string): boolean {
+    // Convert glob pattern to regex (simple version for * wildcard)
+    const regexPattern = pattern.replace(/\*/g, '.*');
+    const regex = new RegExp(`^${regexPattern}$`);
+    return regex.test(key);
+  }
+
+  /**
+   * Extract scope type from key for stats tracking
+   */
+  private extractScopeFromKey(key: string): KnowledgeScope | null {
+    // Key format: wayfinder:knowledge:{scope}:...
+    const parts = key.split(':');
+    if (parts.length >= 3) {
+      const scopePart = parts[2];
+      if (
+        scopePart === 'global' ||
+        scopePart === 'token' ||
+        scopePart === 'org' ||
+        scopePart === 'hybrid'
+      ) {
+        return scopePart;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Log non-global scope access for observability
+   */
+  private logScopeAccess(
+    operation: string,
+    scopeContext: KnowledgeScopeContext,
+    intentCluster: string
+  ): void {
+    if (scopeContext.scope !== 'global') {
+      logger.info(`Knowledge ${operation} using non-global scope`, {
+        scope: scopeContext.scope,
+        token_id: scopeContext.token_id,
+        org_id: scopeContext.org_id,
+        intent_cluster: intentCluster,
+      });
+    }
+  }
 }
 
 /**
  * Redis-backed knowledge store for production
+ * Scope-aware: uses scoped keys to isolate knowledge by scope
  */
 export class RedisKnowledgeStore implements KnowledgeStore {
   private redis: Redis;
@@ -197,14 +381,27 @@ export class RedisKnowledgeStore implements KnowledgeStore {
     this.redis = redis;
   }
 
-  async get(intentCluster: string): Promise<KnowledgeEntry | null> {
-    const data = await this.redis.get(KNOWLEDGE_PREFIX + intentCluster);
+  async get(
+    intentCluster: string,
+    scopeContext: KnowledgeScopeContext
+  ): Promise<KnowledgeEntry | null> {
+    const key = buildScopedKey(intentCluster, scopeContext);
+    this.logScopeAccess('get', scopeContext, intentCluster);
+
+    const data = await this.redis.get(key);
     if (!data) return null;
     return JSON.parse(data) as KnowledgeEntry;
   }
 
-  async recordVote(intentCluster: string, model: string): Promise<KnowledgeEntry> {
-    const existing = await this.get(intentCluster);
+  async recordVote(
+    intentCluster: string,
+    model: string,
+    scopeContext: KnowledgeScopeContext
+  ): Promise<KnowledgeEntry> {
+    const key = buildScopedKey(intentCluster, scopeContext);
+    this.logScopeAccess('recordVote', scopeContext, intentCluster);
+
+    const existing = await this.get(intentCluster, scopeContext);
     const now = new Date().toISOString();
 
     if (!existing) {
@@ -217,7 +414,7 @@ export class RedisKnowledgeStore implements KnowledgeStore {
         last_updated: now,
         decay_factor: 1,
       };
-      await this.redis.set(KNOWLEDGE_PREFIX + intentCluster, JSON.stringify(entry));
+      await this.redis.set(key, JSON.stringify(entry));
       return entry;
     }
 
@@ -236,12 +433,13 @@ export class RedisKnowledgeStore implements KnowledgeStore {
       last_updated: now,
     };
 
-    await this.redis.set(KNOWLEDGE_PREFIX + intentCluster, JSON.stringify(updated));
+    await this.redis.set(key, JSON.stringify(updated));
     return updated;
   }
 
-  async applyDecay(): Promise<number> {
-    const keys = await this.redis.keys(KNOWLEDGE_PREFIX + '*');
+  async applyDecay(scopeContext?: KnowledgeScopeContext): Promise<number> {
+    const pattern = buildScopePattern(scopeContext);
+    const keys = await this.redis.keys(pattern);
     let decayedCount = 0;
 
     for (const key of keys) {
@@ -257,12 +455,19 @@ export class RedisKnowledgeStore implements KnowledgeStore {
     return decayedCount;
   }
 
-  async getStats(): Promise<KnowledgeStoreStats> {
-    const keys = await this.redis.keys(KNOWLEDGE_PREFIX + '*');
+  async getStats(scopeContext?: KnowledgeScopeContext): Promise<KnowledgeStoreStats> {
+    const pattern = buildScopePattern(scopeContext);
+    const keys = await this.redis.keys(pattern);
     const entriesByConfidence: Record<ConfidenceLevel, number> = {
       strong: 0,
       moderate: 0,
       low: 0,
+    };
+    const entriesByScope: Record<KnowledgeScope, number> = {
+      global: 0,
+      token: 0,
+      org: 0,
+      hybrid: 0,
     };
 
     let totalAgreement = 0;
@@ -275,6 +480,12 @@ export class RedisKnowledgeStore implements KnowledgeStore {
         entriesByConfidence[entry.confidence_level]++;
         totalAgreement += entry.agreement_score;
         entryCount++;
+
+        // Track scope distribution
+        const scope = this.extractScopeFromKey(key);
+        if (scope) {
+          entriesByScope[scope]++;
+        }
       }
     }
 
@@ -282,11 +493,15 @@ export class RedisKnowledgeStore implements KnowledgeStore {
       total_entries: entryCount,
       entries_by_confidence: entriesByConfidence,
       average_agreement_score: entryCount > 0 ? totalAgreement / entryCount : 0,
+      entries_by_scope: entriesByScope,
     };
   }
 
-  async getConsensusModel(intentCluster: string): Promise<string | null> {
-    const entry = await this.get(intentCluster);
+  async getConsensusModel(
+    intentCluster: string,
+    scopeContext: KnowledgeScopeContext
+  ): Promise<string | null> {
+    const entry = await this.get(intentCluster, scopeContext);
     if (!entry || entry.confidence_level === 'low') {
       return null;
     }
@@ -308,6 +523,44 @@ export class RedisKnowledgeStore implements KnowledgeStore {
     const keys = await this.redis.keys(KNOWLEDGE_PREFIX + '*');
     if (keys.length > 0) {
       await this.redis.del(...keys);
+    }
+  }
+
+  /**
+   * Extract scope type from key for stats tracking
+   */
+  private extractScopeFromKey(key: string): KnowledgeScope | null {
+    // Key format: wayfinder:knowledge:{scope}:...
+    const parts = key.split(':');
+    if (parts.length >= 3) {
+      const scopePart = parts[2];
+      if (
+        scopePart === 'global' ||
+        scopePart === 'token' ||
+        scopePart === 'org' ||
+        scopePart === 'hybrid'
+      ) {
+        return scopePart;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Log non-global scope access for observability
+   */
+  private logScopeAccess(
+    operation: string,
+    scopeContext: KnowledgeScopeContext,
+    intentCluster: string
+  ): void {
+    if (scopeContext.scope !== 'global') {
+      logger.info(`Knowledge ${operation} using non-global scope`, {
+        scope: scopeContext.scope,
+        token_id: scopeContext.token_id,
+        org_id: scopeContext.org_id,
+        intent_cluster: intentCluster,
+      });
     }
   }
 }

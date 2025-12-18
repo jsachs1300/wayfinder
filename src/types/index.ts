@@ -47,6 +47,13 @@ export interface PolicyAuditEntry {
   timestamp: string;
 }
 
+// Knowledge Scope
+// Global: shared learning across all tokens (default)
+// Token: isolated knowledge per token (enterprise use case)
+// Org: shared knowledge within organization (future - not yet implemented)
+// Hybrid: combination of global + scoped knowledge (future - not yet implemented)
+export type KnowledgeScope = 'global' | 'token' | 'org' | 'hybrid';
+
 // Token Configuration
 export type LoggingLevel = 'normal' | 'verbose';
 export type Environment = 'prod' | 'dev';
@@ -62,6 +69,7 @@ export interface TokenConfig {
   logging_level?: LoggingLevel;
   default_model?: string;
   environment?: Environment;
+  knowledge_scope?: KnowledgeScope; // Default: 'global'
   created_at: string;
   updated_at: string;
   rotated_at?: string;
@@ -76,6 +84,7 @@ export interface TokenCreateRequest {
   logging_level?: LoggingLevel;
   default_model?: string;
   environment?: Environment;
+  knowledge_scope?: KnowledgeScope;
 }
 
 export interface TokenCreateResponse {
@@ -93,6 +102,7 @@ export interface TokenUpdateRequest {
   logging_level?: LoggingLevel;
   default_model?: string;
   environment?: Environment;
+  knowledge_scope?: KnowledgeScope;
 }
 
 // Knowledge Store
@@ -112,6 +122,14 @@ export interface KnowledgeStoreStats {
   total_entries: number;
   entries_by_confidence: Record<ConfidenceLevel, number>;
   average_agreement_score: number;
+  entries_by_scope?: Record<KnowledgeScope, number>; // Optional breakdown by scope
+}
+
+// Scope context for knowledge operations
+export interface KnowledgeScopeContext {
+  scope: KnowledgeScope;
+  token_id?: string; // Required for 'token' scope
+  org_id?: string; // Required for 'org' scope (future)
 }
 
 // Routing

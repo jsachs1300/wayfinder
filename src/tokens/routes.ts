@@ -23,6 +23,7 @@ const TokenCreateSchema = z.object({
   logging_level: z.enum(['normal', 'verbose']).optional(),
   default_model: z.string().optional(),
   environment: z.enum(['prod', 'dev']).optional(),
+  knowledge_scope: z.enum(['global', 'token', 'org', 'hybrid']).optional(),
 });
 
 const TokenUpdateSchema = TokenCreateSchema.partial();

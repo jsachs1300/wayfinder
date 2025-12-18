@@ -113,32 +113,61 @@ export function createApp(deps?: Partial<AppDependencies>): {
   adminRouter.use(createAdminRoutes(tokenStore));
 
   // Knowledge stats endpoint (admin only)
-  adminRouter.get('/knowledge/stats', async (_req: Request, res: Response) => {
+  // Optional query params: ?scope=global|token&token_id=xxx
+  adminRouter.get('/knowledge/stats', async (req: Request, res: Response) => {
     try {
-      const stats = await knowledgeStore.getStats();
+      const scope = req.query.scope as string | undefined;
+      const tokenId = req.query.token_id as string | undefined;
+
+      let scopeContext: any = undefined;
+      if (scope) {
+        scopeContext = {
+          scope,
+          token_id: scope === 'token' ? tokenId : undefined,
+        };
+      }
+
+      const stats = await knowledgeStore.getStats(scopeContext);
       res.json(stats);
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({
         error: 'InternalError',
         message: 'Failed to get knowledge stats',
+        details: { error: errorMessage },
         timestamp: new Date().toISOString(),
       });
     }
   });
 
   // Trigger knowledge decay (admin only)
-  adminRouter.post('/knowledge/decay', async (_req: Request, res: Response) => {
+  // Optional query params: ?scope=global|token&token_id=xxx
+  adminRouter.post('/knowledge/decay', async (req: Request, res: Response) => {
     try {
-      const decayedCount = await knowledgeStore.applyDecay();
+      const scope = req.query.scope as string | undefined;
+      const tokenId = req.query.token_id as string | undefined;
+
+      let scopeContext: any = undefined;
+      if (scope) {
+        scopeContext = {
+          scope,
+          token_id: scope === 'token' ? tokenId : undefined,
+        };
+      }
+
+      const decayedCount = await knowledgeStore.applyDecay(scopeContext);
       res.json({
         message: 'Decay applied',
         entries_affected: decayedCount,
+        scope: scope ?? 'all',
         timestamp: new Date().toISOString(),
       });
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       res.status(500).json({
         error: 'InternalError',
         message: 'Failed to apply decay',
+        details: { error: errorMessage },
         timestamp: new Date().toISOString(),
       });
     }

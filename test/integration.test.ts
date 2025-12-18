@@ -221,7 +221,7 @@ describe('API Integration Tests', () => {
           rating: 'positive',
         });
 
-      const knowledge = await deps.knowledgeStore.get('coding');
+      const knowledge = await deps.knowledgeStore.get('coding', { scope: "global" });
       expect(knowledge).not.toBeNull();
       expect(knowledge!.model_votes['gpt-4-turbo']).toBeGreaterThan(0);
     });
@@ -242,8 +242,8 @@ describe('API Integration Tests', () => {
   describe('Knowledge Admin Endpoints', () => {
     it('should return knowledge stats', async () => {
       // Add some knowledge first
-      await deps.knowledgeStore.recordVote('coding', 'gpt-4-turbo');
-      await deps.knowledgeStore.recordVote('legal', 'claude-3-opus');
+      await deps.knowledgeStore.recordVote('coding', 'gpt-4-turbo', { scope: "global" });
+      await deps.knowledgeStore.recordVote('legal', 'claude-3-opus', { scope: "global" });
 
       const response = await request(app)
         .get('/admin/knowledge/stats')
@@ -255,7 +255,7 @@ describe('API Integration Tests', () => {
     });
 
     it('should trigger decay', async () => {
-      await deps.knowledgeStore.recordVote('coding', 'gpt-4-turbo');
+      await deps.knowledgeStore.recordVote('coding', 'gpt-4-turbo', { scope: "global" });
 
       const response = await request(app)
         .post('/admin/knowledge/decay')
