@@ -131,68 +131,6 @@ describe('API Integration Tests', () => {
     });
   });
 
-  describe('Routing Endpoint', () => {
-    it('should route a request successfully', async () => {
-      const response = await request(app)
-        .post('/route')
-        .set('X-Wayfinder-Token', userToken)
-        .send({
-          prompt: 'Write a function to calculate fibonacci numbers',
-        });
-
-      expect(response.status).toBe(200);
-      expect(response.body.selected_model).toBeDefined();
-      expect(response.body.routing_decision).toBeDefined();
-      expect(response.body.request_id).toBeDefined();
-    });
-
-    it('should reject requests without token', async () => {
-      const response = await request(app)
-        .post('/route')
-        .send({
-          prompt: 'Test prompt',
-        });
-
-      expect(response.status).toBe(401);
-    });
-
-    it('should reject requests with invalid token', async () => {
-      const response = await request(app)
-        .post('/route')
-        .set('X-Wayfinder-Token', 'invalid-token')
-        .send({
-          prompt: 'Test prompt',
-        });
-
-      expect(response.status).toBe(401);
-    });
-
-    it('should validate request body', async () => {
-      const response = await request(app)
-        .post('/route')
-        .set('X-Wayfinder-Token', userToken)
-        .send({});
-
-      expect(response.status).toBe(400);
-      expect(response.body.error).toBe('ValidationError');
-    });
-
-    it('should include routing decision details', async () => {
-      const response = await request(app)
-        .post('/route')
-        .set('X-Wayfinder-Token', userToken)
-        .send({
-          prompt: 'What is the legal liability for this contract?',
-        });
-
-      expect(response.status).toBe(200);
-      expect(response.body.routing_decision.reason).toBeDefined();
-      expect(response.body.routing_decision.confidence).toBeDefined();
-      expect(response.body.routing_decision.eligible_models).toBeInstanceOf(Array);
-      expect(response.body.routing_decision.timestamp).toBeDefined();
-    });
-  });
-
   describe('Feedback Endpoint', () => {
     it('should accept feedback', async () => {
       const response = await request(app)

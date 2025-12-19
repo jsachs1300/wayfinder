@@ -173,7 +173,7 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
 
       const entry = await store.get('test', globalScope);
 
-      expect(entry!.agreement_score).toBe(0.6);
+      expect(entry!.agreement_score).toBeCloseTo(0.6, 3);
       // Should be moderate (>= 0.6 threshold)
       expect(entry!.confidence_level).toBe('moderate');
     });

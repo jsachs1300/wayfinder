@@ -98,7 +98,7 @@ describe('KnowledgeStore', () => {
 
       const entry = await store.get('coding', globalScope);
 
-      expect(entry!.agreement_score).toBe(0.375); // 3/8
+      expect(entry!.agreement_score).toBeCloseTo(0.375, 3); // 3/8
       expect(entry!.confidence_level).toBe('low');
     });
 
