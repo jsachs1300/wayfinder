@@ -2,6 +2,10 @@ import { Router, Request, Response } from 'express';
 import { RoutingEngine } from './engine';
 import { RouteRequest } from '../types';
 import { z } from 'zod';
+import {
+  emitRoutingDecisionLog,
+  createRoutingDecisionLog,
+} from '../logging/routing-decision';
 
 const RouteRequestSchema = z.object({
   prompt: z.string().min(1, 'Prompt is required'),
@@ -47,7 +51,14 @@ export function createRoutingRoutes(routingEngine: RoutingEngine): Router {
         req.requestId
       );
 
-      res.json(response);
+      // Emit routing decision log
+      const decisionLog = createRoutingDecisionLog(response, req.tokenConfig);
+      emitRoutingDecisionLog(decisionLog);
+
+      // Strip internal context before sending response
+      const { _internal, ...publicResponse } = response;
+
+      res.json(publicResponse);
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';

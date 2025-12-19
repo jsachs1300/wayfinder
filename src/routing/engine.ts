@@ -7,6 +7,11 @@ import {
   IntentLabel,
   ConfidenceLevel,
   KnowledgeScopeContext,
+  FallbackChainEntry,
+  RoutingContextInternal,
+  IntentClassification,
+  PolicyEvaluationResult,
+  KnowledgeEntry,
 } from '../types';
 import { IntentClassifier } from '../intent';
 import { PolicyEngine } from '../policy';
@@ -67,6 +72,7 @@ export class DefaultRoutingEngine implements RoutingEngine {
   ): Promise<RouteResponse> {
     const reqId = requestId ?? uuidv4();
     const timestamp = new Date().toISOString();
+    const fallbackChain: FallbackChainEntry[] = [];
 
     // Step 1: Classify intent
     const intentClassification = this.intentClassifier.classify(request.prompt);
@@ -94,7 +100,13 @@ export class DefaultRoutingEngine implements RoutingEngine {
 
     // Step 4: If policy forced a model, return it (bypasses knowledge)
     if (policyResult.forced_model) {
-      return this.createResponse(
+      fallbackChain.push({
+        strategy: 'policy_forced',
+        model: policyResult.forced_model,
+        outcome: 'selected',
+      });
+
+      return this.createResponseWithInternal(
         policyResult.forced_model,
         {
           reason: 'policy_forced',
@@ -105,7 +117,14 @@ export class DefaultRoutingEngine implements RoutingEngine {
           knowledge_used: false,
           policy_forced: true,
         },
-        reqId
+        reqId,
+        {
+          intentClassification,
+          knowledge: null,
+          policyResult,
+          fallbackChain,
+          scopeContext,
+        }
       );
     }
 
@@ -121,7 +140,13 @@ export class DefaultRoutingEngine implements RoutingEngine {
       );
 
       if (consensusModel && policyResult.eligible_models.includes(consensusModel)) {
-        return this.createResponse(
+        fallbackChain.push({
+          strategy: 'consensus',
+          model: consensusModel,
+          outcome: 'selected',
+        });
+
+        return this.createResponseWithInternal(
           consensusModel,
           {
             reason: 'knowledge_consensus',
@@ -132,19 +157,55 @@ export class DefaultRoutingEngine implements RoutingEngine {
             knowledge_used: true,
             policy_forced: false,
           },
-          reqId
+          reqId,
+          {
+            intentClassification,
+            knowledge,
+            policyResult,
+            fallbackChain,
+            scopeContext,
+          }
         );
+      }
+
+      // Consensus model exists but not eligible
+      if (consensusModel) {
+        fallbackChain.push({
+          strategy: 'consensus',
+          model: consensusModel,
+          outcome: 'ineligible',
+          reason: 'not in eligible_models list',
+        });
+      }
+    } else if (knowledge) {
+      // Knowledge exists but low confidence
+      const consensusModel = await this.knowledgeStore.getConsensusModel(
+        intentCluster,
+        scopeContext
+      );
+      if (consensusModel) {
+        fallbackChain.push({
+          strategy: 'consensus',
+          model: consensusModel,
+          outcome: 'insufficient_confidence',
+        });
       }
     }
 
     // Step 7: Low confidence or no knowledge - use trusted anchor
     if (tokenConfig.trusted_anchor_model) {
       const anchor = tokenConfig.trusted_anchor_model;
-      if (
-        policyResult.eligible_models.includes(anchor) &&
-        this.modelRegistry.isValidModel(anchor)
-      ) {
-        return this.createResponse(
+      const isEligible = policyResult.eligible_models.includes(anchor);
+      const isValid = this.modelRegistry.isValidModel(anchor);
+
+      if (isEligible && isValid) {
+        fallbackChain.push({
+          strategy: 'trusted_anchor',
+          model: anchor,
+          outcome: 'selected',
+        });
+
+        return this.createResponseWithInternal(
           anchor,
           {
             reason: 'trusted_anchor_fallback',
@@ -155,19 +216,39 @@ export class DefaultRoutingEngine implements RoutingEngine {
             knowledge_used: false,
             policy_forced: false,
           },
-          reqId
+          reqId,
+          {
+            intentClassification,
+            knowledge,
+            policyResult,
+            fallbackChain,
+            scopeContext,
+          }
         );
+      } else {
+        fallbackChain.push({
+          strategy: 'trusted_anchor',
+          model: anchor,
+          outcome: isValid ? 'ineligible' : 'ineligible',
+          reason: isValid ? 'denied by policy' : 'model not in registry',
+        });
       }
     }
 
     // Step 8: Use token's default model if specified
     if (tokenConfig.default_model) {
       const defaultModel = tokenConfig.default_model;
-      if (
-        policyResult.eligible_models.includes(defaultModel) &&
-        this.modelRegistry.isValidModel(defaultModel)
-      ) {
-        return this.createResponse(
+      const isEligible = policyResult.eligible_models.includes(defaultModel);
+      const isValid = this.modelRegistry.isValidModel(defaultModel);
+
+      if (isEligible && isValid) {
+        fallbackChain.push({
+          strategy: 'default',
+          model: defaultModel,
+          outcome: 'selected',
+        });
+
+        return this.createResponseWithInternal(
           defaultModel,
           {
             reason: 'default_model_fallback',
@@ -178,8 +259,22 @@ export class DefaultRoutingEngine implements RoutingEngine {
             knowledge_used: false,
             policy_forced: false,
           },
-          reqId
+          reqId,
+          {
+            intentClassification,
+            knowledge,
+            policyResult,
+            fallbackChain,
+            scopeContext,
+          }
         );
+      } else {
+        fallbackChain.push({
+          strategy: 'default',
+          model: defaultModel,
+          outcome: isValid ? 'ineligible' : 'ineligible',
+          reason: isValid ? 'denied by policy' : 'model not in registry',
+        });
       }
     }
 
@@ -189,7 +284,13 @@ export class DefaultRoutingEngine implements RoutingEngine {
       ? systemDefault
       : policyResult.eligible_models[0] ?? systemDefault;
 
-    return this.createResponse(
+    fallbackChain.push({
+      strategy: 'system_default',
+      model: finalModel,
+      outcome: 'selected',
+    });
+
+    return this.createResponseWithInternal(
       finalModel,
       {
         reason: 'system_default',
@@ -200,19 +301,40 @@ export class DefaultRoutingEngine implements RoutingEngine {
         knowledge_used: false,
         policy_forced: false,
       },
-      reqId
+      reqId,
+      {
+        intentClassification,
+        knowledge,
+        policyResult,
+        fallbackChain,
+        scopeContext,
+      }
     );
   }
 
-  private createResponse(
+  private createResponseWithInternal(
     selectedModel: string,
     decision: RoutingDecision,
-    requestId: string
+    requestId: string,
+    internal: {
+      intentClassification: IntentClassification;
+      knowledge: KnowledgeEntry | null;
+      policyResult: PolicyEvaluationResult;
+      fallbackChain: FallbackChainEntry[];
+      scopeContext: KnowledgeScopeContext;
+    }
   ): RouteResponse {
     return {
       selected_model: selectedModel,
       routing_decision: decision,
       request_id: requestId,
+      _internal: {
+        intent_classification: internal.intentClassification,
+        knowledge_entry: internal.knowledge,
+        policy_result: internal.policyResult,
+        fallback_chain: internal.fallbackChain,
+        scope_context: internal.scopeContext,
+      },
     };
   }
 }
