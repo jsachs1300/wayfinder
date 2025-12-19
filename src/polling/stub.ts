@@ -5,6 +5,7 @@ import {
   KnowledgeScopeContext,
 } from '../types';
 import { KnowledgeStore } from '../knowledge';
+import { ModelRegistry } from '../models';
 import { v4 as uuidv4 } from 'uuid';
 
 /**
@@ -34,10 +35,12 @@ export class StubOpinionPoller implements OpinionPoller {
     { result: OpinionPollResult; scopeContext?: KnowledgeScopeContext }
   > = new Map();
   private knowledgeStore: KnowledgeStore;
+  private modelRegistry: ModelRegistry;
   private seed: number;
 
-  constructor(knowledgeStore: KnowledgeStore, seed?: number) {
+  constructor(knowledgeStore: KnowledgeStore, modelRegistry: ModelRegistry, seed?: number) {
     this.knowledgeStore = knowledgeStore;
+    this.modelRegistry = modelRegistry;
     this.seed = seed ?? Date.now();
   }
 
@@ -45,6 +48,18 @@ export class StubOpinionPoller implements OpinionPoller {
     request: OpinionPollRequest,
     scopeContext?: KnowledgeScopeContext
   ): Promise<string> {
+    // Validate all model IDs in the poll request
+    const scope = scopeContext?.scope ?? 'global';
+    for (const model of request.models) {
+      this.modelRegistry.assertModelExists(model, 'polling');
+      this.modelRegistry.assertModelActive(model, 'polling');
+
+      // For global scope, ensure model is global-eligible
+      if (scope === 'global') {
+        this.modelRegistry.assertModelGlobalEligible(model, 'polling');
+      }
+    }
+
     const pollId = uuidv4();
 
     // Initialize poll with empty votes
@@ -159,7 +174,8 @@ export class StubOpinionPoller implements OpinionPoller {
  */
 export function createOpinionPoller(
   knowledgeStore: KnowledgeStore,
+  modelRegistry: ModelRegistry,
   seed?: number
 ): OpinionPoller {
-  return new StubOpinionPoller(knowledgeStore, seed);
+  return new StubOpinionPoller(knowledgeStore, modelRegistry, seed);
 }

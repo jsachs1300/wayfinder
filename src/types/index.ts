@@ -194,6 +194,8 @@ export interface OpinionPollResult {
 }
 
 // Model Registry
+export type ModelStatus = 'active' | 'deprecated' | 'disabled';
+
 export interface ModelInfo {
   id: string;
   provider: string;
@@ -202,6 +204,9 @@ export interface ModelInfo {
   speed_tier: 'fast' | 'medium' | 'slow';
   context_window: number;
   available: boolean;
+  status: ModelStatus; // Lifecycle state
+  global_eligible: boolean; // Can participate in global knowledge
+  description?: string; // Human-readable description
 }
 
 // Logging

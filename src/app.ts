@@ -51,9 +51,9 @@ export function createApp(deps?: Partial<AppDependencies>): {
   const tokenStore = deps?.tokenStore ?? createTokenStore(redis);
   const intentClassifier = deps?.intentClassifier ?? createIntentClassifier();
   const policyEngine = deps?.policyEngine ?? createPolicyEngine();
-  const knowledgeStore = deps?.knowledgeStore ?? createKnowledgeStore(redis);
   const modelRegistry = deps?.modelRegistry ?? createModelRegistry();
-  const opinionPoller = deps?.opinionPoller ?? createOpinionPoller(knowledgeStore);
+  const knowledgeStore = deps?.knowledgeStore ?? createKnowledgeStore(redis, modelRegistry);
+  const opinionPoller = deps?.opinionPoller ?? createOpinionPoller(knowledgeStore, modelRegistry);
   const feedbackHandler = deps?.feedbackHandler ?? createFeedbackHandler(knowledgeStore);
 
   const routingEngine =
@@ -110,7 +110,7 @@ export function createApp(deps?: Partial<AppDependencies>): {
   // Admin routes (require admin auth)
   const adminRouter = express.Router();
   adminRouter.use(adminAuthMiddleware());
-  adminRouter.use(createAdminRoutes(tokenStore));
+  adminRouter.use(createAdminRoutes(tokenStore, modelRegistry));
 
   // Knowledge stats endpoint (admin only)
   // Optional query params: ?scope=global|token&token_id=xxx
@@ -187,7 +187,7 @@ export function createApp(deps?: Partial<AppDependencies>): {
   // Protected routes (require token auth)
   // Mount routers at their specific paths
   app.use('/route', tokenAuthMiddleware(tokenStore), createRoutingRoutes(routingEngine));
-  app.use('/feedback', tokenAuthMiddleware(tokenStore), createFeedbackRoutes(feedbackHandler));
+  app.use('/feedback', tokenAuthMiddleware(tokenStore), createFeedbackRoutes(feedbackHandler, modelRegistry));
 
   // 404 handler
   app.use((_req: Request, res: Response) => {

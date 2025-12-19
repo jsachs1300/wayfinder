@@ -114,6 +114,93 @@ Wayfinder supports **configurable knowledge scope** for flexibility between shar
 
 When models completely disagree, this results in **low confidence**, not an error. The system falls back to the trusted anchor or default model.
 
+### Model Registry & Validation
+
+Wayfinder maintains a **curated model registry** that serves as the single source of truth for valid model identifiers. Only models in this registry can participate in routing, policy, feedback, or knowledge operations.
+
+**Why Validation Matters**
+
+The model registry is not just a convenience—it's a **foundational correctness feature** that:
+- Prevents data corruption in the knowledge store
+- Enforces deterministic routing behavior
+- Protects against typos and configuration errors
+- Enables lifecycle management (active, deprecated, disabled)
+
+**Model Lifecycle States**
+
+Every model has a status that determines how it can be used:
+
+- **`active`** - Fully operational, can be used everywhere
+- **`deprecated`** - Still functional but logs warnings; may be removed in future
+- **`disabled`** - Cannot be used anywhere (config, policy, feedback, knowledge votes)
+
+**Global Eligibility**
+
+Models also have a `global_eligible` flag. Only globally-eligible models can participate in global knowledge scope. This ensures that shared learning only happens across curated, high-quality models.
+
+**Validation Enforcement**
+
+Model identifiers are validated at **every ingestion point**:
+
+1. **Token Creation/Update** - All model references in token config are validated
+2. **Policy Rules** - Models in `ForceModelByIntent`, `RestrictModelsByIntent`, etc.
+3. **Feedback Ingestion** - Both `selected_model` and `preferred_model` fields
+4. **Opinion Polling** - All models in poll requests (even stubbed)
+5. **Knowledge Votes** - Before recording any vote in the knowledge store
+
+**Validation Rules**
+
+When you specify a model identifier, Wayfinder validates:
+- ✅ Model exists in the registry
+- ✅ Model is not disabled
+- ✅ Model is globally-eligible (if using global knowledge scope)
+- ✅ Model respects token's allowed/denied lists
+
+**What Happens When Validation Fails**
+
+Invalid model identifiers **fail fast and loudly**:
+- Token creation/update returns `400 Bad Request` with clear error message
+- Feedback with invalid models is rejected before altering votes
+- Polling with unknown models throws `InvalidModelError`
+- No silent coercion, aliasing, or fallback is permitted
+
+**Example Error Messages**
+
+```
+InvalidModelError: Invalid model identifier: "gpt-5-ultra" (context: token_config).
+Model does not exist in the registry.
+
+DisabledModelError: Model "legacy-model" is disabled and cannot be used (context: feedback).
+Disabled models are excluded from all routing, policy, and knowledge operations.
+
+ModelConfigurationError: trusted_anchor_model "claude-3-opus" cannot be in denied_models
+```
+
+**Deprecated Model Behavior**
+
+Deprecated models still work but log structured warnings:
+```json
+{
+  "level": "warn",
+  "message": "Deprecated model in use",
+  "metadata": {
+    "model_id": "gpt-3.5-turbo",
+    "context": "token_config",
+    "message": "Model 'gpt-3.5-turbo' is deprecated and may be removed in the future"
+  }
+}
+```
+
+**Available Models**
+
+To see all currently registered models:
+```bash
+curl http://localhost:3000/admin/models \
+  -H "X-Admin-Api-Key: your-admin-key"
+```
+
+Models are curated and include major providers (OpenAI, Anthropic, Google, Meta, Mistral). Future versions may support BYOM (Bring Your Own Model) for custom models.
+
 ## Routing Lifecycle
 
 ```

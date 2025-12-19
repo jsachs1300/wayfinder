@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { TokenStore } from './store';
 import { TokenCreateRequest, TokenUpdateRequest } from '../types';
+import { ModelRegistry, ModelValidationError } from '../models';
 import { z } from 'zod';
 
 interface IdParams {
@@ -31,7 +32,10 @@ const TokenUpdateSchema = TokenCreateSchema.partial();
 /**
  * Create admin routes for token management
  */
-export function createAdminRoutes(tokenStore: TokenStore): Router {
+export function createAdminRoutes(
+  tokenStore: TokenStore,
+  modelRegistry: ModelRegistry
+): Router {
   const router = Router();
 
   // Create a new token
@@ -49,6 +53,22 @@ export function createAdminRoutes(tokenStore: TokenStore): Router {
       }
 
       const request: TokenCreateRequest = parsed.data;
+
+      // Validate all model identifiers against the registry
+      try {
+        modelRegistry.validateTokenConfig(request);
+      } catch (error) {
+        if (error instanceof ModelValidationError) {
+          res.status(400).json({
+            error: error.name,
+            message: error.message,
+            timestamp: new Date().toISOString(),
+          });
+          return;
+        }
+        throw error;
+      }
+
       const result = await tokenStore.create(request);
 
       res.status(201).json({
@@ -113,6 +133,36 @@ export function createAdminRoutes(tokenStore: TokenStore): Router {
       }
 
       const request: TokenUpdateRequest = parsed.data;
+
+      // Get existing token to merge with updates for validation
+      const existing = await tokenStore.getById(id);
+      if (!existing) {
+        res.status(404).json({
+          error: 'NotFound',
+          message: 'Token not found',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      // Merge existing config with updates for validation
+      const mergedConfig = { ...existing, ...request };
+
+      // Validate the merged configuration
+      try {
+        modelRegistry.validateTokenConfig(mergedConfig);
+      } catch (error) {
+        if (error instanceof ModelValidationError) {
+          res.status(400).json({
+            error: error.name,
+            message: error.message,
+            timestamp: new Date().toISOString(),
+          });
+          return;
+        }
+        throw error;
+      }
+
       const updated = await tokenStore.update(id, request);
 
       if (!updated) {
