@@ -1,12 +1,18 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { InMemoryKnowledgeStore } from '../src/knowledge/store';
 import { KnowledgeScopeContext } from '../src/types';
+import { createModelRegistry } from '../src/models';
 
 describe('Knowledge Scope', () => {
   let knowledgeStore: InMemoryKnowledgeStore;
 
+  // Use real model IDs from the registry
+  const modelA = 'claude-3-5-sonnet';
+  const modelB = 'gpt-4o';
+
   beforeEach(() => {
-    knowledgeStore = new InMemoryKnowledgeStore();
+    const modelRegistry = createModelRegistry();
+    knowledgeStore = new InMemoryKnowledgeStore(modelRegistry);
   });
 
   describe('Global Scope (Default)', () => {
