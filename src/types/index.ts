@@ -161,6 +161,69 @@ export interface RouteResponse {
   selected_model: string;
   routing_decision: RoutingDecision;
   request_id: string;
+  _internal?: RoutingContextInternal; // Internal context for logging (stripped before HTTP response)
+}
+
+// Fallback Chain Entry for routing decision logging
+export interface FallbackChainEntry {
+  strategy: 'policy_forced' | 'consensus' | 'trusted_anchor' | 'default' | 'system_default';
+  model: string | null;
+  outcome: 'selected' | 'skipped' | 'ineligible' | 'insufficient_confidence';
+  reason?: string;
+}
+
+// Internal routing context (not exposed in API response)
+export interface RoutingContextInternal {
+  intent_classification: IntentClassification;
+  knowledge_entry: KnowledgeEntry | null;
+  policy_result: PolicyEvaluationResult;
+  fallback_chain: FallbackChainEntry[];
+  scope_context: KnowledgeScopeContext;
+}
+
+// Routing Decision Log Schema
+export interface RoutingDecisionLog {
+  // Identity & Context
+  timestamp: string;
+  level: 'info' | 'warn' | 'error';
+  message: string;
+  request_id: string;
+  token_id: string;
+  environment: Environment | null;
+
+  // Intent
+  intent_label: IntentLabel;
+  intent_confidence: number;
+  intent_source: 'classifier' | 'override' | 'unknown';
+
+  // Knowledge Scope
+  knowledge_scope: KnowledgeScope;
+  knowledge_key: string | null;
+  knowledge_last_updated: string | null;
+
+  // Policy
+  policy_applied: boolean;
+  policy_forced_model: string | null;
+  policy_rules_applied: string[];
+
+  // Model Eligibility
+  eligible_models: string[];
+  denied_models: string[];
+  default_model: string | null;
+
+  // Knowledge & Confidence
+  agreement_score: number | null;
+  confidence_level: ConfidenceLevel | null;
+  confidence_threshold: number;
+  consensus_model: string | null;
+
+  // Decision
+  selected_model: string;
+  decision_reason: RoutingReason;
+
+  // Fallbacks
+  trusted_anchor_model: string | null;
+  fallback_chain: FallbackChainEntry[];
 }
 
 // Feedback
