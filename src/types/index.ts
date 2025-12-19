@@ -145,6 +145,53 @@ export interface RouteRequest {
   metadata?: Record<string, unknown>;
 }
 
+/**
+ * Canonical Router LLM Contract
+ *
+ * This is the REQUIRED output format for the router LLM.
+ * All routing decisions MUST conform to this schema.
+ *
+ * Intent is advisory only - logged and stored for internal analysis but MUST NOT
+ * influence routing logic, scoring, or model eligibility.
+ *
+ * No additional properties are allowed anywhere in this structure.
+ */
+export interface RouteDecision {
+  /** Intent label (free text, advisory only, for internal analysis) */
+  intent: string;
+  /** Primary model recommendation */
+  primary: ModelRecommendation;
+  /** Alternate model recommendation */
+  alternate: ModelRecommendation;
+}
+
+/**
+ * Model recommendation with score and reasoning
+ */
+export interface ModelRecommendation {
+  /** Model identifier */
+  model: string;
+  /** Confidence score (0-10 scale) */
+  score: number;
+  /** Explanation for this recommendation */
+  reason: string;
+}
+
+/**
+ * User-facing routing response (projection of RouteDecision)
+ * Intent is omitted from user-facing responses
+ */
+export interface RouteResponse {
+  primary: ModelRecommendation;
+  alternate: ModelRecommendation;
+  request_id: string;
+}
+
+/**
+ * Legacy RoutingDecision type - DEPRECATED
+ * Kept for backward compatibility with logging infrastructure
+ * Will be removed in a future version
+ */
 export interface RoutingDecision {
   reason: RoutingReason;
   confidence: ConfidenceLevel;
@@ -161,13 +208,6 @@ export type RoutingReason =
   | 'trusted_anchor_fallback'
   | 'default_model_fallback'
   | 'system_default';
-
-export interface RouteResponse {
-  selected_model: string;
-  routing_decision: RoutingDecision;
-  request_id: string;
-  _internal?: RoutingContextInternal; // Internal context for logging (stripped before HTTP response)
-}
 
 // Fallback Chain Entry for routing decision logging
 export interface FallbackChainEntry {

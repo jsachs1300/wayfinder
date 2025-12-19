@@ -1,27 +1,115 @@
-import { RouteRequest, TokenConfig } from '../types';
+/**
+ * Routing Engine - Orchestrates LLM-driven routing decisions
+ *
+ * This engine is responsible for:
+ * 1. Determining eligible models via policy evaluation
+ * 2. Invoking the router LLM with the canonical contract
+ * 3. Validating the router LLM response (fail hard on invalid schema)
+ * 4. Returning the validated RouteDecision
+ *
+ * Intent is inferred by the router LLM and stored for analysis only.
+ * It MUST NOT influence routing logic, scoring, or model eligibility.
+ */
 
-export interface RoutingEngine {
-  route(request: RouteRequest, tokenConfig: TokenConfig, requestId?: string): Promise<never>;
+import type { RouteRequest, TokenConfig, RouteDecision } from '../types/index.js';
+import { validateRouteDecision } from './validation.js';
+
+/**
+ * Router LLM interface
+ * Implementations must invoke an LLM and return a response conforming to RouteDecision schema
+ */
+export interface RouterLLM {
+  /**
+   * Invokes the router LLM to make a routing decision
+   *
+   * @param prompt - User's prompt
+   * @param eligibleModels - Models eligible for selection (after policy constraints)
+   * @param context - Additional context (token config, preferences, etc.)
+   * @returns Raw LLM response (will be validated against RouteDecision schema)
+   */
+  invoke(
+    prompt: string,
+    eligibleModels: string[],
+    context: {
+      tokenConfig: TokenConfig;
+      preferModel?: string;
+      requestMetadata?: Record<string, unknown>;
+    },
+  ): Promise<unknown>;
 }
 
-export interface RoutingEngineDependencies {}
+export interface RoutingEngine {
+  route(
+    request: RouteRequest,
+    tokenConfig: TokenConfig,
+    requestId?: string,
+  ): Promise<RouteDecision>;
+}
+
+export interface RoutingEngineDependencies {
+  routerLLM: RouterLLM;
+}
 
 export class DefaultRoutingEngine implements RoutingEngine {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  constructor(_deps: RoutingEngineDependencies) {}
+  constructor(private readonly deps: RoutingEngineDependencies) {}
 
   async route(
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     request: RouteRequest,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     tokenConfig: TokenConfig,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    requestId?: string
-  ): Promise<never> {
-    throw new Error('Routing engine removed pending LLM router implementation');
+    requestId?: string,
+  ): Promise<RouteDecision> {
+    // TODO: Implement policy evaluation to determine eligible models
+    // For now, use a placeholder - this will be replaced with actual policy engine
+    const eligibleModels = ['gpt-4', 'claude-3-opus', 'claude-3-sonnet'];
+
+    // Invoke router LLM
+    const rawResponse = await this.deps.routerLLM.invoke(request.prompt, eligibleModels, {
+      tokenConfig,
+      preferModel: request.prefer_model,
+      requestMetadata: request.metadata,
+    });
+
+    // Validate response against canonical schema (fail hard on invalid)
+    const decision = validateRouteDecision(rawResponse);
+
+    // Intent is now captured but not used for routing logic
+    // It will be logged for internal analysis only
+
+    return decision;
   }
 }
 
 export function createRoutingEngine(deps: RoutingEngineDependencies): RoutingEngine {
   return new DefaultRoutingEngine(deps);
+}
+
+/**
+ * Stub RouterLLM implementation for testing
+ * Returns a valid RouteDecision with placeholder data
+ */
+export class StubRouterLLM implements RouterLLM {
+  async invoke(
+    prompt: string,
+    eligibleModels: string[],
+    context: {
+      tokenConfig: TokenConfig;
+      preferModel?: string;
+      requestMetadata?: Record<string, unknown>;
+    },
+  ): Promise<unknown> {
+    // Return a valid RouteDecision structure
+    return {
+      intent: 'code_change',
+      primary: {
+        model: eligibleModels[0] || 'gpt-4',
+        score: 8,
+        reason: 'Best suited for this task based on prompt analysis',
+      },
+      alternate: {
+        model: eligibleModels[1] || 'claude-3-sonnet',
+        score: 6,
+        reason: 'Viable alternative with different strengths',
+      },
+    };
+  }
 }
