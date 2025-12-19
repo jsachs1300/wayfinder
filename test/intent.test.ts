@@ -1,38 +1,46 @@
 import { describe, it, expect } from 'vitest';
 import { HeuristicIntentClassifier } from '../src/intent/classifier';
 
+const classifier = new HeuristicIntentClassifier();
+
 describe('IntentClassifier', () => {
-  const classifier = new HeuristicIntentClassifier();
-
   describe('Intent Detection', () => {
-    it('should classify coding prompts', () => {
-      // Test individual prompts that should trigger coding patterns
-      expect(classifier.classify('write a function to sort').label).toBe('coding');
-      expect(classifier.classify('implement a binary search').label).toBe('coding');
-      expect(classifier.classify('create a class for users').label).toBe('coding');
-      expect(classifier.classify('fix this bug').label).toBe('coding');
-      expect(classifier.classify('debug this function').label).toBe('coding');
-      expect(classifier.classify('how do I implement this feature').label).toBe('coding');
+    it('should classify code change prompts', () => {
+      expect(classifier.classify('write a function to sort').label).toBe('code_change');
+      expect(classifier.classify('implement a binary search').label).toBe('code_change');
+      expect(classifier.classify('create a class for users').label).toBe('code_change');
+      expect(classifier.classify('add a feature to this api').label).toBe('code_change');
+      expect(classifier.classify('review this code').label).toBe('code_change');
     });
 
-    it('should classify code review prompts', () => {
-      expect(classifier.classify('review this code').label).toBe('code_review');
-      expect(classifier.classify('check this code for bugs').label).toBe('code_review');
-      expect(classifier.classify('what is wrong with this code').label).toBe('code_review');
-      expect(classifier.classify('find bugs in this code').label).toBe('code_review');
+    it('should classify debugging prompts', () => {
+      expect(classifier.classify('fix this bug').label).toBe('debugging');
+      expect(classifier.classify('debug this function').label).toBe('debugging');
+      expect(classifier.classify('why is this error happening?').label).toBe('debugging');
+      expect(classifier.classify('stack trace shows null reference').label).toBe('debugging');
     });
 
-    it('should classify legal prompts', () => {
+    it('should classify architecture design prompts', () => {
       const prompts = [
-        'What is the legal liability here?',
-        'Is this contract compliant with GDPR?',
-        'Review the terms of service',
-        'What are the regulatory requirements?',
+        'design a microservice architecture',
+        'what is the best pattern for this module?',
+        'high level approach for this system',
       ];
 
       for (const prompt of prompts) {
-        const result = classifier.classify(prompt);
-        expect(result.label).toBe('legal');
+        expect(classifier.classify(prompt).label).toBe('architecture_design');
+      }
+    });
+
+    it('should classify explanation prompts', () => {
+      const prompts = [
+        'Explain why this approach is better',
+        'what is the reason for this behavior?',
+        'walk me through how this works',
+      ];
+
+      for (const prompt of prompts) {
+        expect(classifier.classify(prompt).label).toBe('explanation');
       }
     });
 
@@ -46,60 +54,51 @@ describe('IntentClassifier', () => {
       ];
 
       for (const prompt of prompts) {
-        const result = classifier.classify(prompt);
-        expect(result.label).toBe('summarization');
+        expect(classifier.classify(prompt).label).toBe('summarization');
       }
     });
 
-    it('should classify reasoning prompts', () => {
+    it('should classify data analysis prompts', () => {
       const prompts = [
-        'Explain why this approach is better',
-        'What is the reason for this behavior?',
-        'Analyze this problem step by step',
-        'Compare and contrast these options',
-        'What are the pros and cons?',
+        'Analyze this dataset',
+        'run analysis on this csv file',
+        'derive insights from the data',
       ];
 
       for (const prompt of prompts) {
-        const result = classifier.classify(prompt);
-        expect(result.label).toBe('reasoning');
+        expect(classifier.classify(prompt).label).toBe('data_analysis');
       }
     });
 
-    it('should classify creative prompts', () => {
-      expect(classifier.classify('write a story about a dragon').label).toBe('creative');
-      expect(classifier.classify('write a poem about nature').label).toBe('creative');
-      expect(classifier.classify('brainstorm ideas').label).toBe('creative');
-      expect(classifier.classify('come up with names').label).toBe('creative');
-      expect(classifier.classify('imagine a world without technology').label).toBe('creative');
+    it('should classify content generation prompts', () => {
+      expect(classifier.classify('write a story about a dragon').label).toBe(
+        'content_generation'
+      );
+      expect(classifier.classify('write a poem about nature').label).toBe(
+        'content_generation'
+      );
+      expect(classifier.classify('brainstorm ideas').label).toBe('content_generation');
+      expect(classifier.classify('come up with names').label).toBe('content_generation');
     });
 
-    it('should classify support prompts', () => {
+    it('should classify planning prompts', () => {
       const prompts = [
-        'Help me understand this concept',
-        'How do I use this feature?',
-        'What is machine learning?',
-        "I'm having trouble with my account",
-        'Not working properly',
+        'plan a project timeline',
+        'create a checklist for launch',
+        'organize tasks into milestones',
       ];
 
       for (const prompt of prompts) {
-        const result = classifier.classify(prompt);
-        expect(result.label).toBe('support');
+        expect(classifier.classify(prompt).label).toBe('planning');
       }
     });
 
     it('should default to other for ambiguous prompts', () => {
-      const prompts = [
-        'Hello',
-        'Thanks',
-        'OK',
-        'Lorem ipsum dolor sit amet',
-      ];
+      const prompts = ['Hello', 'Thanks', 'OK', 'Lorem ipsum dolor sit amet'];
 
       for (const prompt of prompts) {
         const result = classifier.classify(prompt);
-        expect(result.label).toBe('other');
+        expect(result.label.startsWith('other:')).toBe(true);
       }
     });
   });
@@ -122,7 +121,7 @@ describe('IntentClassifier', () => {
     it('should return low confidence for other classification', () => {
       const result = classifier.classify('random text here');
 
-      expect(result.label).toBe('other');
+      expect(result.label.startsWith('other:')).toBe(true);
       expect(result.confidence).toBeLessThan(0.5);
     });
   });
@@ -132,9 +131,9 @@ describe('IntentClassifier', () => {
       const result = classifier.classify('Write a function');
 
       expect(result.raw_scores).toBeDefined();
-      expect(result.raw_scores).toHaveProperty('coding');
-      expect(result.raw_scores).toHaveProperty('legal');
-      expect(result.raw_scores).toHaveProperty('other');
+      expect(result.raw_scores).toHaveProperty('code_change');
+      expect(result.raw_scores).toHaveProperty('content_generation');
+      expect(result.raw_scores).toHaveProperty('other:general');
     });
   });
 
@@ -142,7 +141,7 @@ describe('IntentClassifier', () => {
     it('should handle empty string', () => {
       const result = classifier.classify('');
 
-      expect(result.label).toBe('other');
+      expect(result.label.startsWith('other:')).toBe(true);
       expect(result.confidence).toBeLessThan(0.5);
     });
 
@@ -150,7 +149,7 @@ describe('IntentClassifier', () => {
       const longPrompt = 'Write a function '.repeat(100);
       const result = classifier.classify(longPrompt);
 
-      expect(result.label).toBe('coding');
+      expect(result.label).toBe('code_change');
     });
 
     it('should be case insensitive', () => {
@@ -161,11 +160,9 @@ describe('IntentClassifier', () => {
     });
 
     it('should handle prompts with multiple intents', () => {
-      // This prompt has both coding and reasoning aspects
       const result = classifier.classify('Explain why this code is wrong and fix it');
 
-      // Should pick the stronger signal
-      expect(['coding', 'code_review', 'reasoning']).toContain(result.label);
+      expect(['code_change', 'debugging', 'explanation']).toContain(result.label);
     });
   });
 });

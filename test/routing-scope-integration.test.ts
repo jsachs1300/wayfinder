@@ -94,7 +94,7 @@ describe('Routing with Scoped Knowledge - Integration', () => {
       .send({
         request_id: routeResponse.body.request_id,
         selected_model: routeResponse.body.selected_model,
-        intent_label: 'coding',
+        intent_label: 'code_change',
         rating: 'positive',
       });
 
@@ -118,7 +118,7 @@ describe('Routing with Scoped Knowledge - Integration', () => {
       .send({
         request_id: routeResponse.body.request_id,
         selected_model: routeResponse.body.selected_model,
-        intent_label: 'coding',
+        intent_label: 'code_change',
         rating: 'positive',
       });
 
@@ -139,7 +139,7 @@ describe('Routing with Scoped Knowledge - Integration', () => {
     // Build knowledge for token 1
     for (let i = 0; i < 6; i++) {
       await dependencies.knowledgeStore.recordVote(
-        'coding',
+        'code_change',
         'gpt-4-turbo',
         { scope: 'token', token_id: scopedToken1Id }
       );
@@ -148,7 +148,7 @@ describe('Routing with Scoped Knowledge - Integration', () => {
     // Build knowledge for token 2
     for (let i = 0; i < 6; i++) {
       await dependencies.knowledgeStore.recordVote(
-        'coding',
+        'code_change',
         'claude-3-5-sonnet',
         { scope: 'token', token_id: scopedToken2Id }
       );
@@ -178,7 +178,7 @@ describe('Routing with Scoped Knowledge - Integration', () => {
     // Build strong global knowledge
     for (let i = 0; i < 10; i++) {
       await dependencies.knowledgeStore.recordVote(
-        'coding',
+        'code_change',
         'gpt-4-turbo',
         { scope: 'global' }
       );
@@ -199,7 +199,7 @@ describe('Routing with Scoped Knowledge - Integration', () => {
     // Build token-scoped knowledge
     for (let i = 0; i < 10; i++) {
       await dependencies.knowledgeStore.recordVote(
-        'coding',
+        'code_change',
         'gpt-4-turbo',
         { scope: 'token', token_id: scopedToken1Id }
       );
@@ -215,7 +215,7 @@ describe('Routing with Scoped Knowledge - Integration', () => {
         policy_rules: [
           {
             type: 'ForceModelByIntent',
-            intent: 'coding',
+            intent: 'code_change',
             models: ['claude-3-opus'],
           },
         ],
@@ -255,12 +255,12 @@ describe('Routing with Scoped Knowledge - Integration', () => {
   it('should get stats filtered by scope via query params', async () => {
     // Create knowledge in both scopes
     await dependencies.knowledgeStore.recordVote(
-      'coding',
+      'code_change',
       'gpt-4-turbo',
       { scope: 'global' }
     );
     await dependencies.knowledgeStore.recordVote(
-      'coding',
+      'code_change',
       'gpt-4o',
       { scope: 'token', token_id: scopedToken1Id }
     );

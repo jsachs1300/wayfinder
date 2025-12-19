@@ -32,7 +32,7 @@ describe('Model Validation - Proof Tests', () => {
       {
         id: 'active-model',
         provider: 'test',
-        capabilities: ['coding'],
+        capabilities: ['code_change'],
         cost_tier: 'low',
         speed_tier: 'fast',
         context_window: 8000,
@@ -44,7 +44,7 @@ describe('Model Validation - Proof Tests', () => {
       {
         id: 'disabled-model',
         provider: 'test',
-        capabilities: ['coding'],
+        capabilities: ['code_change'],
         cost_tier: 'low',
         speed_tier: 'fast',
         context_window: 8000,
@@ -56,7 +56,7 @@ describe('Model Validation - Proof Tests', () => {
       {
         id: 'deprecated-model',
         provider: 'test',
-        capabilities: ['coding'],
+        capabilities: ['code_change'],
         cost_tier: 'low',
         speed_tier: 'fast',
         context_window: 8000,
@@ -107,7 +107,7 @@ describe('Model Validation - Proof Tests', () => {
 
     // Rejected in knowledge store
     expect(async () => {
-      await knowledgeStore.recordVote('coding', disabledModel, {
+      await knowledgeStore.recordVote('code_change', disabledModel, {
         scope: 'global',
       });
     }).rejects.toThrow(DisabledModelError);
@@ -117,7 +117,7 @@ describe('Model Validation - Proof Tests', () => {
       await opinionPoller.startPoll(
         {
           prompt: 'test',
-          intent: 'coding',
+          intent: 'code_change',
           models: ['active-model', disabledModel],
         },
         { scope: 'global' }
@@ -137,24 +137,24 @@ describe('Model Validation - Proof Tests', () => {
   // ========== PROOF TEST 3: Feedback with invalid model does not alter votes ==========
   it('PROOF 3: Feedback with invalid model does not alter votes', async () => {
     // Record a valid vote first
-    await knowledgeStore.recordVote('coding', 'active-model', {
+    await knowledgeStore.recordVote('code_change', 'active-model', {
       scope: 'global',
     });
 
-    const initialEntry = await knowledgeStore.get('coding', { scope: 'global' });
+    const initialEntry = await knowledgeStore.get('code_change', { scope: 'global' });
     expect(initialEntry).toBeTruthy();
     expect(initialEntry!.total_votes).toBeCloseTo(1, 6);
     expect(initialEntry!.model_votes['active-model']).toBeCloseTo(1, 6);
 
     // Attempt to record vote with invalid model should throw
     await expect(async () => {
-      await knowledgeStore.recordVote('coding', 'invalid-model-xyz', {
+      await knowledgeStore.recordVote('code_change', 'invalid-model-xyz', {
         scope: 'global',
       });
     }).rejects.toThrow(InvalidModelError);
 
     // Verify knowledge was NOT altered
-    const finalEntry = await knowledgeStore.get('coding', { scope: 'global' });
+    const finalEntry = await knowledgeStore.get('code_change', { scope: 'global' });
     expect(finalEntry).toBeTruthy();
     expect(finalEntry!.total_votes).toBeCloseTo(1, 6); // Still 1, not 2
     expect(finalEntry!.model_votes['active-model']).toBeCloseTo(1, 6);
@@ -162,12 +162,12 @@ describe('Model Validation - Proof Tests', () => {
 
     // Attempt with disabled model should also not alter votes
     await expect(async () => {
-      await knowledgeStore.recordVote('coding', 'disabled-model', {
+      await knowledgeStore.recordVote('code_change', 'disabled-model', {
         scope: 'global',
       });
     }).rejects.toThrow(DisabledModelError);
 
-    const finalEntry2 = await knowledgeStore.get('coding', { scope: 'global' });
+    const finalEntry2 = await knowledgeStore.get('code_change', { scope: 'global' });
     expect(finalEntry2!.total_votes).toBeCloseTo(1, 6); // Still unchanged
   });
 
@@ -178,7 +178,7 @@ describe('Model Validation - Proof Tests', () => {
       await opinionPoller.startPoll(
         {
           prompt: 'test prompt',
-          intent: 'coding',
+          intent: 'code_change',
           models: ['active-model', 'completely-fake-model'],
         },
         { scope: 'global' }
@@ -192,7 +192,7 @@ describe('Model Validation - Proof Tests', () => {
     const validPollId = await opinionPoller.startPoll(
       {
         prompt: 'test prompt',
-        intent: 'coding',
+        intent: 'code_change',
         models: ['active-model'],
       },
       { scope: 'global' }
@@ -241,10 +241,10 @@ describe('Model Validation - Proof Tests', () => {
 
     // Knowledge store should accept deprecated model
     await expect(
-      knowledgeStore.recordVote('coding', deprecatedModel, { scope: 'global' })
+      knowledgeStore.recordVote('code_change', deprecatedModel, { scope: 'global' })
     ).resolves.toBeTruthy();
 
-    const entry = await knowledgeStore.get('coding', { scope: 'global' });
+    const entry = await knowledgeStore.get('code_change', { scope: 'global' });
     expect(entry!.model_votes[deprecatedModel]).toBeCloseTo(1, 6);
   });
 

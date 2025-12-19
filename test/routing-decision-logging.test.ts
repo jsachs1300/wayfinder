@@ -138,7 +138,7 @@ describe('Routing Decision Logging', () => {
       const policyRules: PolicyRule[] = [
         {
           type: 'ForceModelByIntent',
-          intent: 'coding',
+          intent: 'code_change',
           models: ['gpt-4-turbo'],
         },
       ];
@@ -193,7 +193,7 @@ describe('Routing Decision Logging', () => {
       const policyRules: PolicyRule[] = [
         {
           type: 'ForceModelByIntent',
-          intent: 'legal',
+          intent: 'other:legal',
           models: ['claude-3-opus'],
         },
       ];
@@ -224,7 +224,7 @@ describe('Routing Decision Logging', () => {
 
     it('should track insufficient_confidence outcome for low confidence knowledge', async () => {
       // Build low confidence knowledge
-      await knowledgeStore.recordVote('coding', 'gpt-4-turbo', { scope: 'global' });
+      await knowledgeStore.recordVote('code_change', 'gpt-4-turbo', { scope: 'global' });
 
       // Create token with trusted anchor
       const tokenResponse = await request(app)
@@ -252,7 +252,7 @@ describe('Routing Decision Logging', () => {
     it('should track ineligible outcome when consensus model is denied', async () => {
       // Build strong consensus for gpt-4-turbo
       for (let i = 0; i < 10; i++) {
-        await knowledgeStore.recordVote('coding', 'gpt-4-turbo', { scope: 'global' });
+        await knowledgeStore.recordVote('code_change', 'gpt-4-turbo', { scope: 'global' });
       }
 
       // Create token that denies gpt-4-turbo
@@ -282,7 +282,7 @@ describe('Routing Decision Logging', () => {
     it('should preserve evaluation order in fallback_chain', async () => {
       // Build strong consensus
       for (let i = 0; i < 10; i++) {
-        await knowledgeStore.recordVote('coding', 'gpt-4-turbo', { scope: 'global' });
+        await knowledgeStore.recordVote('code_change', 'gpt-4-turbo', { scope: 'global' });
       }
 
       // Create token that denies consensus model, has trusted anchor

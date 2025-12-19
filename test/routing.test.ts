@@ -49,7 +49,7 @@ describe('RoutingEngine', () => {
       const rules: PolicyRule[] = [
         {
           type: 'ForceModelByIntent',
-          intent: 'legal',
+          intent: 'other:legal',
           models: ['claude-3-opus'],
         },
       ];
@@ -66,9 +66,9 @@ describe('RoutingEngine', () => {
     });
 
     it('should use knowledge consensus when confidence is high', async () => {
-      // Build up strong consensus for 'coding' intent
+      // Build up strong consensus for 'code_change' intent
       for (let i = 0; i < 10; i++) {
-        await knowledgeStore.recordVote('coding', 'gpt-4-turbo', globalScope);
+        await knowledgeStore.recordVote('code_change', 'gpt-4-turbo', globalScope);
       }
 
       const config = createTokenConfig();
@@ -84,7 +84,7 @@ describe('RoutingEngine', () => {
 
     it('should use trusted anchor when knowledge confidence is low', async () => {
       // Only record a few votes (low confidence)
-      await knowledgeStore.recordVote('coding', 'gpt-4-turbo', globalScope);
+      await knowledgeStore.recordVote('code_change', 'gpt-4-turbo', globalScope);
 
       const config = createTokenConfig({
         trusted_anchor_model: 'claude-3-5-sonnet',
@@ -130,7 +130,7 @@ describe('RoutingEngine', () => {
     it('should respect policy even when knowledge suggests different model', async () => {
       // Build consensus for gpt-4-turbo
       for (let i = 0; i < 10; i++) {
-        await knowledgeStore.recordVote('coding', 'gpt-4-turbo', globalScope);
+        await knowledgeStore.recordVote('code_change', 'gpt-4-turbo', globalScope);
       }
 
       // But policy denies gpt-4-turbo
@@ -193,10 +193,10 @@ describe('RoutingEngine', () => {
     it('should include agreement score when knowledge is used', async () => {
       // Build moderate consensus
       for (let i = 0; i < 6; i++) {
-        await knowledgeStore.recordVote('coding', 'gpt-4-turbo', globalScope);
+        await knowledgeStore.recordVote('code_change', 'gpt-4-turbo', globalScope);
       }
       for (let i = 0; i < 2; i++) {
-        await knowledgeStore.recordVote('coding', 'claude-3-5-sonnet', globalScope);
+        await knowledgeStore.recordVote('code_change', 'claude-3-5-sonnet', globalScope);
       }
 
       const config = createTokenConfig();

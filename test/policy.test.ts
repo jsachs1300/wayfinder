@@ -26,7 +26,7 @@ describe('PolicyEngine', () => {
         allowed_models: ['gpt-4-turbo', 'claude-3-5-sonnet'],
       });
 
-      const result = engine.evaluate('coding', allModels, config);
+      const result = engine.evaluate('code_change', allModels, config);
 
       expect(result.eligible_models).toEqual(['gpt-4-turbo', 'claude-3-5-sonnet']);
       expect(result.audit_trail).toHaveLength(1);
@@ -39,7 +39,7 @@ describe('PolicyEngine', () => {
         denied_models: ['gemini-1.5-pro'],
       });
 
-      const result = engine.evaluate('coding', allModels, config);
+      const result = engine.evaluate('code_change', allModels, config);
 
       expect(result.eligible_models).toEqual(['gpt-4-turbo', 'claude-3-5-sonnet']);
       expect(result.audit_trail).toHaveLength(2);
@@ -49,7 +49,7 @@ describe('PolicyEngine', () => {
       const rules: PolicyRule[] = [
         {
           type: 'RestrictModelsByIntent',
-          intent: 'coding',
+          intent: 'code_change',
           models: ['gpt-4-turbo'],
         },
       ];
@@ -59,7 +59,7 @@ describe('PolicyEngine', () => {
         policy_rules: rules,
       });
 
-      const result = engine.evaluate('coding', allModels, config);
+      const result = engine.evaluate('code_change', allModels, config);
 
       expect(result.eligible_models).toEqual(['gpt-4-turbo']);
     });
@@ -68,7 +68,7 @@ describe('PolicyEngine', () => {
       const rules: PolicyRule[] = [
         {
           type: 'ForceModelByIntent',
-          intent: 'legal',
+          intent: 'other:legal',
           models: ['claude-3-opus'],
         },
       ];
@@ -77,7 +77,7 @@ describe('PolicyEngine', () => {
         policy_rules: rules,
       });
 
-      const result = engine.evaluate('legal', allModels, config);
+      const result = engine.evaluate('other:legal', allModels, config);
 
       expect(result.forced_model).toBe('claude-3-opus');
       expect(result.eligible_models).toEqual(['claude-3-opus']);
@@ -87,7 +87,7 @@ describe('PolicyEngine', () => {
       const rules: PolicyRule[] = [
         {
           type: 'ForceModelByIntent',
-          intent: 'legal',
+          intent: 'other:legal',
           models: ['claude-3-opus'],
         },
       ];
@@ -96,7 +96,7 @@ describe('PolicyEngine', () => {
         policy_rules: rules,
       });
 
-      const result = engine.evaluate('coding', allModels, config);
+      const result = engine.evaluate('code_change', allModels, config);
 
       expect(result.forced_model).toBeNull();
       expect(result.eligible_models).toEqual(allModels);
@@ -108,13 +108,13 @@ describe('PolicyEngine', () => {
       const rules: PolicyRule[] = [
         {
           type: 'RestrictModelsByIntent',
-          intent: 'coding',
+          intent: 'code_change',
           models: ['gpt-4-turbo', 'claude-3-5-sonnet'],
           priority: 2,
         },
         {
           type: 'ForceModelByIntent',
-          intent: 'coding',
+          intent: 'code_change',
           models: ['claude-3-5-sonnet'],
           priority: 1,
         },
@@ -125,7 +125,7 @@ describe('PolicyEngine', () => {
       });
 
       // Force rule has higher priority (lower number), should win
-      const result = engine.evaluate('coding', allModels, config);
+      const result = engine.evaluate('code_change', allModels, config);
 
       expect(result.forced_model).toBe('claude-3-5-sonnet');
     });
@@ -135,7 +135,7 @@ describe('PolicyEngine', () => {
     it('should return all models when no rules are defined', () => {
       const config = createTokenConfig({});
 
-      const result = engine.evaluate('coding', allModels, config);
+      const result = engine.evaluate('code_change', allModels, config);
 
       expect(result.eligible_models).toEqual(allModels);
       expect(result.forced_model).toBeNull();
@@ -147,7 +147,7 @@ describe('PolicyEngine', () => {
         allowed_models: [],
       });
 
-      const result = engine.evaluate('coding', allModels, config);
+      const result = engine.evaluate('code_change', allModels, config);
 
       // Empty allow list is treated as "not configured" - all models remain eligible
       expect(result.eligible_models).toEqual(allModels);
@@ -157,7 +157,7 @@ describe('PolicyEngine', () => {
       const rules: PolicyRule[] = [
         {
           type: 'ForceModelByIntent',
-          intent: 'coding',
+          intent: 'code_change',
           models: ['non-existent-model'],
         },
       ];
@@ -166,7 +166,7 @@ describe('PolicyEngine', () => {
         policy_rules: rules,
       });
 
-      const result = engine.evaluate('coding', allModels, config);
+      const result = engine.evaluate('code_change', allModels, config);
 
       // Cannot force a model that isn't available
       expect(result.forced_model).toBeNull();
@@ -180,7 +180,7 @@ describe('PolicyEngine', () => {
         },
         {
           type: 'RestrictModelsByIntent',
-          intent: 'coding',
+          intent: 'code_change',
           models: ['gpt-4-turbo', 'claude-3-5-sonnet'],
         },
       ];
@@ -189,7 +189,7 @@ describe('PolicyEngine', () => {
         policy_rules: rules,
       });
 
-      const result = engine.evaluate('coding', allModels, config);
+      const result = engine.evaluate('code_change', allModels, config);
 
       expect(result.audit_trail.length).toBeGreaterThan(0);
       expect(result.audit_trail.every((e) => e.timestamp)).toBe(true);

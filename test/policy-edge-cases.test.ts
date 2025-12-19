@@ -24,7 +24,7 @@ describe('PolicyEngine Edge Cases and Security', () => {
     it('should handle completely empty token config', () => {
       const config = createTokenConfig({});
 
-      const result = engine.evaluate('coding', allModels, config);
+      const result = engine.evaluate('code_change', allModels, config);
 
       expect(result.eligible_models).toEqual(allModels);
       expect(result.forced_model).toBeNull();
@@ -34,7 +34,7 @@ describe('PolicyEngine Edge Cases and Security', () => {
     it('should handle empty availableModels array', () => {
       const config = createTokenConfig({});
 
-      const result = engine.evaluate('coding', [], config);
+      const result = engine.evaluate('code_change', [], config);
 
       expect(result.eligible_models).toEqual([]);
       expect(result.forced_model).toBeNull();
@@ -45,7 +45,7 @@ describe('PolicyEngine Edge Cases and Security', () => {
         policy_rules: undefined,
       });
 
-      const result = engine.evaluate('coding', allModels, config);
+      const result = engine.evaluate('code_change', allModels, config);
 
       expect(result.eligible_models).toEqual(allModels);
     });
@@ -55,7 +55,7 @@ describe('PolicyEngine Edge Cases and Security', () => {
         policy_rules: [],
       });
 
-      const result = engine.evaluate('coding', allModels, config);
+      const result = engine.evaluate('code_change', allModels, config);
 
       expect(result.eligible_models).toEqual(allModels);
       expect(result.audit_trail).toHaveLength(0);
@@ -66,7 +66,7 @@ describe('PolicyEngine Edge Cases and Security', () => {
         allowed_models: [],
       });
 
-      const result = engine.evaluate('coding', allModels, config);
+      const result = engine.evaluate('code_change', allModels, config);
 
       // Empty array should be treated as "not configured" - allow all
       expect(result.eligible_models).toEqual(allModels);
@@ -77,7 +77,7 @@ describe('PolicyEngine Edge Cases and Security', () => {
         denied_models: [],
       });
 
-      const result = engine.evaluate('coding', allModels, config);
+      const result = engine.evaluate('code_change', allModels, config);
 
       expect(result.eligible_models).toEqual(allModels);
     });
@@ -88,20 +88,20 @@ describe('PolicyEngine Edge Cases and Security', () => {
       const rules: PolicyRule[] = [
         {
           type: 'RestrictModelsByIntent',
-          intent: 'coding',
+          intent: 'code_change',
           models: ['gpt-4-turbo'],
           // priority undefined
         },
         {
           type: 'ForceModelByIntent',
-          intent: 'coding',
+          intent: 'code_change',
           models: ['claude-3-5-sonnet'],
           priority: 50,
         },
       ];
 
       const config = createTokenConfig({ policy_rules: rules });
-      const result = engine.evaluate('coding', allModels, config);
+      const result = engine.evaluate('code_change', allModels, config);
 
       // Force rule with priority 50 should execute before restrict (100)
       expect(result.forced_model).toBe('claude-3-5-sonnet');
@@ -111,20 +111,20 @@ describe('PolicyEngine Edge Cases and Security', () => {
       const rules: PolicyRule[] = [
         {
           type: 'RestrictModelsByIntent',
-          intent: 'coding',
+          intent: 'code_change',
           models: ['gpt-4-turbo', 'claude-3-5-sonnet'],
           priority: 1,
         },
         {
           type: 'ForceModelByIntent',
-          intent: 'coding',
+          intent: 'code_change',
           models: ['claude-3-5-sonnet'],
           priority: -100, // Should execute first
         },
       ];
 
       const config = createTokenConfig({ policy_rules: rules });
-      const result = engine.evaluate('coding', allModels, config);
+      const result = engine.evaluate('code_change', allModels, config);
 
       // Negative priority should win
       expect(result.forced_model).toBe('claude-3-5-sonnet');
@@ -145,7 +145,7 @@ describe('PolicyEngine Edge Cases and Security', () => {
       ];
 
       const config = createTokenConfig({ policy_rules: rules });
-      const result = engine.evaluate('coding', allModels, config);
+      const result = engine.evaluate('code_change', allModels, config);
 
       // Both should be applied
       expect(result.eligible_models).not.toContain('gpt-4-turbo');
@@ -156,20 +156,20 @@ describe('PolicyEngine Edge Cases and Security', () => {
       const rules: PolicyRule[] = [
         {
           type: 'ForceModelByIntent',
-          intent: 'coding',
+          intent: 'code_change',
           models: ['claude-3-5-sonnet'],
           priority: 1,
         },
         {
           type: 'RestrictModelsByIntent',
-          intent: 'coding',
+          intent: 'code_change',
           models: ['gpt-4-turbo'], // Should not be processed
           priority: 2,
         },
       ];
 
       const config = createTokenConfig({ policy_rules: rules });
-      const result = engine.evaluate('coding', allModels, config);
+      const result = engine.evaluate('code_change', allModels, config);
 
       expect(result.forced_model).toBe('claude-3-5-sonnet');
       expect(result.eligible_models).toEqual(['claude-3-5-sonnet']);
@@ -183,13 +183,13 @@ describe('PolicyEngine Edge Cases and Security', () => {
       const rules: PolicyRule[] = [
         {
           type: 'ForceModelByIntent',
-          intent: 'legal',
+          intent: 'other:legal',
           models: ['claude-3-opus'],
         },
       ];
 
       const config = createTokenConfig({ policy_rules: rules });
-      const result = engine.evaluate('coding', allModels, config);
+      const result = engine.evaluate('code_change', allModels, config);
 
       expect(result.forced_model).toBeNull();
       expect(result.audit_trail.length).toBe(0);
@@ -199,13 +199,13 @@ describe('PolicyEngine Edge Cases and Security', () => {
       const rules: PolicyRule[] = [
         {
           type: 'ForceModelByIntent',
-          intent: 'coding',
+          intent: 'code_change',
           models: ['non-existent-model', 'claude-3-5-sonnet', 'gpt-4-turbo'],
         },
       ];
 
       const config = createTokenConfig({ policy_rules: rules });
-      const result = engine.evaluate('coding', allModels, config);
+      const result = engine.evaluate('code_change', allModels, config);
 
       // Should pick first eligible (claude-3-5-sonnet)
       expect(result.forced_model).toBe('claude-3-5-sonnet');
@@ -215,13 +215,13 @@ describe('PolicyEngine Edge Cases and Security', () => {
       const rules: PolicyRule[] = [
         {
           type: 'ForceModelByIntent',
-          intent: 'coding',
+          intent: 'code_change',
           models: ['non-existent-1', 'non-existent-2'],
         },
       ];
 
       const config = createTokenConfig({ policy_rules: rules });
-      const result = engine.evaluate('coding', allModels, config);
+      const result = engine.evaluate('code_change', allModels, config);
 
       expect(result.forced_model).toBeNull();
       // Should still have audit entry documenting the attempt
@@ -233,7 +233,7 @@ describe('PolicyEngine Edge Cases and Security', () => {
       const rules: PolicyRule[] = [
         {
           type: 'ForceModelByIntent',
-          intent: 'coding',
+          intent: 'code_change',
           models: ['gpt-4-turbo'],
         },
       ];
@@ -243,7 +243,7 @@ describe('PolicyEngine Edge Cases and Security', () => {
         policy_rules: rules,
       });
 
-      const result = engine.evaluate('coding', allModels, config);
+      const result = engine.evaluate('code_change', allModels, config);
 
       // Model is denied globally, so can't be forced
       expect(result.forced_model).toBeNull();
@@ -254,13 +254,13 @@ describe('PolicyEngine Edge Cases and Security', () => {
       const rules: PolicyRule[] = [
         {
           type: 'ForceModelByIntent',
-          intent: 'coding',
+          intent: 'code_change',
           models: [],
         },
       ];
 
       const config = createTokenConfig({ policy_rules: rules });
-      const result = engine.evaluate('coding', allModels, config);
+      const result = engine.evaluate('code_change', allModels, config);
 
       expect(result.forced_model).toBeNull();
     });
@@ -271,13 +271,13 @@ describe('PolicyEngine Edge Cases and Security', () => {
       const rules: PolicyRule[] = [
         {
           type: 'RestrictModelsByIntent',
-          intent: 'legal',
+          intent: 'other:legal',
           models: ['claude-3-opus'],
         },
       ];
 
       const config = createTokenConfig({ policy_rules: rules });
-      const result = engine.evaluate('coding', allModels, config);
+      const result = engine.evaluate('code_change', allModels, config);
 
       // Intent doesn't match, so no restriction
       expect(result.eligible_models).toEqual(allModels);
@@ -288,13 +288,13 @@ describe('PolicyEngine Edge Cases and Security', () => {
       const rules: PolicyRule[] = [
         {
           type: 'RestrictModelsByIntent',
-          intent: 'coding',
+          intent: 'code_change',
           models: ['gpt-4-turbo', 'claude-3-5-sonnet', 'non-existent'],
         },
       ];
 
       const config = createTokenConfig({ policy_rules: rules });
-      const result = engine.evaluate('coding', allModels, config);
+      const result = engine.evaluate('code_change', allModels, config);
 
       expect(result.eligible_models).toEqual(['gpt-4-turbo', 'claude-3-5-sonnet']);
     });
@@ -303,13 +303,13 @@ describe('PolicyEngine Edge Cases and Security', () => {
       const rules: PolicyRule[] = [
         {
           type: 'RestrictModelsByIntent',
-          intent: 'coding',
+          intent: 'code_change',
           models: ['non-existent-model'],
         },
       ];
 
       const config = createTokenConfig({ policy_rules: rules });
-      const result = engine.evaluate('coding', allModels, config);
+      const result = engine.evaluate('code_change', allModels, config);
 
       expect(result.eligible_models).toEqual([]);
     });
@@ -318,7 +318,7 @@ describe('PolicyEngine Edge Cases and Security', () => {
       const rules: PolicyRule[] = [
         {
           type: 'RestrictModelsByIntent',
-          intent: 'coding',
+          intent: 'code_change',
           models: ['gpt-4-turbo', 'claude-3-5-sonnet', 'gemini-1.5-pro'],
         },
       ];
@@ -328,7 +328,7 @@ describe('PolicyEngine Edge Cases and Security', () => {
         policy_rules: rules,
       });
 
-      const result = engine.evaluate('coding', allModels, config);
+      const result = engine.evaluate('code_change', allModels, config);
 
       // Should be intersection of both
       expect(result.eligible_models).toEqual(['gpt-4-turbo', 'claude-3-5-sonnet']);
@@ -338,13 +338,13 @@ describe('PolicyEngine Edge Cases and Security', () => {
       const rules: PolicyRule[] = [
         {
           type: 'RestrictModelsByIntent',
-          intent: 'coding',
+          intent: 'code_change',
           models: allModels, // All models in list
         },
       ];
 
       const config = createTokenConfig({ policy_rules: rules });
-      const result = engine.evaluate('coding', allModels, config);
+      const result = engine.evaluate('code_change', allModels, config);
 
       // No models removed, no audit entry needed
       expect(result.audit_trail.length).toBe(0);
@@ -358,7 +358,7 @@ describe('PolicyEngine Edge Cases and Security', () => {
         denied_models: ['gemini-1.5-pro'],
       });
 
-      const result = engine.evaluate('coding', allModels, config);
+      const result = engine.evaluate('code_change', allModels, config);
 
       // Allow first (3 models), then deny (remove gemini)
       expect(result.eligible_models).toEqual(['gpt-4-turbo', 'claude-3-5-sonnet']);
@@ -371,7 +371,7 @@ describe('PolicyEngine Edge Cases and Security', () => {
         denied_models: ['gpt-4-turbo'], // Also in allowed
       });
 
-      const result = engine.evaluate('coding', allModels, config);
+      const result = engine.evaluate('code_change', allModels, config);
 
       // Allow first, then deny wins
       expect(result.eligible_models).toEqual(['claude-3-5-sonnet']);
@@ -382,7 +382,7 @@ describe('PolicyEngine Edge Cases and Security', () => {
         denied_models: allModels,
       });
 
-      const result = engine.evaluate('coding', allModels, config);
+      const result = engine.evaluate('code_change', allModels, config);
 
       expect(result.eligible_models).toEqual([]);
     });
@@ -392,7 +392,7 @@ describe('PolicyEngine Edge Cases and Security', () => {
         allowed_models: ['non-existent-1', 'non-existent-2'],
       });
 
-      const result = engine.evaluate('coding', allModels, config);
+      const result = engine.evaluate('code_change', allModels, config);
 
       // No available models match the allow list
       expect(result.eligible_models).toEqual([]);
@@ -403,7 +403,7 @@ describe('PolicyEngine Edge Cases and Security', () => {
         denied_models: ['non-existent-1', 'non-existent-2'],
       });
 
-      const result = engine.evaluate('coding', allModels, config);
+      const result = engine.evaluate('code_change', allModels, config);
 
       // Should not affect eligible models
       expect(result.eligible_models).toEqual(allModels);
@@ -428,7 +428,7 @@ describe('PolicyEngine Edge Cases and Security', () => {
       ];
 
       const config = createTokenConfig({ policy_rules: rules });
-      const result = engine.evaluate('coding', allModels, config);
+      const result = engine.evaluate('code_change', allModels, config);
 
       expect(result.eligible_models).toEqual(['claude-3-5-sonnet', 'claude-3-opus']);
     });
@@ -437,20 +437,20 @@ describe('PolicyEngine Edge Cases and Security', () => {
       const rules: PolicyRule[] = [
         {
           type: 'RestrictModelsByIntent',
-          intent: 'coding',
+          intent: 'code_change',
           models: ['gpt-4-turbo', 'claude-3-5-sonnet', 'gemini-1.5-pro'],
           priority: 1,
         },
         {
           type: 'RestrictModelsByIntent',
-          intent: 'coding',
+          intent: 'code_change',
           models: ['gpt-4-turbo', 'claude-3-5-sonnet'],
           priority: 2,
         },
       ];
 
       const config = createTokenConfig({ policy_rules: rules });
-      const result = engine.evaluate('coding', allModels, config);
+      const result = engine.evaluate('code_change', allModels, config);
 
       // Second restriction further narrows
       expect(result.eligible_models).toEqual(['gpt-4-turbo', 'claude-3-5-sonnet']);
@@ -470,14 +470,14 @@ describe('PolicyEngine Edge Cases and Security', () => {
         },
         {
           type: 'RestrictModelsByIntent',
-          intent: 'coding',
+          intent: 'code_change',
           models: ['gpt-4-turbo', 'claude-3-5-sonnet', 'claude-3-opus'],
           priority: 3,
         },
       ];
 
       const config = createTokenConfig({ policy_rules: rules });
-      const result = engine.evaluate('coding', allModels, config);
+      const result = engine.evaluate('code_change', allModels, config);
 
       // Allow: [gpt-4-turbo, claude-3-5-sonnet, gemini-1.5-pro]
       // Deny gemini: [gpt-4-turbo, claude-3-5-sonnet]
@@ -495,7 +495,7 @@ describe('PolicyEngine Edge Cases and Security', () => {
         },
         {
           type: 'RestrictModelsByIntent',
-          intent: 'coding',
+          intent: 'code_change',
           models: ['gpt-4-turbo', 'claude-3-5-sonnet'],
         },
       ];
@@ -505,7 +505,7 @@ describe('PolicyEngine Edge Cases and Security', () => {
         policy_rules: rules,
       });
 
-      const result = engine.evaluate('coding', allModels, config);
+      const result = engine.evaluate('code_change', allModels, config);
 
       // Should have entries for: allow list, deny, restrict
       expect(result.audit_trail.length).toBeGreaterThanOrEqual(2);
@@ -521,7 +521,7 @@ describe('PolicyEngine Edge Cases and Security', () => {
         denied_models: ['gpt-4o'],
       });
 
-      const result = engine.evaluate('coding', allModels, config);
+      const result = engine.evaluate('code_change', allModels, config);
 
       for (const entry of result.audit_trail) {
         expect(entry.timestamp).toBeDefined();
@@ -533,29 +533,31 @@ describe('PolicyEngine Edge Cases and Security', () => {
       const rules: PolicyRule[] = [
         {
           type: 'ForceModelByIntent',
-          intent: 'coding',
+          intent: 'code_change',
           models: ['claude-3-5-sonnet'],
         },
       ];
 
       const config = createTokenConfig({ policy_rules: rules });
-      const result = engine.evaluate('coding', allModels, config);
+      const result = engine.evaluate('code_change', allModels, config);
 
       const forceEntry = result.audit_trail.find(e => e.rule_type === 'ForceModelByIntent');
-      expect(forceEntry?.intent).toBe('coding');
+      expect(forceEntry?.intent).toBe('code_change');
     });
   });
 
   describe('Intent Variations', () => {
     const allIntents: IntentLabel[] = [
-      'code_review',
-      'coding',
-      'legal',
+      'code_change',
+      'debugging',
+      'architecture_design',
       'summarization',
-      'reasoning',
-      'creative',
-      'support',
-      'other',
+      'explanation',
+      'data_analysis',
+      'content_generation',
+      'planning',
+      'other:general',
+      'other:legal',
     ];
 
     it('should handle all valid intent types', () => {
@@ -606,7 +608,7 @@ describe('PolicyEngine Edge Cases and Security', () => {
         allowed_models: specialModels,
       });
 
-      const result = engine.evaluate('coding', specialModels, config);
+      const result = engine.evaluate('code_change', specialModels, config);
 
       expect(result.eligible_models).toEqual(specialModels);
     });
@@ -616,7 +618,7 @@ describe('PolicyEngine Edge Cases and Security', () => {
         allowed_models: ['GPT-4-turbo'], // Different case
       });
 
-      const result = engine.evaluate('coding', allModels, config);
+      const result = engine.evaluate('code_change', allModels, config);
 
       // Should not match 'gpt-4-turbo' (case sensitive)
       expect(result.eligible_models).toEqual([]);
@@ -630,7 +632,7 @@ describe('PolicyEngine Edge Cases and Security', () => {
         allowed_models: [longName],
       });
 
-      const result = engine.evaluate('coding', models, config);
+      const result = engine.evaluate('code_change', models, config);
 
       expect(result.eligible_models).toEqual([longName]);
     });

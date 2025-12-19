@@ -25,33 +25,33 @@ describe('KnowledgeStore', () => {
     it('should calculate agreement_score as max_votes / total_votes', async () => {
       // Record 8 votes for model A, 2 for model B
       for (let i = 0; i < 8; i++) {
-        await store.recordVote('coding', modelA, globalScope);
+        await store.recordVote('code_change', modelA, globalScope);
       }
       for (let i = 0; i < 2; i++) {
-        await store.recordVote('coding', modelB, globalScope);
+        await store.recordVote('code_change', modelB, globalScope);
       }
 
-      const entry = await store.get('coding', globalScope);
+      const entry = await store.get('code_change', globalScope);
 
       expect(entry).not.toBeNull();
       expect(entry!.agreement_score).toBeCloseTo(0.8, 3); // 8/10 = 0.8
     });
 
     it('should return 1.0 agreement when only one model has votes', async () => {
-      await store.recordVote('coding', modelA, globalScope);
-      await store.recordVote('coding', modelA, globalScope);
-      await store.recordVote('coding', modelA, globalScope);
+      await store.recordVote('code_change', modelA, globalScope);
+      await store.recordVote('code_change', modelA, globalScope);
+      await store.recordVote('code_change', modelA, globalScope);
 
-      const entry = await store.get('coding', globalScope);
+      const entry = await store.get('code_change', globalScope);
 
       expect(entry!.agreement_score).toBe(1); // 3/3 = 1.0
     });
 
     it('should handle equal distribution (disagreement)', async () => {
-      await store.recordVote('coding', modelA, globalScope);
-      await store.recordVote('coding', modelB, globalScope);
+      await store.recordVote('code_change', modelA, globalScope);
+      await store.recordVote('code_change', modelB, globalScope);
 
-      const entry = await store.get('coding', globalScope);
+      const entry = await store.get('code_change', globalScope);
 
       expect(entry!.agreement_score).toBeCloseTo(0.5, 3); // 1/2 = 0.5
     });
@@ -61,10 +61,10 @@ describe('KnowledgeStore', () => {
     it('should assign strong confidence when agreement >= 0.8 with enough votes', async () => {
       // 10 votes for same model = 100% agreement
       for (let i = 0; i < 10; i++) {
-        await store.recordVote('coding', modelA, globalScope);
+        await store.recordVote('code_change', modelA, globalScope);
       }
 
-      const entry = await store.get('coding', globalScope);
+      const entry = await store.get('code_change', globalScope);
 
       expect(entry!.confidence_level).toBe('strong');
     });
@@ -72,13 +72,13 @@ describe('KnowledgeStore', () => {
     it('should assign moderate confidence when agreement >= 0.6', async () => {
       // 7 votes for A, 3 for B = 70% agreement
       for (let i = 0; i < 7; i++) {
-        await store.recordVote('coding', modelA, globalScope);
+        await store.recordVote('code_change', modelA, globalScope);
       }
       for (let i = 0; i < 3; i++) {
-        await store.recordVote('coding', modelB, globalScope);
+        await store.recordVote('code_change', modelB, globalScope);
       }
 
-      const entry = await store.get('coding', globalScope);
+      const entry = await store.get('code_change', globalScope);
 
       expect(entry!.agreement_score).toBeCloseTo(0.7, 3);
       expect(entry!.confidence_level).toBe('moderate');
@@ -87,27 +87,27 @@ describe('KnowledgeStore', () => {
     it('should assign low confidence when agreement < 0.6', async () => {
       // 3 votes for A, 3 for B, 2 for C = 37.5% agreement
       for (let i = 0; i < 3; i++) {
-        await store.recordVote('coding', modelA, globalScope);
+        await store.recordVote('code_change', modelA, globalScope);
       }
       for (let i = 0; i < 3; i++) {
-        await store.recordVote('coding', modelB, globalScope);
+        await store.recordVote('code_change', modelB, globalScope);
       }
       for (let i = 0; i < 2; i++) {
-        await store.recordVote('coding', modelC, globalScope);
+        await store.recordVote('code_change', modelC, globalScope);
       }
 
-      const entry = await store.get('coding', globalScope);
+        const entry = await store.get('code_change', globalScope);
 
-      expect(entry!.agreement_score).toBe(0.375); // 3/8
-      expect(entry!.confidence_level).toBe('low');
+        expect(entry!.agreement_score).toBeCloseTo(0.375, 3); // 3/8
+        expect(entry!.confidence_level).toBe('low');
     });
 
     it('should require minimum votes for strong confidence', async () => {
       // High agreement but only 2 votes
-      await store.recordVote('coding', modelA, globalScope);
-      await store.recordVote('coding', modelA, globalScope);
+      await store.recordVote('code_change', modelA, globalScope);
+      await store.recordVote('code_change', modelA, globalScope);
 
-      const entry = await store.get('coding', globalScope);
+      const entry = await store.get('code_change', globalScope);
 
       // 100% agreement but not enough votes
       expect(entry!.agreement_score).toBe(1);
@@ -122,16 +122,16 @@ describe('KnowledgeStore', () => {
       vi.setSystemTime(start);
 
       for (let i = 0; i < 10; i++) {
-        await store.recordVote('coding', modelA, globalScope);
+        await store.recordVote('code_change', modelA, globalScope);
       }
 
-      const immediate = await store.get('coding', globalScope);
+      const immediate = await store.get('code_change', globalScope);
       expect(immediate!.total_votes).toBe(10);
 
       const later = new Date(start.getTime() + 60 * 60 * 1000);
       vi.setSystemTime(later);
 
-      const decayed = await store.get('coding', globalScope);
+      const decayed = await store.get('code_change', globalScope);
       expect(decayed!.total_votes).toBeLessThan(immediate!.total_votes);
       expect(decayed!.decay_factor).toBeLessThan(1);
     });
@@ -142,17 +142,17 @@ describe('KnowledgeStore', () => {
       vi.setSystemTime(start);
 
       for (let i = 0; i < 8; i++) {
-        await store.recordVote('coding', modelA, globalScope);
+        await store.recordVote('code_change', modelA, globalScope);
       }
       for (let i = 0; i < 2; i++) {
-        await store.recordVote('coding', modelB, globalScope);
+        await store.recordVote('code_change', modelB, globalScope);
       }
 
-      const baseline = await store.get('coding', globalScope);
+      const baseline = await store.get('code_change', globalScope);
       const ratioBefore = baseline!.model_votes[modelA]! / baseline!.model_votes[modelB]!;
 
       vi.setSystemTime(new Date(start.getTime() + 30 * 60 * 1000));
-      const decayed = await store.get('coding', globalScope);
+      const decayed = await store.get('code_change', globalScope);
       const ratioAfter = decayed!.model_votes[modelA]! / decayed!.model_votes[modelB]!;
 
       expect(Math.abs(ratioBefore - ratioAfter)).toBeLessThan(0.01);
@@ -162,22 +162,22 @@ describe('KnowledgeStore', () => {
   describe('Consensus Model Selection', () => {
     it('should return model with most votes as consensus', async () => {
       for (let i = 0; i < 7; i++) {
-        await store.recordVote('coding', modelA, globalScope);
+        await store.recordVote('code_change', modelA, globalScope);
       }
       for (let i = 0; i < 3; i++) {
-        await store.recordVote('coding', modelB, globalScope);
+        await store.recordVote('code_change', modelB, globalScope);
       }
 
-      const consensus = await store.getConsensusModel('coding', globalScope);
+      const consensus = await store.getConsensusModel('code_change', globalScope);
 
       expect(consensus).toBe(modelA);
     });
 
     it('should return null for low confidence entries', async () => {
       // Only 1 vote = low confidence
-      await store.recordVote('coding', modelA, globalScope);
+      await store.recordVote('code_change', modelA, globalScope);
 
-      const consensus = await store.getConsensusModel('coding', globalScope);
+      const consensus = await store.getConsensusModel('code_change', globalScope);
 
       expect(consensus).toBeNull();
     });

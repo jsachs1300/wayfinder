@@ -1,1 +1,8 @@
-export { IntentClassifier, HeuristicIntentClassifier, createIntentClassifier } from './classifier';
+export {
+  IntentClassifier,
+  HeuristicIntentClassifier,
+  createIntentClassifier,
+  isCanonicalIntent,
+  isOtherIntent,
+  isValidIntentLabel,
+} from './classifier';

@@ -1,4 +1,25 @@
-import { IntentLabel, IntentClassification } from '../types';
+import {
+  CanonicalIntentLabel,
+  IntentLabel,
+  IntentClassification,
+} from '../types';
+
+const CANONICAL_INTENTS: CanonicalIntentLabel[] = [
+  'code_change',
+  'debugging',
+  'architecture_design',
+  'explanation',
+  'summarization',
+  'data_analysis',
+  'content_generation',
+  'planning',
+];
+
+const INTENT_LABELS: IntentLabel[] = [
+  ...CANONICAL_INTENTS,
+  'other:general',
+  'other:legal',
+];
 
 /**
  * Intent classifier interface for swappability
@@ -11,32 +32,37 @@ export interface IntentClassifier {
  * Keyword patterns for each intent type
  */
 const INTENT_PATTERNS: Record<IntentLabel, RegExp[]> = {
-  code_review: [
-    /review\s+(this\s+)?(code|pr|pull\s+request|commit|diff)/i,
-    /check\s+(this\s+)?(code|implementation)/i,
-    /what('s|\s+is)\s+wrong\s+with\s+(this\s+)?code/i,
-    /find\s+(bugs?|issues?|problems?)\s+in/i,
-    /code\s+quality/i,
-    /refactor\s+suggestions?/i,
+  code_change: [
+    /\b(write|implement|create|build|develop)\b.*\b(code|function|class|script|program|component)/i,
+    /\brefactor\b/i,
+    /\b(update|modify|change)\b.*\b(code|logic)/i,
+    /\b(add|implement)\b.*\b(feature)/i,
+    /\breview\b.*\b(code|pr|pull\s+request|commit|diff)/i,
   ],
-  coding: [
-    /write\s+(a\s+)?(function|class|method|code|script|program)/i,
-    /implement\s+(a\s+)?/i,
-    /create\s+(a\s+)?(function|class|component|api|endpoint)/i,
-    /fix\s+(this\s+)?(bug|error|issue)/i,
-    /debug\s+(this|the)/i,
-    /how\s+(do\s+i|to)\s+(code|implement|write)/i,
-    /convert\s+(this\s+)?code/i,
-    /add\s+(a\s+)?feature/i,
-    /\b(function|class|const|let|var|def|import|export)\b/,
+  debugging: [
+    /\b(debug|fix)\b.*\b(bug|issue|error|problem)/i,
+    /\berror\s+message\b/i,
+    /\bstack\s*trace\b/i,
+    /\bnot\s+working\b/i,
+    /\bwhy\s+is\s+this\s+failing\b/i,
+    /\bdebug(ging)?\b/i,
   ],
-  legal: [
-    /\b(legal|law|lawyer|attorney|court|lawsuit|contract|liability)\b/i,
-    /\b(compliance|regulation|regulatory|gdpr|hipaa|sox)\b/i,
-    /\b(terms\s+of\s+service|privacy\s+policy|license|copyright)\b/i,
-    /\b(sue|lawsuit|litigation|defendant|plaintiff)\b/i,
-    /is\s+(this|it)\s+legal/i,
-    /legal\s+(advice|opinion|question)/i,
+  architecture_design: [
+    /\b(system|software|solution|api)\s+design\b/i,
+    /\barchitecture\b/i,
+    /\bdesign\s+(a|an)\s+(service|system|module)/i,
+    /\bchoose\s+(a|the)\s+pattern\b/i,
+    /\bhigh\s*level\s+approach\b/i,
+    /\bmicroservice\s+architecture\b/i,
+    /\bpattern\b/i,
+  ],
+  explanation: [
+    /\bexplain\b/i,
+    /\bwhy\s+does\b/i,
+    /\bhow\s+does\b/i,
+    /\bwalk\s+me\s+through\b/i,
+    /\bwhat\s+is\s+the\s+reason\b/i,
+    /\bcompare\s+and\s+contrast\b/i,
   ],
   summarization: [
     /summarize\s+(this|the)/i,
@@ -48,57 +74,67 @@ const INTENT_PATTERNS: Record<IntentLabel, RegExp[]> = {
     /in\s+short/i,
     /condense\s+(this|the)/i,
   ],
-  reasoning: [
-    /explain\s+(why|how)/i,
-    /what\s+(is|are)\s+the\s+reason/i,
-    /analyze\s+(this|the)/i,
-    /compare\s+(and\s+contrast)?/i,
-    /pros\s+and\s+cons/i,
-    /advantages?\s+(and|or)\s+disadvantages?/i,
-    /logic(al)?\s+(behind|of)/i,
-    /step\s+by\s+step/i,
-    /think\s+(through|about)/i,
-    /evaluate\s+(this|the)/i,
-    /critical(ly)?\s+(think|analyze)/i,
+  data_analysis: [
+    /analy(s|z)e\s+(this\s+)?data/i,
+    /dataset/i,
+    /csv/i,
+    /derive\s+(insights|stats)/i,
+    /run\s+(an\s+)?analysis/i,
+    /data\s+summary/i,
   ],
-  creative: [
-    /write\s+(a\s+)?(story|poem|song|essay|article|blog)/i,
+  content_generation: [
+    /write\s+(a\s+)?(story|poem|song|essay|article|blog|post)/i,
     /creative\s+(writing|content)/i,
     /brainstorm/i,
     /come\s+up\s+with\s+(ideas?|names?)/i,
     /imagine\s+(a|that)/i,
-    /create\s+(a\s+)?(story|narrative|character)/i,
     /fiction(al)?/i,
-    /make\s+(it\s+)?(funny|humorous|engaging)/i,
-    /rewrite\s+(this\s+)?in\s+a\s+(more\s+)?(creative|engaging)/i,
   ],
-  support: [
-    /help\s+(me\s+)?(with|understand)/i,
-    /how\s+do\s+i/i,
-    /what\s+(is|are|does)/i,
-    /can\s+you\s+(explain|help|tell)/i,
-    /having\s+(trouble|issues?|problems?)/i,
-    /not\s+working/i,
-    /error\s+message/i,
-    /stuck\s+(on|with)/i,
-    /troubleshoot/i,
+  planning: [
+    /plan\s+(a|the)?\s*(project|sprint|roadmap|tasks?)/i,
+    /create\s+(a|the)?\s*(timeline|schedule|checklist)/i,
+    /step\s+by\s+step\s+plan/i,
+    /milestones?/i,
+    /organize\s+(work|tasks)/i,
   ],
-  other: [], // Fallback, no specific patterns
+  'other:general': [], // Fallback
+  'other:legal': [
+    /\b(legal|law|lawyer|attorney|court|lawsuit|contract|liability)\b/i,
+    /\b(compliance|regulation|regulatory|gdpr|hipaa|sox)\b/i,
+    /\b(terms\s+of\s+service|privacy\s+policy|license|copyright)\b/i,
+    /\b(sue|lawsuit|litigation|defendant|plaintiff)\b/i,
+    /is\s+(this|it)\s+legal/i,
+    /legal\s+(advice|opinion|question)/i,
+  ],
 };
 
 /**
  * Weight multipliers for each intent (some are more specific than others)
  */
 const INTENT_WEIGHTS: Record<IntentLabel, number> = {
-  code_review: 1.2,
-  coding: 1.0,
-  legal: 1.5,  // Legal is highly specific
-  summarization: 1.3,
-  reasoning: 1.1,
-  creative: 1.2,
-  support: 0.8,  // Support is more generic
-  other: 0.5,
+  code_change: 1.2,
+  debugging: 1.2,
+  architecture_design: 1.1,
+  explanation: 1.0,
+  summarization: 1.1,
+  data_analysis: 1.1,
+  content_generation: 1.0,
+  planning: 0.9,
+  'other:general': 0.5,
+  'other:legal': 1.3,
 };
+
+export function isCanonicalIntent(label: string): label is CanonicalIntentLabel {
+  return (CANONICAL_INTENTS as string[]).includes(label);
+}
+
+export function isOtherIntent(label: string): label is `other:${string}` {
+  return /^other:[a-z]+$/.test(label);
+}
+
+export function isValidIntentLabel(label: string): label is IntentLabel {
+  return isCanonicalIntent(label) || isOtherIntent(label);
+}
 
 /**
  * Heuristic-based intent classifier using keyword patterns
@@ -106,30 +142,38 @@ const INTENT_WEIGHTS: Record<IntentLabel, number> = {
 export class HeuristicIntentClassifier implements IntentClassifier {
   classify(prompt: string): IntentClassification {
     const normalizedPrompt = prompt.toLowerCase().trim();
-    const scores: Record<IntentLabel, number> = {
-      code_review: 0,
-      coding: 0,
-      legal: 0,
-      summarization: 0,
-      reasoning: 0,
-      creative: 0,
-      support: 0,
-      other: 0,
-    };
+    const scores = Object.fromEntries(
+      INTENT_LABELS.map((intent) => [intent, 0])
+    ) as Record<IntentLabel, number>;
+
+    const quickHeuristics: Array<[IntentLabel, RegExp]> = [
+      ['code_change', /(function|code|implement|feature|pull\s*request)/i],
+      ['debugging', /(debug|bug|error|issue|stack\s*trace)/i],
+      [
+        'architecture_design',
+        /(architecture|system design|microservice|design pattern|high level)/i,
+      ],
+    ];
+
+    for (const [intent, pattern] of quickHeuristics) {
+      if (pattern.test(normalizedPrompt)) {
+        scores[intent] += INTENT_WEIGHTS[intent] ?? 0.1;
+      }
+    }
 
     // Calculate raw scores based on pattern matches
     for (const [intent, patterns] of Object.entries(INTENT_PATTERNS)) {
       const intentLabel = intent as IntentLabel;
       for (const pattern of patterns) {
         if (pattern.test(normalizedPrompt)) {
-          scores[intentLabel] += INTENT_WEIGHTS[intentLabel];
+          scores[intentLabel] += INTENT_WEIGHTS[intentLabel] ?? 0;
         }
       }
     }
 
     // Find the intent with the highest score
     let maxScore = 0;
-    let selectedIntent: IntentLabel = 'other';
+    let selectedIntent: IntentLabel = 'other:general';
     let totalScore = 0;
 
     for (const [intent, score] of Object.entries(scores)) {
@@ -140,10 +184,10 @@ export class HeuristicIntentClassifier implements IntentClassifier {
       }
     }
 
-    // If no patterns matched, default to 'other' with low confidence
+    // If no patterns matched, default to 'other:general' with low confidence
     if (maxScore === 0) {
       return {
-        label: 'other',
+        label: 'other:general',
         confidence: 0.3,
         raw_scores: scores,
       };

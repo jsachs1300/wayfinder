@@ -3,15 +3,17 @@
  */
 
 // Intent Classification
-export type IntentLabel =
-  | 'code_review'
-  | 'coding'
-  | 'legal'
+export type CanonicalIntentLabel =
+  | 'code_change'
+  | 'debugging'
+  | 'architecture_design'
+  | 'explanation'
   | 'summarization'
-  | 'reasoning'
-  | 'creative'
-  | 'support'
-  | 'other';
+  | 'data_analysis'
+  | 'content_generation'
+  | 'planning';
+
+export type IntentLabel = CanonicalIntentLabel | `other:${string}`;
 
 export interface IntentClassification {
   label: IntentLabel;
@@ -167,6 +169,24 @@ export interface RouteResponse {
   routing_decision: RoutingDecision;
   request_id: string;
   _internal?: RoutingContextInternal; // Internal context for logging (stripped before HTTP response)
+}
+
+// Routing inference (LLM-driven router)
+export interface RouterModelSelection {
+  model: string;
+  reason: string;
+}
+
+export interface RoutingInferenceResult {
+  primary: RouterModelSelection;
+  alternate: RouterModelSelection;
+  confidence: number; // 0-10 inclusive
+  intent: string;
+}
+
+export interface RoutingInferenceRecord extends RoutingInferenceResult {
+  intent_version: number;
+  timestamp: string;
 }
 
 // Fallback Chain Entry for routing decision logging

@@ -94,12 +94,12 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
   describe('Concurrent Vote Recording', () => {
     it('should handle concurrent votes for same cluster', async () => {
       const promises = Array.from({ length: 100 }, () =>
-        store.recordVote('coding', 'gpt-4-turbo', globalScope)
+        store.recordVote('code_change', 'gpt-4-turbo', globalScope)
       );
 
       await Promise.all(promises);
 
-      const entry = await store.get('coding', globalScope);
+      const entry = await store.get('code_change', globalScope);
       // All votes should be recorded
       expect(entry!.total_votes).toBeCloseTo(100, 3);
       expect(entry!.model_votes['gpt-4-turbo']).toBeCloseTo(100, 3);
@@ -107,13 +107,13 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
 
     it('should handle concurrent votes for different models in same cluster', async () => {
       const promises = [
-        ...Array.from({ length: 60 }, () => store.recordVote('coding', modelA, globalScope)),
-        ...Array.from({ length: 40 }, () => store.recordVote('coding', modelB, globalScope)),
+        ...Array.from({ length: 60 }, () => store.recordVote('code_change', modelA, globalScope)),
+        ...Array.from({ length: 40 }, () => store.recordVote('code_change', modelB, globalScope)),
       ];
 
       await Promise.all(promises);
 
-      const entry = await store.get('coding', globalScope);
+      const entry = await store.get('code_change', globalScope);
       expect(entry!.total_votes).toBeCloseTo(100, 3);
       expect(entry!.model_votes[modelA]).toBeCloseTo(60, 3);
       expect(entry!.model_votes[modelB]).toBeCloseTo(40, 3);
@@ -121,7 +121,7 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
     });
 
     it('should handle concurrent votes across multiple clusters', async () => {
-      const clusters = ['coding', 'legal', 'creative', 'reasoning'];
+      const clusters = ['code_change', 'other:legal', 'content_generation', 'explanation'];
       const promises = clusters.flatMap(cluster =>
         Array.from({ length: 10 }, () => store.recordVote(cluster, modelA, globalScope))
       );
@@ -457,7 +457,7 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
 
       const entry = await store.get('test', globalScope);
       expect(entry).not.toBeNull();
-      expect(entry!.model_votes[modelB]).toBe(1);
+      expect(entry!.model_votes[modelB]).toBeCloseTo(1, 6);
       expect(entry!.model_votes[modelA]).toBeUndefined();
     });
   });

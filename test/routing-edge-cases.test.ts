@@ -168,7 +168,7 @@ describe('RoutingEngine Edge Cases and Security', () => {
   describe('Knowledge Consensus Edge Cases', () => {
     it('should skip knowledge consensus if confidence is low', async () => {
       // Create low confidence knowledge
-      await knowledgeStore.recordVote('coding', 'gpt-4-turbo', globalScope);
+      await knowledgeStore.recordVote('code_change', 'gpt-4-turbo', globalScope);
 
       const config = createTokenConfig({
         trusted_anchor_model: 'claude-3-5-sonnet',
@@ -186,7 +186,7 @@ describe('RoutingEngine Edge Cases and Security', () => {
     it('should skip knowledge consensus if consensus model is denied', async () => {
       // Build strong consensus
       for (let i = 0; i < 10; i++) {
-        await knowledgeStore.recordVote('coding', 'gpt-4-turbo', globalScope);
+        await knowledgeStore.recordVote('code_change', 'gpt-4-turbo', globalScope);
       }
 
       const config = createTokenConfig({
@@ -205,7 +205,7 @@ describe('RoutingEngine Edge Cases and Security', () => {
     it('should skip knowledge consensus if consensus model is not in eligible models', async () => {
       // Build consensus for a model
       for (let i = 0; i < 10; i++) {
-        await knowledgeStore.recordVote('coding', 'gpt-4-turbo', globalScope);
+        await knowledgeStore.recordVote('code_change', 'gpt-4-turbo', globalScope);
       }
 
       const config = createTokenConfig({
@@ -223,10 +223,10 @@ describe('RoutingEngine Edge Cases and Security', () => {
     it('should use knowledge consensus when available and valid', async () => {
       // Build moderate consensus
       for (let i = 0; i < 7; i++) {
-        await knowledgeStore.recordVote('coding', 'gpt-4-turbo', globalScope);
+        await knowledgeStore.recordVote('code_change', 'gpt-4-turbo', globalScope);
       }
       for (let i = 0; i < 3; i++) {
-        await knowledgeStore.recordVote('coding', 'claude-3-5-sonnet', globalScope);
+        await knowledgeStore.recordVote('code_change', 'claude-3-5-sonnet', globalScope);
       }
 
       const config = createTokenConfig();
@@ -245,13 +245,13 @@ describe('RoutingEngine Edge Cases and Security', () => {
     it('should use forced model even when knowledge suggests different model', async () => {
       // Build knowledge consensus
       for (let i = 0; i < 10; i++) {
-        await knowledgeStore.recordVote('coding', 'gpt-4-turbo', globalScope);
+        await knowledgeStore.recordVote('code_change', 'gpt-4-turbo', globalScope);
       }
 
       const rules: PolicyRule[] = [
         {
           type: 'ForceModelByIntent',
-          intent: 'coding',
+          intent: 'code_change',
           models: ['claude-3-5-sonnet'],
         },
       ];
@@ -320,10 +320,10 @@ describe('RoutingEngine Edge Cases and Security', () => {
     it('should include agreement_score when knowledge is used', async () => {
       // Build consensus
       for (let i = 0; i < 8; i++) {
-        await knowledgeStore.recordVote('coding', 'gpt-4-turbo', globalScope);
+        await knowledgeStore.recordVote('code_change', 'gpt-4-turbo', globalScope);
       }
       for (let i = 0; i < 2; i++) {
-        await knowledgeStore.recordVote('coding', 'claude-3-5-sonnet', globalScope);
+        await knowledgeStore.recordVote('code_change', 'claude-3-5-sonnet', globalScope);
       }
 
       const config = createTokenConfig();
@@ -404,7 +404,7 @@ describe('RoutingEngine Edge Cases and Security', () => {
       );
 
       const votePromises = Array.from({ length: 20 }, () =>
-        knowledgeStore.recordVote('coding', 'gpt-4-turbo', globalScope)
+        knowledgeStore.recordVote('code_change', 'gpt-4-turbo', globalScope)
       );
 
       const [routes] = await Promise.all([
@@ -527,7 +527,7 @@ describe('RoutingEngine Edge Cases and Security', () => {
       customRegistry.registerModel({
         id: 'unavailable-model',
         provider: 'test',
-        capabilities: ['coding'],
+        capabilities: ['code_change'],
         cost_tier: 'low',
         speed_tier: 'fast',
         context_window: 4096,
@@ -574,12 +574,12 @@ describe('RoutingEngine Edge Cases and Security', () => {
       const rules: PolicyRule[] = [
         {
           type: 'ForceModelByIntent',
-          intent: 'legal',
+          intent: 'other:legal',
           models: ['claude-3-opus'],
         },
         {
           type: 'ForceModelByIntent',
-          intent: 'coding',
+          intent: 'code_change',
           models: ['gpt-4-turbo'],
         },
       ];

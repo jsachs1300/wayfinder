@@ -23,11 +23,11 @@ describe('Knowledge Scope', () => {
     it('should record and retrieve votes in global scope', async () => {
       const scopeContext: KnowledgeScopeContext = { scope: 'global' };
 
-      await knowledgeStore.recordVote('coding', 'gpt-4-turbo', scopeContext);
-      await knowledgeStore.recordVote('coding', 'gpt-4-turbo', scopeContext);
-      await knowledgeStore.recordVote('coding', 'claude-3-5-sonnet', scopeContext);
+      await knowledgeStore.recordVote('code_change', 'gpt-4-turbo', scopeContext);
+      await knowledgeStore.recordVote('code_change', 'gpt-4-turbo', scopeContext);
+      await knowledgeStore.recordVote('code_change', 'claude-3-5-sonnet', scopeContext);
 
-      const entry = await knowledgeStore.get('coding', scopeContext);
+      const entry = await knowledgeStore.get('code_change', scopeContext);
       expect(entry).not.toBeNull();
       expect(entry?.total_votes).toBeCloseTo(3, 6);
       expect(entry?.model_votes['gpt-4-turbo']).toBeCloseTo(2, 6);
@@ -39,11 +39,11 @@ describe('Knowledge Scope', () => {
 
       // Build strong consensus
       for (let i = 0; i < 6; i++) {
-        await knowledgeStore.recordVote('coding', 'gpt-4-turbo', scopeContext);
+        await knowledgeStore.recordVote('code_change', 'gpt-4-turbo', scopeContext);
       }
-      await knowledgeStore.recordVote('coding', 'claude-3-5-sonnet', scopeContext);
+      await knowledgeStore.recordVote('code_change', 'claude-3-5-sonnet', scopeContext);
 
-      const consensus = await knowledgeStore.getConsensusModel('coding', scopeContext);
+      const consensus = await knowledgeStore.getConsensusModel('code_change', scopeContext);
       expect(consensus).toBe('gpt-4-turbo');
     });
   });
@@ -55,10 +55,10 @@ describe('Knowledge Scope', () => {
         token_id: 'token_123',
       };
 
-      await knowledgeStore.recordVote('coding', 'gpt-4o', tokenScope);
-      await knowledgeStore.recordVote('coding', 'gpt-4o', tokenScope);
+      await knowledgeStore.recordVote('code_change', 'gpt-4o', tokenScope);
+      await knowledgeStore.recordVote('code_change', 'gpt-4o', tokenScope);
 
-      const entry = await knowledgeStore.get('coding', tokenScope);
+      const entry = await knowledgeStore.get('code_change', tokenScope);
       expect(entry).not.toBeNull();
       expect(entry?.total_votes).toBeCloseTo(2, 6);
       expect(entry?.model_votes['gpt-4o']).toBeCloseTo(2, 6);
@@ -75,19 +75,19 @@ describe('Knowledge Scope', () => {
       };
 
       // Record votes for token 1
-      await knowledgeStore.recordVote('coding', 'gpt-4-turbo', token1Scope);
-      await knowledgeStore.recordVote('coding', 'gpt-4-turbo', token1Scope);
+      await knowledgeStore.recordVote('code_change', 'gpt-4-turbo', token1Scope);
+      await knowledgeStore.recordVote('code_change', 'gpt-4-turbo', token1Scope);
 
       // Record different votes for token 2
-      await knowledgeStore.recordVote('coding', 'claude-3-5-sonnet', token2Scope);
+      await knowledgeStore.recordVote('code_change', 'claude-3-5-sonnet', token2Scope);
 
       // Verify token 1 knowledge
-      const entry1 = await knowledgeStore.get('coding', token1Scope);
+      const entry1 = await knowledgeStore.get('code_change', token1Scope);
       expect(entry1?.model_votes['gpt-4-turbo']).toBeCloseTo(2, 6);
       expect(entry1?.model_votes['claude-3-5-sonnet']).toBeUndefined();
 
       // Verify token 2 knowledge
-      const entry2 = await knowledgeStore.get('coding', token2Scope);
+      const entry2 = await knowledgeStore.get('code_change', token2Scope);
       expect(entry2?.model_votes['claude-3-5-sonnet']).toBeCloseTo(1, 6);
       expect(entry2?.model_votes['gpt-4-turbo']).toBeUndefined();
     });
@@ -100,11 +100,11 @@ describe('Knowledge Scope', () => {
       };
 
       // Record votes in global scope
-      await knowledgeStore.recordVote('coding', 'gpt-4-turbo', globalScope);
-      await knowledgeStore.recordVote('coding', 'gpt-4-turbo', globalScope);
+      await knowledgeStore.recordVote('code_change', 'gpt-4-turbo', globalScope);
+      await knowledgeStore.recordVote('code_change', 'gpt-4-turbo', globalScope);
 
       // Token scope should have no knowledge
-      const tokenEntry = await knowledgeStore.get('coding', tokenScope);
+      const tokenEntry = await knowledgeStore.get('code_change', tokenScope);
       expect(tokenEntry).toBeNull();
     });
 
@@ -116,11 +116,11 @@ describe('Knowledge Scope', () => {
       };
 
       // Record votes in token scope
-      await knowledgeStore.recordVote('coding', 'gpt-4o', tokenScope);
-      await knowledgeStore.recordVote('coding', 'gpt-4o', tokenScope);
+      await knowledgeStore.recordVote('code_change', 'gpt-4o', tokenScope);
+      await knowledgeStore.recordVote('code_change', 'gpt-4o', tokenScope);
 
       // Global scope should have no knowledge
-      const globalEntry = await knowledgeStore.get('coding', globalScope);
+      const globalEntry = await knowledgeStore.get('code_change', globalScope);
       expect(globalEntry).toBeNull();
     });
 
@@ -131,7 +131,7 @@ describe('Knowledge Scope', () => {
       };
 
       await expect(
-        knowledgeStore.recordVote('coding', 'gpt-4-turbo', invalidScope)
+        knowledgeStore.recordVote('code_change', 'gpt-4-turbo', invalidScope)
       ).rejects.toThrow('token_id is required for token scope');
     });
   });
@@ -145,11 +145,11 @@ describe('Knowledge Scope', () => {
       };
 
       // Create some global knowledge
-      await knowledgeStore.recordVote('coding', 'gpt-4-turbo', globalScope);
-      await knowledgeStore.recordVote('legal', 'claude-3-opus', globalScope);
+      await knowledgeStore.recordVote('code_change', 'gpt-4-turbo', globalScope);
+      await knowledgeStore.recordVote('other:legal', 'claude-3-opus', globalScope);
 
       // Create some token knowledge
-      await knowledgeStore.recordVote('coding', 'gpt-4o', tokenScope);
+      await knowledgeStore.recordVote('code_change', 'gpt-4o', tokenScope);
 
       const stats = await knowledgeStore.getStats();
       expect(stats.total_entries).toBe(3);
@@ -164,8 +164,8 @@ describe('Knowledge Scope', () => {
         token_id: 'token_123',
       };
 
-      await knowledgeStore.recordVote('coding', 'gpt-4-turbo', globalScope);
-      await knowledgeStore.recordVote('coding', 'gpt-4o', tokenScope);
+      await knowledgeStore.recordVote('code_change', 'gpt-4-turbo', globalScope);
+      await knowledgeStore.recordVote('code_change', 'gpt-4o', tokenScope);
 
       const stats = await knowledgeStore.getStats(globalScope);
       expect(stats.total_entries).toBe(1);
@@ -183,8 +183,8 @@ describe('Knowledge Scope', () => {
         token_id: 'token_456',
       };
 
-      await knowledgeStore.recordVote('coding', 'gpt-4-turbo', token1Scope);
-      await knowledgeStore.recordVote('legal', 'claude-3-opus', token2Scope);
+      await knowledgeStore.recordVote('code_change', 'gpt-4-turbo', token1Scope);
+      await knowledgeStore.recordVote('other:legal', 'claude-3-opus', token2Scope);
 
       const stats = await knowledgeStore.getStats(token1Scope);
       expect(stats.total_entries).toBe(1);
@@ -206,15 +206,15 @@ describe('Knowledge Scope', () => {
       };
 
       vi.setSystemTime(new Date('2024-01-01T00:00:00Z'));
-      await knowledgeStore.recordVote('coding', 'gpt-4-turbo', globalScope);
-      await knowledgeStore.recordVote('coding', 'gpt-4o', tokenScope);
+      await knowledgeStore.recordVote('code_change', 'gpt-4-turbo', globalScope);
+      await knowledgeStore.recordVote('code_change', 'gpt-4o', tokenScope);
 
-      const immediateGlobal = await knowledgeStore.get('coding', globalScope);
-      const immediateToken = await knowledgeStore.get('coding', tokenScope);
+      const immediateGlobal = await knowledgeStore.get('code_change', globalScope);
+      const immediateToken = await knowledgeStore.get('code_change', tokenScope);
 
       vi.setSystemTime(new Date('2024-01-02T00:00:00Z'));
-      const decayedGlobal = await knowledgeStore.get('coding', globalScope);
-      const decayedToken = await knowledgeStore.get('coding', tokenScope);
+      const decayedGlobal = await knowledgeStore.get('code_change', globalScope);
+      const decayedToken = await knowledgeStore.get('code_change', tokenScope);
 
       expect(decayedGlobal!.total_votes).toBeLessThan(immediateGlobal!.total_votes);
       expect(decayedToken!.total_votes).toBeLessThan(immediateToken!.total_votes);
@@ -229,7 +229,7 @@ describe('Knowledge Scope', () => {
       };
 
       await expect(
-        knowledgeStore.recordVote('coding', 'gpt-4-turbo', orgScope)
+        knowledgeStore.recordVote('code_change', 'gpt-4-turbo', orgScope)
       ).rejects.toThrow('Org-scoped knowledge is not yet implemented');
     });
 
@@ -239,7 +239,7 @@ describe('Knowledge Scope', () => {
       };
 
       await expect(
-        knowledgeStore.recordVote('coding', 'gpt-4-turbo', hybridScope)
+        knowledgeStore.recordVote('code_change', 'gpt-4-turbo', hybridScope)
       ).rejects.toThrow('Hybrid knowledge scope is not yet implemented');
     });
   });

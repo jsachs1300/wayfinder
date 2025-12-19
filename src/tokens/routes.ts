@@ -3,6 +3,7 @@ import { TokenStore } from './store';
 import { TokenCreateRequest, TokenUpdateRequest } from '../types';
 import { ModelRegistry, ModelValidationError } from '../models';
 import { z } from 'zod';
+import { isValidIntentLabel } from '../intent';
 
 interface IdParams {
   id: string;
@@ -10,7 +11,12 @@ interface IdParams {
 
 const PolicyRuleSchema = z.object({
   type: z.enum(['ForceModelByIntent', 'RestrictModelsByIntent', 'AllowModelsGlobal', 'DenyModelsGlobal']),
-  intent: z.enum(['code_review', 'coding', 'legal', 'summarization', 'reasoning', 'creative', 'support', 'other']).optional(),
+  intent: z
+    .string()
+    .optional()
+    .refine((intent) => !intent || isValidIntentLabel(intent), {
+      message: 'Invalid intent label',
+    }),
   models: z.array(z.string()),
   priority: z.number().optional(),
 });

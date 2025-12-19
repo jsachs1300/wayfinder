@@ -4,22 +4,16 @@ import { FeedbackRequest } from '../types';
 import { ModelRegistry, ModelValidationError } from '../models';
 import { createLogger } from '../logging';
 import { z } from 'zod';
+import { isValidIntentLabel } from '../intent';
 
 const logger = createLogger(process.env.LOG_LEVEL);
 
 const FeedbackRequestSchema = z.object({
   request_id: z.string().min(1, 'Request ID is required'),
   selected_model: z.string().min(1, 'Selected model is required'),
-  intent_label: z.enum([
-    'code_review',
-    'coding',
-    'legal',
-    'summarization',
-    'reasoning',
-    'creative',
-    'support',
-    'other',
-  ]),
+  intent_label: z
+    .string()
+    .refine((intent) => isValidIntentLabel(intent), 'Invalid intent label'),
   rating: z.enum(['positive', 'negative', 'neutral']).optional(),
   preferred_model: z.string().optional(),
   metadata: z.record(z.unknown()).optional(),
