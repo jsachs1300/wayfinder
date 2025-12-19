@@ -464,9 +464,11 @@ export class RedisKnowledgeStore implements KnowledgeStore {
       return aggregateStats([], nowMs);
     }
 
-    const statsList = await this.redis
-      .multi(scopeKeys.map(scopeKey => ['hgetall', `${KNOWLEDGE_STATS_PREFIX}${scopeKey}`] as const))
-      .exec();
+    const pipeline = this.redis.multi();
+    scopeKeys.forEach(scopeKey => {
+      pipeline.hgetall(`${KNOWLEDGE_STATS_PREFIX}${scopeKey}`);
+    });
+    const statsList = await pipeline.exec();
 
     const parsedStats: StoredStats[] = [];
     statsList?.forEach(result => {
@@ -479,8 +481,10 @@ export class RedisKnowledgeStore implements KnowledgeStore {
 
     scopeKeys.forEach((scopeKey, index) => {
       const stats = parsedStats[index];
-      const scopeType: KnowledgeScope = scopeKey.startsWith('token:') ? 'token' : 'global';
-      entriesByScope[scopeType] += stats.totalCount;
+      if (stats) {
+        const scopeType: KnowledgeScope = scopeKey.startsWith('token:') ? 'token' : 'global';
+        entriesByScope[scopeType] += stats.totalCount;
+      }
     });
 
     return { ...aggregated, entries_by_scope: entriesByScope };

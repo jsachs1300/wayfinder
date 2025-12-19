@@ -7,7 +7,7 @@ import { createIntentClassifier, IntentClassifier } from './intent';
 import { createPolicyEngine, PolicyEngine } from './policy';
 import { createKnowledgeStore, KnowledgeStore } from './knowledge';
 import { createModelRegistry, DefaultModelRegistry } from './models';
-import { createRoutingEngine, createRoutingRoutes, RoutingEngine } from './routing';
+import { createRoutingEngine, createRoutingRoutes, RoutingEngine, StubRouterLLM } from './routing';
 import { createFeedbackHandler, createFeedbackRoutes, FeedbackHandler } from './feedback';
 import { createOpinionPoller, OpinionPoller } from './polling';
 import { createLogger, Logger } from './logging';
@@ -59,10 +59,7 @@ export function createApp(deps?: Partial<AppDependencies>): {
   const routingEngine =
     deps?.routingEngine ??
     createRoutingEngine({
-      intentClassifier,
-      policyEngine,
-      knowledgeStore,
-      modelRegistry,
+      routerLLM: new StubRouterLLM(),
     });
 
   const dependencies: AppDependencies = {
