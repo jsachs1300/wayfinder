@@ -67,7 +67,6 @@ const DEFAULT_MODELS: ModelInfo[] = [
   {
     id: 'gpt-4-turbo',
     provider: 'openai',
-    capabilities: ['reasoning', 'coding', 'creative', 'support'],
     cost_tier: 'high',
     speed_tier: 'medium',
     context_window: 128000,
@@ -79,7 +78,6 @@ const DEFAULT_MODELS: ModelInfo[] = [
   {
     id: 'gpt-4o',
     provider: 'openai',
-    capabilities: ['reasoning', 'coding', 'creative', 'support', 'vision'],
     cost_tier: 'high',
     speed_tier: 'fast',
     context_window: 128000,
@@ -91,7 +89,6 @@ const DEFAULT_MODELS: ModelInfo[] = [
   {
     id: 'gpt-4o-mini',
     provider: 'openai',
-    capabilities: ['coding', 'support', 'summarization'],
     cost_tier: 'low',
     speed_tier: 'fast',
     context_window: 128000,
@@ -103,7 +100,6 @@ const DEFAULT_MODELS: ModelInfo[] = [
   {
     id: 'o1',
     provider: 'openai',
-    capabilities: ['reasoning', 'coding', 'legal'],
     cost_tier: 'high',
     speed_tier: 'slow',
     context_window: 128000,
@@ -115,7 +111,6 @@ const DEFAULT_MODELS: ModelInfo[] = [
   {
     id: 'o1-mini',
     provider: 'openai',
-    capabilities: ['reasoning', 'coding'],
     cost_tier: 'medium',
     speed_tier: 'medium',
     context_window: 128000,
@@ -129,7 +124,6 @@ const DEFAULT_MODELS: ModelInfo[] = [
   {
     id: 'claude-3-5-sonnet',
     provider: 'anthropic',
-    capabilities: ['reasoning', 'coding', 'creative', 'support', 'code_review'],
     cost_tier: 'medium',
     speed_tier: 'fast',
     context_window: 200000,
@@ -141,7 +135,6 @@ const DEFAULT_MODELS: ModelInfo[] = [
   {
     id: 'claude-3-opus',
     provider: 'anthropic',
-    capabilities: ['reasoning', 'coding', 'creative', 'legal', 'support'],
     cost_tier: 'high',
     speed_tier: 'slow',
     context_window: 200000,
@@ -153,7 +146,6 @@ const DEFAULT_MODELS: ModelInfo[] = [
   {
     id: 'claude-3-haiku',
     provider: 'anthropic',
-    capabilities: ['support', 'summarization'],
     cost_tier: 'low',
     speed_tier: 'fast',
     context_window: 200000,
@@ -167,7 +159,6 @@ const DEFAULT_MODELS: ModelInfo[] = [
   {
     id: 'gemini-1.5-pro',
     provider: 'google',
-    capabilities: ['reasoning', 'coding', 'creative', 'support'],
     cost_tier: 'medium',
     speed_tier: 'medium',
     context_window: 1000000,
@@ -179,7 +170,6 @@ const DEFAULT_MODELS: ModelInfo[] = [
   {
     id: 'gemini-1.5-flash',
     provider: 'google',
-    capabilities: ['support', 'summarization', 'coding'],
     cost_tier: 'low',
     speed_tier: 'fast',
     context_window: 1000000,
@@ -193,7 +183,6 @@ const DEFAULT_MODELS: ModelInfo[] = [
   {
     id: 'llama-3.1-70b',
     provider: 'meta',
-    capabilities: ['coding', 'reasoning', 'support'],
     cost_tier: 'medium',
     speed_tier: 'medium',
     context_window: 128000,
@@ -205,7 +194,6 @@ const DEFAULT_MODELS: ModelInfo[] = [
   {
     id: 'llama-3.1-8b',
     provider: 'meta',
-    capabilities: ['support', 'summarization'],
     cost_tier: 'low',
     speed_tier: 'fast',
     context_window: 128000,
@@ -219,7 +207,6 @@ const DEFAULT_MODELS: ModelInfo[] = [
   {
     id: 'mistral-large',
     provider: 'mistral',
-    capabilities: ['reasoning', 'coding', 'creative'],
     cost_tier: 'medium',
     speed_tier: 'medium',
     context_window: 32000,
@@ -231,7 +218,6 @@ const DEFAULT_MODELS: ModelInfo[] = [
   {
     id: 'mistral-medium',
     provider: 'mistral',
-    capabilities: ['coding', 'support'],
     cost_tier: 'low',
     speed_tier: 'fast',
     context_window: 32000,
@@ -518,15 +504,6 @@ export class DefaultModelRegistry implements ModelRegistry {
   }
 
   // ===== Utility Methods =====
-
-  /**
-   * Get models suitable for a specific capability
-   */
-  getModelsForCapability(capability: string): ModelInfo[] {
-    return Array.from(this.models.values()).filter(
-      (m) => m.available && m.capabilities.includes(capability)
-    );
-  }
 
   /**
    * Get model IDs as a simple array

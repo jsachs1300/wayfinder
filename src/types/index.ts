@@ -267,7 +267,6 @@ export type ModelStatus = 'active' | 'deprecated' | 'disabled';
 export interface ModelInfo {
   id: string;
   provider: string;
-  capabilities: string[];
   cost_tier: 'low' | 'medium' | 'high';
   speed_tier: 'fast' | 'medium' | 'slow';
   context_window: number;
