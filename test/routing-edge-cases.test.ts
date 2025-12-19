@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { DefaultRoutingEngine } from '../src/routing/engine';
 import { InMemoryKnowledgeStore } from '../src/knowledge/store';
 import { HeuristicIntentClassifier } from '../src/intent/classifier';
+import { createModelRegistry } from '../src/models';
 import { DefaultPolicyEngine } from '../src/policy/engine';
 import { DefaultModelRegistry } from '../src/models/registry';
 import { TokenConfig, PolicyRule, RouteRequest, KnowledgeScopeContext } from '../src/types';
@@ -9,6 +10,10 @@ import { TokenConfig, PolicyRule, RouteRequest, KnowledgeScopeContext } from '..
 describe('RoutingEngine Edge Cases and Security', () => {
   let routingEngine: DefaultRoutingEngine;
   let knowledgeStore: InMemoryKnowledgeStore;
+
+  // Use real model IDs from the registry
+  const modelA = 'claude-3-5-sonnet';
+  const modelB = 'gpt-4o';
   const globalScope: KnowledgeScopeContext = { scope: 'global' };
   let intentClassifier: HeuristicIntentClassifier;
   let policyEngine: DefaultPolicyEngine;
@@ -26,10 +31,10 @@ describe('RoutingEngine Edge Cases and Security', () => {
   }
 
   beforeEach(async () => {
-    knowledgeStore = new InMemoryKnowledgeStore();
+    modelRegistry = createModelRegistry();
+    knowledgeStore = new InMemoryKnowledgeStore(modelRegistry);
     intentClassifier = new HeuristicIntentClassifier();
     policyEngine = new DefaultPolicyEngine();
-    modelRegistry = new DefaultModelRegistry();
 
     routingEngine = new DefaultRoutingEngine({
       intentClassifier,
