@@ -78,7 +78,7 @@ Optional:
 - `PORT` (default: 3000)
 - `REDIS_ENABLED` / `REDIS_URL` (falls back to in-memory if disabled)
 - `LOG_LEVEL` (debug, info, warn, error)
-- `KNOWLEDGE_DECAY_RATE`, `KNOWLEDGE_DECAY_INTERVAL_HOURS`, `MIN_VOTES_FOR_STRONG_CONFIDENCE`
+- `KNOWLEDGE_DECAY_LAMBDA`, `MIN_VOTES_FOR_STRONG_CONFIDENCE`
 
 ## Testing
 

@@ -15,7 +15,7 @@ services:
       - REDIS_ENABLED=true
       - REDIS_URL=redis://redis:6379
       - LOG_LEVEL=debug
-      - KNOWLEDGE_DECAY_RATE=0.05
+      - KNOWLEDGE_DECAY_LAMBDA=0.000000001
       - MIN_VOTES_FOR_STRONG_CONFIDENCE=5
     volumes:
       - ./src:/app/src:ro

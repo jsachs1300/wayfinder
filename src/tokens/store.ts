@@ -5,6 +5,7 @@ import Redis from 'ioredis';
 
 const TOKEN_PREFIX = 'wayfinder:token:';
 const TOKEN_HASH_INDEX = 'wayfinder:token_hash_index:';
+const TOKEN_INDEX_KEY = 'wayfinder:token:index';
 
 /**
  * Token storage interface for flexibility
@@ -169,6 +170,7 @@ export class RedisTokenStore implements TokenStore {
 
     await this.redis.set(TOKEN_PREFIX + id, JSON.stringify(config));
     await this.redis.set(TOKEN_HASH_INDEX + tokenHash, id);
+    await this.redis.sadd(TOKEN_INDEX_KEY, id);
 
     return { id, token, config };
   }
@@ -233,22 +235,26 @@ export class RedisTokenStore implements TokenStore {
 
     await this.redis.del(TOKEN_HASH_INDEX + existing.token_hash);
     await this.redis.del(TOKEN_PREFIX + id);
+    await this.redis.srem(TOKEN_INDEX_KEY, id);
     return true;
   }
 
   async list(): Promise<TokenConfig[]> {
-    const keys = await this.redis.keys(TOKEN_PREFIX + '*');
-    if (keys.length === 0) return [];
+    const ids = await this.redis.smembers(TOKEN_INDEX_KEY);
+    if (ids.length === 0) return [];
+
+    const pipeline = this.redis.multi();
+    ids.forEach(id => pipeline.get(TOKEN_PREFIX + id));
+    const results = await pipeline.exec();
 
     const configs: TokenConfig[] = [];
-    for (const key of keys) {
-      // Skip hash index keys
-      if (key.includes('hash_index')) continue;
-      const data = await this.redis.get(key);
-      if (data) {
+    results?.forEach(result => {
+      const [, data] = result ?? [];
+      if (typeof data === 'string') {
         configs.push(JSON.parse(data) as TokenConfig);
       }
-    }
+    });
+
     return configs;
   }
 }

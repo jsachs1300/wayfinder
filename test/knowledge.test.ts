@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { InMemoryKnowledgeStore } from '../src/knowledge/store';
 import { KnowledgeScopeContext } from '../src/types';
 import { createModelRegistry } from '../src/models';
@@ -17,6 +17,10 @@ describe('KnowledgeStore', () => {
     store = new InMemoryKnowledgeStore(modelRegistry);
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   describe('Agreement Score Calculation', () => {
     it('should calculate agreement_score as max_votes / total_votes', async () => {
       // Record 8 votes for model A, 2 for model B
@@ -30,7 +34,7 @@ describe('KnowledgeStore', () => {
       const entry = await store.get('coding', globalScope);
 
       expect(entry).not.toBeNull();
-      expect(entry!.agreement_score).toBe(0.8); // 8/10 = 0.8
+      expect(entry!.agreement_score).toBeCloseTo(0.8, 3); // 8/10 = 0.8
     });
 
     it('should return 1.0 agreement when only one model has votes', async () => {
@@ -49,7 +53,7 @@ describe('KnowledgeStore', () => {
 
       const entry = await store.get('coding', globalScope);
 
-      expect(entry!.agreement_score).toBe(0.5); // 1/2 = 0.5
+      expect(entry!.agreement_score).toBeCloseTo(0.5, 3); // 1/2 = 0.5
     });
   });
 
@@ -76,7 +80,7 @@ describe('KnowledgeStore', () => {
 
       const entry = await store.get('coding', globalScope);
 
-      expect(entry!.agreement_score).toBe(0.7);
+      expect(entry!.agreement_score).toBeCloseTo(0.7, 3);
       expect(entry!.confidence_level).toBe('moderate');
     });
 
@@ -112,49 +116,31 @@ describe('KnowledgeStore', () => {
   });
 
   describe('Knowledge Decay Behavior', () => {
-    it('should reduce vote counts on decay', async () => {
-      // Initial votes
+    it('applies decay lazily on read', async () => {
+      vi.useFakeTimers();
+      const start = new Date('2024-01-01T00:00:00.000Z');
+      vi.setSystemTime(start);
+
       for (let i = 0; i < 10; i++) {
         await store.recordVote('coding', modelA, globalScope);
       }
 
-      const before = await store.get('coding', globalScope);
-      expect(before!.total_votes).toBe(10);
+      const immediate = await store.get('coding', globalScope);
+      expect(immediate!.total_votes).toBe(10);
 
-      // Apply decay
-      await store.applyDecay();
+      const later = new Date(start.getTime() + 60 * 60 * 1000);
+      vi.setSystemTime(later);
 
-      const after = await store.get('coding', globalScope);
-      expect(after!.total_votes).toBeLessThan(10);
+      const decayed = await store.get('coding', globalScope);
+      expect(decayed!.total_votes).toBeLessThan(immediate!.total_votes);
+      expect(decayed!.decay_factor).toBeLessThan(1);
     });
 
-    it('should never delete entries on decay', async () => {
-      await store.recordVote('coding', modelA, globalScope);
+    it('maintains proportions when decayed at read time', async () => {
+      vi.useFakeTimers();
+      const start = new Date('2024-01-01T00:00:00.000Z');
+      vi.setSystemTime(start);
 
-      // Apply many decay cycles
-      for (let i = 0; i < 100; i++) {
-        await store.applyDecay();
-      }
-
-      const entry = await store.get('coding', globalScope);
-
-      // Entry should still exist
-      expect(entry).not.toBeNull();
-      expect(entry!.model_votes[modelA]).toBeGreaterThan(0);
-    });
-
-    it('should reduce decay_factor over time', async () => {
-      await store.recordVote('coding', modelA, globalScope);
-      const before = await store.get('coding', globalScope);
-
-      await store.applyDecay();
-
-      const after = await store.get('coding', globalScope);
-      expect(after!.decay_factor).toBeLessThan(before!.decay_factor);
-    });
-
-    it('should maintain relative vote proportions after decay', async () => {
-      // 8 votes for A, 2 for B
       for (let i = 0; i < 8; i++) {
         await store.recordVote('coding', modelA, globalScope);
       }
@@ -162,17 +148,13 @@ describe('KnowledgeStore', () => {
         await store.recordVote('coding', modelB, globalScope);
       }
 
-      const before = await store.get('coding', globalScope);
-      const ratioBefore =
-        before!.model_votes[modelA]! / before!.model_votes[modelB]!;
+      const baseline = await store.get('coding', globalScope);
+      const ratioBefore = baseline!.model_votes[modelA]! / baseline!.model_votes[modelB]!;
 
-      await store.applyDecay();
+      vi.setSystemTime(new Date(start.getTime() + 30 * 60 * 1000));
+      const decayed = await store.get('coding', globalScope);
+      const ratioAfter = decayed!.model_votes[modelA]! / decayed!.model_votes[modelB]!;
 
-      const after = await store.get('coding', globalScope);
-      const ratioAfter =
-        after!.model_votes[modelA]! / after!.model_votes[modelB]!;
-
-      // Ratio should remain approximately the same
       expect(Math.abs(ratioBefore - ratioAfter)).toBeLessThan(0.01);
     });
   });
@@ -228,9 +210,12 @@ describe('KnowledgeStore', () => {
       const stats = await store.getStats();
 
       expect(stats.total_entries).toBe(3);
+      expect(stats.total_raw_score).toBeCloseTo(21, 6);
       expect(stats.entries_by_confidence.strong).toBe(1);
       expect(stats.entries_by_confidence.moderate).toBe(1);
       expect(stats.entries_by_confidence.low).toBe(1);
+      expect(stats.average_agreement_score).toBeCloseTo(0.9);
+      expect(stats.approximate_effective_score).toBeLessThanOrEqual(stats.total_raw_score);
     });
 
     it('should calculate average agreement score', async () => {
@@ -245,7 +230,8 @@ describe('KnowledgeStore', () => {
 
       const stats = await store.getStats();
 
-      expect(stats.average_agreement_score).toBe(0.75); // (1 + 0.5) / 2
+      expect(stats.average_agreement_score).toBeCloseTo(0.75); // (1 + 0.5) / 2
+      expect(stats.total_raw_score).toBeCloseTo(7, 6);
     });
   });
 });
