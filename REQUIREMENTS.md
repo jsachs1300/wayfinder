@@ -1,51 +1,76 @@
 # Wayfinder — System Requirements & Design Contract
 
+## Authority
+
+This document is the **authoritative contract** for Wayfinder.
+
+All code changes, tooling, and LLM-generated implementations **MUST strictly adhere** to this document.
+
+If a behavior is not explicitly permitted here, it is **not allowed**.  
+Deletion is preferred over invention when requirements are unclear.
+
+---
+
 ## 1. Purpose & Scope
 
-Wayfinder is an AI navigation and routing service that determines **which LLM should handle a given query**, based on:
+Wayfinder is an AI navigation and routing service that determines **which LLM should handle a given query**.
 
-* user intent
-* explicit policy
-* user trust preferences
-* accumulated knowledge about model behavior
+Wayfinder:
+- **does not generate answers**
+- **does not modify prompts**
+- **does not hide uncertainty**
 
-Wayfinder **does not generate answers**.
-It **directs execution** by returning a model decision and a fully explainable rationale.
+Wayfinder delegates routing judgment to a **router LLM**, subject to explicit policy constraints and token configuration.
 
-This document defines the **non-negotiable requirements** that the system must satisfy.
+Wayfinder returns:
+- a primary model
+- a reasonable alternate
+- a confidence score
+- an explainable rationale
+- inferred intent metadata (internal)
 
 ---
 
 ## 2. Core Principles (MUST HOLD)
 
-1. **Policy First**
+These principles are non-negotiable.
 
-   * Policy enforcement MUST always occur before any optimization or learning logic.
-   * If policy forces a model, no routing logic may override it.
+### 2.1 LLM-Driven Routing
 
-2. **Explainability by Default**
+- All routing decisions (primary, alternate, confidence) **MUST originate from a router LLM**.
+- No heuristic, rule-based, or metadata-based routing is permitted.
+- The system MUST NOT re-rank, override, or reinterpret the router LLM’s decision.
 
-   * Every routing decision MUST include a structured explanation:
+### 2.2 Policy as Constraint, Not Selector
 
-     * why the model was selected
-     * what alternatives were eligible
-     * whether uncertainty existed
+- Policy **constrains eligibility** of models.
+- Policy MUST NOT select, rank, or score models.
+- If policy forces a model, routing MUST terminate immediately.
 
-3. **Knowledge ≠ Cache**
+### 2.3 Intent Is Metadata, Not Control Flow
 
-   * Knowledge is long-lived.
-   * Knowledge decays in influence, not existence.
-   * Knowledge is an asset, not a performance optimization.
+- Intent is inferred **only by the router LLM**.
+- Intent is stored as metadata for analysis and future features.
+- Intent MUST NOT directly drive routing decisions.
+- Removing intent MUST NOT break routing behavior.
 
-4. **Global Intelligence, Optional Isolation**
+### 2.4 No Heuristics, No Capabilities
 
-   * Global knowledge is the default behavior.
-   * Enterprise tokens MAY opt into scoped knowledge.
-   * Scoped knowledge MUST NOT contaminate global knowledge.
+- The system MUST NOT use:
+  - regex classifiers
+  - keyword matching
+  - static intent-to-model mappings
+  - model “capabilities” or task labels
+- All such logic is explicitly forbidden.
 
-5. **Deterministic Behavior**
+### 2.5 Deterministic Behavior
 
-   * Given the same token config, policy, and knowledge state, routing decisions MUST be deterministic.
+- Given the same:
+  - token configuration
+  - policy constraints
+  - eligible model set
+  - cached state
+- Routing results MUST be deterministic.
 
 ---
 
@@ -53,19 +78,20 @@ This document defines the **non-negotiable requirements** that the system must s
 
 Wayfinder:
 
-* Authenticates requests
-* Classifies intent
-* Enforces policy
-* Consults knowledge
-* Selects a model
-* Returns an explainable decision
+- Authenticates requests
+- Loads token configuration
+- Enforces policy constraints
+- Determines eligible models
+- Requests routing judgment from a router LLM
+- Returns the LLM’s routing decision with explanation
+- Records metadata for observability and learning
 
 Wayfinder does NOT:
 
-* Call LLMs to generate responses (yet)
-* Modify user prompts
-* Hide uncertainty
-* Learn silently without logging
+- Answer user prompts
+- Implement local routing logic
+- Infer intent heuristically
+- Learn silently without logging
 
 ---
 
@@ -75,203 +101,226 @@ Wayfinder does NOT:
 
 Each API token represents a **policy boundary**.
 
-A token MUST support:
+A token MAY define:
 
-* trusted_anchor_model (optional)
-* allowed_models (optional allowlist)
-* denied_models (optional denylist)
-* policy_rules (structured, deterministic)
-* confidence_threshold
-* default_model
-* knowledge_scope
-* logging_level
-* environment (optional)
+- trusted_anchor_model
+- allowed_models (allowlist)
+- denied_models (denylist)
+- policy_rules
+- default_model
+- confidence_threshold
+- knowledge_scope
+- logging_level
+- environment
 
-### 4.2 Token Types
-
-* Standard tokens: global knowledge only
-* Enterprise tokens: configurable knowledge scope
+All token configuration MUST be validated at ingestion time.
 
 ---
 
-## 5. Knowledge Scope
+## 5. Model Registry
 
-### 5.1 Supported Scopes
+### 5.1 Registry Role
 
-* `global` (default)
-* `token` (enterprise)
-* `org` (stubbed, future)
-* `hybrid` (stubbed, future)
+The model registry is a **passive catalog and validation layer**.
 
-### 5.2 Scope Rules
+It MAY contain:
+- model identifiers
+- provider
+- availability
+- status (active / deprecated / disabled)
+- context window size
+- descriptive cost / speed tiers
+- eligibility constraints
 
-* Global scope shares learning across all tokens.
-* Token scope isolates learning per token.
-* No cross-scope reads or writes are permitted.
-* Knowledge scope MUST be explicit in all store operations.
+It MUST NOT:
+- rank models
+- score models
+- declare capabilities
+- encode routing logic
+- infer suitability
+
+### 5.2 Validation
+
+Model identifiers MUST be validated at:
+- token creation/update
+- policy ingestion
+- routing results
+- feedback ingestion
+
+Invalid identifiers MUST fail fast.
 
 ---
 
-## 6. Intent Classification
+## 6. Intent (Metadata Only)
 
-* Every request MUST be classified into an intent cluster.
-* Initial intents are coarse and human-interpretable (e.g. code_review, reasoning).
-* Intent classification MUST be replaceable without changing routing logic.
-* Misclassification MUST degrade gracefully, not crash routing.
+### 6.1 Intent Semantics
+
+- Every routing decision MUST include an inferred intent label.
+- Intent is inferred **only by the router LLM**.
+- Intent classification MUST be replaceable without affecting routing.
+
+### 6.2 Intent Taxonomy
+
+Canonical intents (initial set):
+
+- code_change
+- debugging
+- architecture_design
+- explanation
+- summarization
+- data_analysis
+- content_generation
+- planning
+- other
+
+Rules:
+- Exactly one intent MUST be returned.
+- `other` SHOULD be avoided.
+- If used, `other` MUST be of the form `other:<single_word_subcategory>`.
+
+Intent labels are **experimental telemetry**, not a stable API.
 
 ---
 
 ## 7. Policy Engine
 
-### 7.1 Policy Types
+### 7.1 Policy Role
 
-Supported rule types:
+Policies:
+- constrain which models are eligible
+- never choose or rank models
 
-* ForceModelByIntent
-* RestrictModelsByIntent
-* AllowModelsGlobal
-* DenyModelsGlobal
-
-### 7.2 Evaluation Order (MANDATORY)
+### 7.2 Policy Evaluation Order (MANDATORY)
 
 1. Global allow/deny
-2. Intent-based restrictions
+2. Intent-based eligibility constraints (if defined)
 3. Forced model rules
 
-### 7.3 Policy Guarantees
+If a forced model is selected, routing MUST terminate.
 
-* Forced models MUST still be eligible.
-* Invalid policy MUST fail fast at ingestion time.
-* Policy application MUST be auditable.
+### 7.3 Guarantees
 
----
-
-## 8. Model Registry & Validation
-
-### 8.1 Curated Registry
-
-* Only curated core models participate in global knowledge.
-* Model identifiers MUST be validated at all ingestion points:
-
-  * token creation/update
-  * policy rules
-  * feedback ingestion
-  * opinion polling
-
-### 8.2 Invalid Models
-
-* Invalid model identifiers MUST be rejected.
-* No silent fallback or coercion is permitted.
+- Policies MUST be validated at ingestion.
+- Invalid policy MUST fail fast.
+- Policy application MUST be auditable.
 
 ---
 
-## 9. Knowledge Store
-
-### 9.1 Stored Fields
-
-Each knowledge record MUST include:
-
-* model_votes
-* total_votes
-* agreement_score
-* confidence_level
-* last_updated
-* decay parameters
-
-### 9.2 Agreement Calculation
-
-* agreement_score = max_votes / total_votes
-
-### 9.3 Confidence Levels
-
-* strong: agreement ≥ 0.8 AND sufficient votes
-* moderate: agreement ≥ 0.6
-* low: otherwise
-
-Full disagreement (all different) MUST be treated as low confidence, not failure.
-
----
-
-## 10. Routing Decision Flow (MANDATORY)
+## 8. Routing Decision Flow (Authoritative)
 
 For every request:
 
 1. Authenticate token
 2. Load token config
-3. Classify intent
-4. Apply policy
-5. If forced → return
-6. Load scoped knowledge
-7. If confidence ≥ threshold → consensus model
-8. Else → trusted anchor (if present)
-9. Else → default model
+3. Apply policy constraints
+4. Determine eligible model set
+5. Invoke router LLM with:
+   - user prompt
+   - eligible models
+   - routing criteria
+6. Receive from LLM:
+   - primary model
+   - alternate model
+   - confidence score (0–10)
+   - inferred intent
+   - concise reasoning
+7. Validate response
+8. Cache decision
+9. Return result
 
-At no point may routing bypass this sequence.
+At no point may local logic override the LLM’s decision.
+
+---
+
+## 9. Confidence Semantics
+
+Confidence represents:
+
+> How confident the router LLM is that the primary model is the best choice compared to the alternate.
+
+- Range: 0–10
+- Derived solely from the router LLM
+- MUST NOT be computed heuristically
+
+---
+
+## 10. Knowledge & Feedback (Observational)
+
+### 10.1 Knowledge Role
+
+- Knowledge is observational telemetry.
+- Knowledge is **not used to select or rank models in v1**.
+- Knowledge exists to support:
+  - analysis
+  - explainability
+  - future evolution
+
+### 10.2 Scope
+
+Supported scopes:
+- global (default)
+- token (enterprise)
+
+No cross-scope reads or writes are permitted.
 
 ---
 
 ## 11. Opinion Polling
 
-* Opinion polling exists to populate knowledge.
-* Polling MUST be asynchronous and non-blocking.
-* Polling MUST respect knowledge scope.
-* Stub polling is acceptable in v1, but interfaces MUST exist.
+- Opinion polling exists to populate knowledge.
+- Polling MUST be asynchronous.
+- Polling MUST NOT block routing.
+- Interfaces MUST exist even if stubbed.
 
 ---
 
-## 12. Feedback
-
-* Feedback ingestion MUST validate model identifiers.
-* Feedback MUST be scoped consistently with token knowledge.
-* Feedback storage MUST be auditable.
-* Feedback does not need to update routing weights yet, but plumbing MUST exist.
-
----
-
-## 13. Observability & Logging
+## 12. Observability & Logging
 
 Wayfinder MUST log:
 
-* routing reason
-* policy application
-* confidence level
-* knowledge scope
-* request ID
+- routing decision
+- explanation
+- confidence
+- inferred intent
+- applied policy
+- knowledge scope
+- request ID
 
-Logs MUST allow post-hoc reconstruction of decisions.
+Logs MUST allow full post-hoc reconstruction of decisions.
 
 ---
 
-## 14. Failure Modes
+## 13. Failure Modes
 
 Wayfinder MUST:
 
-* Fail fast on invalid config
-* Surface policy conflicts clearly
-* Treat uncertainty as a first-class state
-* Never silently downgrade correctness for availability
+- Fail fast on invalid configuration
+- Surface policy conflicts explicitly
+- Treat uncertainty as a first-class state
+- Never silently degrade correctness
 
 ---
 
-## 15. Non-Goals (Explicit)
+## 14. Explicit Non-Goals
 
 Wayfinder is NOT:
 
-* A chatbot
-* A prompt optimizer
-* A model marketplace
-* An auto-ML system
-
-Those are out of scope unless explicitly added later.
+- a chatbot
+- a prompt optimizer
+- a heuristic router
+- a capability-based system
+- a model marketplace
+- an auto-ML engine
 
 ---
 
-## 16. Success Criteria
+## 15. Success Criteria
 
-The system is considered compliant if:
+The system is compliant if:
 
-* Routing decisions are explainable and deterministic
-* Policy enforcement cannot be bypassed
-* Knowledge remains clean and scoped
-* Adding future features does not require architectural rewrites
-
+- Routing decisions originate solely from the router LLM
+- Policy constraints cannot be bypassed
+- Removing intent does not break routing
+- Removing alternates does not break routing
+- Adding new models requires no code changes
+- Architecture remains simple, explainable, and reversible
