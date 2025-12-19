@@ -261,8 +261,8 @@ describe('API Integration Tests', () => {
         .post('/admin/knowledge/decay')
         .set('X-Admin-Api-Key', adminApiKey);
 
-      expect(response.status).toBe(200);
-      expect(response.body.entries_affected).toBe(1);
+      expect(response.status).toBe(410);
+      expect(response.body.error).toBe('Deprecated');
     });
   });
 

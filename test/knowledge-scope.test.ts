@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { InMemoryKnowledgeStore } from '../src/knowledge/store';
 import { KnowledgeScopeContext } from '../src/types';
 import { createModelRegistry } from '../src/models';
@@ -15,6 +15,10 @@ describe('Knowledge Scope', () => {
     knowledgeStore = new InMemoryKnowledgeStore(modelRegistry);
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   describe('Global Scope (Default)', () => {
     it('should record and retrieve votes in global scope', async () => {
       const scopeContext: KnowledgeScopeContext = { scope: 'global' };
@@ -25,9 +29,9 @@ describe('Knowledge Scope', () => {
 
       const entry = await knowledgeStore.get('coding', scopeContext);
       expect(entry).not.toBeNull();
-      expect(entry?.total_votes).toBe(3);
-      expect(entry?.model_votes['gpt-4-turbo']).toBe(2);
-      expect(entry?.model_votes['claude-3-5-sonnet']).toBe(1);
+      expect(entry?.total_votes).toBeCloseTo(3, 6);
+      expect(entry?.model_votes['gpt-4-turbo']).toBeCloseTo(2, 6);
+      expect(entry?.model_votes['claude-3-5-sonnet']).toBeCloseTo(1, 6);
     });
 
     it('should calculate consensus model in global scope', async () => {
@@ -56,8 +60,8 @@ describe('Knowledge Scope', () => {
 
       const entry = await knowledgeStore.get('coding', tokenScope);
       expect(entry).not.toBeNull();
-      expect(entry?.total_votes).toBe(2);
-      expect(entry?.model_votes['gpt-4o']).toBe(2);
+      expect(entry?.total_votes).toBeCloseTo(2, 6);
+      expect(entry?.model_votes['gpt-4o']).toBeCloseTo(2, 6);
     });
 
     it('should isolate knowledge between different tokens', async () => {
@@ -79,12 +83,12 @@ describe('Knowledge Scope', () => {
 
       // Verify token 1 knowledge
       const entry1 = await knowledgeStore.get('coding', token1Scope);
-      expect(entry1?.model_votes['gpt-4-turbo']).toBe(2);
+      expect(entry1?.model_votes['gpt-4-turbo']).toBeCloseTo(2, 6);
       expect(entry1?.model_votes['claude-3-5-sonnet']).toBeUndefined();
 
       // Verify token 2 knowledge
       const entry2 = await knowledgeStore.get('coding', token2Scope);
-      expect(entry2?.model_votes['claude-3-5-sonnet']).toBe(1);
+      expect(entry2?.model_votes['claude-3-5-sonnet']).toBeCloseTo(1, 6);
       expect(entry2?.model_votes['gpt-4-turbo']).toBeUndefined();
     });
 
@@ -189,57 +193,31 @@ describe('Knowledge Scope', () => {
   });
 
   describe('Decay by Scope', () => {
-    it('should decay all scopes when no filter provided', async () => {
+    it('rejects manual decay calls and relies on lazy decay', async () => {
+      await expect(knowledgeStore.applyDecay()).rejects.toThrow();
+    });
+
+    it('applies lazy decay independently per scope on reads', async () => {
+      vi.useFakeTimers();
       const globalScope: KnowledgeScopeContext = { scope: 'global' };
       const tokenScope: KnowledgeScopeContext = {
         scope: 'token',
         token_id: 'token_123',
       };
 
+      vi.setSystemTime(new Date('2024-01-01T00:00:00Z'));
       await knowledgeStore.recordVote('coding', 'gpt-4-turbo', globalScope);
       await knowledgeStore.recordVote('coding', 'gpt-4o', tokenScope);
 
-      const decayedCount = await knowledgeStore.applyDecay();
-      expect(decayedCount).toBe(2);
-    });
+      const immediateGlobal = await knowledgeStore.get('coding', globalScope);
+      const immediateToken = await knowledgeStore.get('coding', tokenScope);
 
-    it('should decay only global scope when filtered', async () => {
-      const globalScope: KnowledgeScopeContext = { scope: 'global' };
-      const tokenScope: KnowledgeScopeContext = {
-        scope: 'token',
-        token_id: 'token_123',
-      };
+      vi.setSystemTime(new Date('2024-01-02T00:00:00Z'));
+      const decayedGlobal = await knowledgeStore.get('coding', globalScope);
+      const decayedToken = await knowledgeStore.get('coding', tokenScope);
 
-      await knowledgeStore.recordVote('coding', 'gpt-4-turbo', globalScope);
-      await knowledgeStore.recordVote('coding', 'gpt-4o', tokenScope);
-
-      const decayedCount = await knowledgeStore.applyDecay(globalScope);
-      expect(decayedCount).toBe(1);
-
-      // Verify token knowledge was not decayed
-      const tokenEntry = await knowledgeStore.get('coding', tokenScope);
-      expect(tokenEntry?.decay_factor).toBe(1); // Not decayed
-    });
-
-    it('should decay only specific token when filtered', async () => {
-      const token1Scope: KnowledgeScopeContext = {
-        scope: 'token',
-        token_id: 'token_123',
-      };
-      const token2Scope: KnowledgeScopeContext = {
-        scope: 'token',
-        token_id: 'token_456',
-      };
-
-      await knowledgeStore.recordVote('coding', 'gpt-4-turbo', token1Scope);
-      await knowledgeStore.recordVote('coding', 'claude-3-5-sonnet', token2Scope);
-
-      const decayedCount = await knowledgeStore.applyDecay(token1Scope);
-      expect(decayedCount).toBe(1);
-
-      // Verify only token1 was decayed
-      const token2Entry = await knowledgeStore.get('coding', token2Scope);
-      expect(token2Entry?.decay_factor).toBe(1); // Not decayed
+      expect(decayedGlobal!.total_votes).toBeLessThan(immediateGlobal!.total_votes);
+      expect(decayedToken!.total_votes).toBeLessThan(immediateToken!.total_votes);
     });
   });
 

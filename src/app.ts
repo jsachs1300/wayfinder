@@ -140,37 +140,13 @@ export function createApp(deps?: Partial<AppDependencies>): {
     }
   });
 
-  // Trigger knowledge decay (admin only)
-  // Optional query params: ?scope=global|token&token_id=xxx
-  adminRouter.post('/knowledge/decay', async (req: Request, res: Response) => {
-    try {
-      const scope = req.query.scope as string | undefined;
-      const tokenId = req.query.token_id as string | undefined;
-
-      let scopeContext: any = undefined;
-      if (scope) {
-        scopeContext = {
-          scope,
-          token_id: scope === 'token' ? tokenId : undefined,
-        };
-      }
-
-      const decayedCount = await knowledgeStore.applyDecay(scopeContext);
-      res.json({
-        message: 'Decay applied',
-        entries_affected: decayedCount,
-        scope: scope ?? 'all',
-        timestamp: new Date().toISOString(),
-      });
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({
-        error: 'InternalError',
-        message: 'Failed to apply decay',
-        details: { error: errorMessage },
-        timestamp: new Date().toISOString(),
-      });
-    }
+  // Manual decay endpoint removed in favor of lazy, read-time decay. Kept for backward compatibility.
+  adminRouter.post('/knowledge/decay', async (_req: Request, res: Response) => {
+    res.status(410).json({
+      error: 'Deprecated',
+      message: 'Decay is applied lazily at read time; manual decay is no longer available.',
+      timestamp: new Date().toISOString(),
+    });
   });
 
   // Models endpoint (admin only)

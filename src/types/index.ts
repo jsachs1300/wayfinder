@@ -116,13 +116,18 @@ export interface KnowledgeEntry {
   total_votes: number;
   last_updated: string;
   decay_factor: number;
+  rawScore: number;
+  lastUpdatedMs: number;
 }
 
 export interface KnowledgeStoreStats {
   total_entries: number;
+  total_raw_score: number;
+  approximate_effective_score: number;
   entries_by_confidence: Record<ConfidenceLevel, number>;
   average_agreement_score: number;
   entries_by_scope?: Record<KnowledgeScope, number>; // Optional breakdown by scope
+  last_updated_ms: number | null;
 }
 
 // Scope context for knowledge operations

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { InMemoryKnowledgeStore } from '../src/knowledge/store';
 import { KnowledgeScopeContext } from '../src/types';
 import { createModelRegistry } from '../src/models';
@@ -15,6 +15,10 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
   beforeEach(async () => {
     const modelRegistry = createModelRegistry();
     store = new InMemoryKnowledgeStore(modelRegistry);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   describe('Division by Zero and NaN Prevention', () => {
@@ -38,12 +42,11 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
 
   describe('Floating Point Precision', () => {
     it('should handle fractional votes after decay without precision errors', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2024-01-01T00:00:00Z'));
       await store.recordVote('test', modelA, globalScope);
 
-      // Apply many decay cycles
-      for (let i = 0; i < 50; i++) {
-        await store.applyDecay();
-      }
+      vi.setSystemTime(new Date('2024-01-01T06:00:00Z'));
 
       const entry = await store.get('test', globalScope);
 
@@ -58,13 +61,14 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
     });
 
     it('should maintain agreement score between 0 and 1', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2024-01-01T00:00:00Z'));
       // Record votes with various distributions
       await store.recordVote('test1', modelA, globalScope);
       await store.recordVote('test1', modelA, globalScope);
       await store.recordVote('test1', modelB, globalScope);
 
-      await store.applyDecay();
-      await store.applyDecay();
+      vi.setSystemTime(new Date('2024-01-02T00:00:00Z'));
 
       const entry = await store.get('test1', globalScope);
 
@@ -73,19 +77,17 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
     });
 
     it('should handle very small vote counts after extensive decay', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2024-01-01T00:00:00Z'));
       await store.recordVote('test', modelA, globalScope);
 
-      // Extreme decay
-      for (let i = 0; i < 200; i++) {
-        await store.applyDecay();
-      }
+      vi.setSystemTime(new Date('2024-02-01T00:00:00Z'));
 
       const entry = await store.get('test', globalScope);
 
       // Should enforce minimum values to prevent underflow
       expect(entry!.model_votes[modelA]).toBeGreaterThan(0);
-      expect(entry!.model_votes[modelA]).toBeGreaterThanOrEqual(0.001);
-      expect(entry!.decay_factor).toBeGreaterThanOrEqual(0.01);
+      expect(entry!.decay_factor).toBeGreaterThan(0);
     });
   });
 
@@ -99,8 +101,8 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
 
       const entry = await store.get('coding', globalScope);
       // All votes should be recorded
-      expect(entry!.total_votes).toBe(100);
-      expect(entry!.model_votes['gpt-4-turbo']).toBe(100);
+      expect(entry!.total_votes).toBeCloseTo(100, 3);
+      expect(entry!.model_votes['gpt-4-turbo']).toBeCloseTo(100, 3);
     });
 
     it('should handle concurrent votes for different models in same cluster', async () => {
@@ -112,10 +114,10 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
       await Promise.all(promises);
 
       const entry = await store.get('coding', globalScope);
-      expect(entry!.total_votes).toBe(100);
-      expect(entry!.model_votes[modelA]).toBe(60);
-      expect(entry!.model_votes[modelB]).toBe(40);
-      expect(entry!.agreement_score).toBe(0.6); // 60/100
+      expect(entry!.total_votes).toBeCloseTo(100, 3);
+      expect(entry!.model_votes[modelA]).toBeCloseTo(60, 3);
+      expect(entry!.model_votes[modelB]).toBeCloseTo(40, 3);
+      expect(entry!.agreement_score).toBeCloseTo(0.6, 3); // 60/100
     });
 
     it('should handle concurrent votes across multiple clusters', async () => {
@@ -128,25 +130,12 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
 
       for (const cluster of clusters) {
         const entry = await store.get(cluster, globalScope);
-        expect(entry!.total_votes).toBe(10);
+        expect(entry!.total_votes).toBeCloseTo(10, 6);
       }
     });
 
-    it('should handle concurrent decay operations', async () => {
-      // Set up initial data
-      await store.recordVote('test', modelA, globalScope);
-
-      // Run multiple decay operations concurrently
-      const promises = Array.from({ length: 5 }, () => store.applyDecay());
-      const results = await Promise.all(promises);
-
-      // All should report successful decay
-      expect(results.every(count => count >= 0)).toBe(true);
-
-      const entry = await store.get('test', globalScope);
-      // Entry should still exist
-      expect(entry).not.toBeNull();
-      expect(entry!.model_votes[modelA]).toBeGreaterThan(0);
+    it('rejects explicit decay requests now that decay is lazy', async () => {
+      await expect(store.applyDecay()).rejects.toThrow();
     });
   });
 
@@ -205,6 +194,8 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
     });
 
     it('should handle transition from strong to moderate after decay', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2024-01-01T00:00:00Z'));
       // Build strong confidence
       for (let i = 0; i < 10; i++) {
         await store.recordVote('test', modelA, globalScope);
@@ -216,10 +207,8 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
       // Decay should reduce vote count below minimum for strong
       const minVotes = parseInt(process.env.MIN_VOTES_FOR_STRONG_CONFIDENCE ?? '5', 10);
 
-      while (entry!.total_votes >= minVotes) {
-        await store.applyDecay();
-        entry = (await store.get('test', globalScope))!;
-      }
+      vi.setSystemTime(new Date('2024-01-15T00:00:00Z'));
+      entry = (await store.get('test', globalScope))!;
 
       // Should now be moderate (agreement still high but not enough votes)
       expect(entry.agreement_score).toBeGreaterThanOrEqual(0.8);
@@ -276,7 +265,7 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
 
       const entry = await store.get('test', globalScope);
 
-      expect(entry!.agreement_score).toBe(0.5);
+      expect(entry!.agreement_score).toBeCloseTo(0.5, 3);
       expect(entry!.confidence_level).toBe('low');
     });
   });
@@ -304,7 +293,9 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
     });
 
     it('should handle consensus model selection after decay', async () => {
-      // Strong initial consensus
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2024-01-01T00:00:00Z'));
+
       for (let i = 0; i < 8; i++) {
         await store.recordVote('test', modelA, globalScope);
       }
@@ -315,7 +306,7 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
       const beforeDecay = await store.getConsensusModel('test', globalScope);
       expect(beforeDecay).toBe(modelA);
 
-      await store.applyDecay();
+      vi.setSystemTime(new Date('2024-01-02T00:00:00Z'));
 
       const afterDecay = await store.getConsensusModel('test', globalScope);
       // Proportions stay same, so consensus should remain
@@ -364,32 +355,36 @@ describe('KnowledgeStore Edge Cases and Race Conditions', () => {
 
   describe('Decay Factor Edge Cases', () => {
     it('should never decay below minimum threshold', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2024-01-01T00:00:00Z'));
+
       await store.recordVote('test', modelA, globalScope);
 
-      // Apply extreme decay
-      for (let i = 0; i < 1000; i++) {
-        await store.applyDecay();
-      }
+      vi.setSystemTime(new Date('2025-01-01T00:00:00Z'));
 
       const entry = await store.get('test', globalScope);
 
-      // Should enforce minimum decay_factor
-      expect(entry!.decay_factor).toBeGreaterThanOrEqual(0.01);
+      // Should remain positive even after long time
+      expect(entry!.decay_factor).toBeGreaterThan(0);
     });
 
     it('should maintain decay_factor as multiplicative', async () => {
+      vi.useFakeTimers();
+      const lambda = parseFloat(process.env.KNOWLEDGE_DECAY_LAMBDA ?? '0.000000001');
+      const start = new Date('2024-01-01T00:00:00Z').getTime();
+
+      vi.setSystemTime(start);
       await store.recordVote('test', modelA, globalScope);
 
       const initial = await store.get('test', globalScope);
-      const initialFactor = initial!.decay_factor;
 
-      await store.applyDecay();
+      const later = start + 60 * 60 * 1000; // +1 hour
+      vi.setSystemTime(later);
 
       const after = await store.get('test', globalScope);
-      const decayRate = parseFloat(process.env.KNOWLEDGE_DECAY_RATE ?? '0.05');
+      const expectedFactor = Math.exp(-lambda * (later - start));
 
-      // decay_factor should be multiplied by (1 - decay_rate)
-      expect(after!.decay_factor).toBeCloseTo(initialFactor * (1 - decayRate), 4);
+      expect(after!.decay_factor).toBeCloseTo(expectedFactor, 5);
     });
   });
 

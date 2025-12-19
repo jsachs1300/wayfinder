@@ -333,7 +333,7 @@ describe('RoutingEngine Edge Cases and Security', () => {
       }, config);
 
       expect(result.routing_decision.agreement_score).not.toBeNull();
-      expect(result.routing_decision.agreement_score).toBe(0.8);
+      expect(result.routing_decision.agreement_score).toBeCloseTo(0.8, 6);
     });
 
     it('should set agreement_score to null when knowledge not used', async () => {

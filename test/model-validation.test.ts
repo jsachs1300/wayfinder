@@ -143,8 +143,8 @@ describe('Model Validation - Proof Tests', () => {
 
     const initialEntry = await knowledgeStore.get('coding', { scope: 'global' });
     expect(initialEntry).toBeTruthy();
-    expect(initialEntry!.total_votes).toBe(1);
-    expect(initialEntry!.model_votes['active-model']).toBe(1);
+    expect(initialEntry!.total_votes).toBeCloseTo(1, 6);
+    expect(initialEntry!.model_votes['active-model']).toBeCloseTo(1, 6);
 
     // Attempt to record vote with invalid model should throw
     await expect(async () => {
@@ -156,8 +156,8 @@ describe('Model Validation - Proof Tests', () => {
     // Verify knowledge was NOT altered
     const finalEntry = await knowledgeStore.get('coding', { scope: 'global' });
     expect(finalEntry).toBeTruthy();
-    expect(finalEntry!.total_votes).toBe(1); // Still 1, not 2
-    expect(finalEntry!.model_votes['active-model']).toBe(1);
+    expect(finalEntry!.total_votes).toBeCloseTo(1, 6); // Still 1, not 2
+    expect(finalEntry!.model_votes['active-model']).toBeCloseTo(1, 6);
     expect(finalEntry!.model_votes['invalid-model-xyz']).toBeUndefined();
 
     // Attempt with disabled model should also not alter votes
@@ -168,7 +168,7 @@ describe('Model Validation - Proof Tests', () => {
     }).rejects.toThrow(DisabledModelError);
 
     const finalEntry2 = await knowledgeStore.get('coding', { scope: 'global' });
-    expect(finalEntry2!.total_votes).toBe(1); // Still unchanged
+    expect(finalEntry2!.total_votes).toBeCloseTo(1, 6); // Still unchanged
   });
 
   // ========== PROOF TEST 4: Polling cannot emit unknown model IDs ==========
@@ -245,7 +245,7 @@ describe('Model Validation - Proof Tests', () => {
     ).resolves.toBeTruthy();
 
     const entry = await knowledgeStore.get('coding', { scope: 'global' });
-    expect(entry!.model_votes[deprecatedModel]).toBe(1);
+    expect(entry!.model_votes[deprecatedModel]).toBeCloseTo(1, 6);
   });
 
   // ========== BONUS: Configuration contradiction detection ==========

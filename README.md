@@ -69,7 +69,7 @@ Policy is **always enforced before optimization**. The evaluation order is:
 The knowledge store is **not a traditional cache**:
 - Accumulates model votes per intent cluster
 - Calculates agreement scores (consensus strength)
-- Applies decay to reduce influence of old data
+- Uses lazy exponential decay at read time to reduce influence of old data
 - **Never deletes entries** - only reduces their weight
 
 ### Knowledge Scope
@@ -98,11 +98,13 @@ Wayfinder supports **configurable knowledge scope** for flexibility between shar
 - Token-scoped knowledge is opt-in for enterprise use cases
 - Scopes are completely isolated—no cross-scope leakage
 - Policy enforcement always takes precedence over knowledge scope
-- Knowledge remains long-lived with decay; it is not a cache
+- Knowledge remains long-lived with lazy decay; it is not a cache
 
 **Tradeoffs:**
 - **Global**: Maximum shared learning, network effects, best consensus
 - **Token-scoped**: Isolation, compliance, custom tuning, but slower learning
+
+> ℹ️ Knowledge decay and statistics are now lazy and incremental (see [issue #6](https://github.com/jsachs1300/wayfinder/issues/6)). Effective scores are computed at read time using exponential decay, and statistics are updated on writes, so aggregate totals are approximate over time without scanning Redis keyspaces.
 
 ### Confidence Levels
 
@@ -236,7 +238,7 @@ Request → Auth → Classify Intent → Apply Policy → Check Knowledge → Se
 
 **Knowledge Store**
 - `GET /admin/knowledge/stats` - Get knowledge store statistics
-- `POST /admin/knowledge/decay` - Manually trigger decay on all knowledge entries
+- `POST /admin/knowledge/decay` - Deprecated; decay is now applied lazily on reads
 
 **Models**
 - `GET /admin/models` - List all available models
@@ -371,29 +373,7 @@ Response:
 }
 ```
 
-```http
-# Trigger decay (all scopes)
-POST /admin/knowledge/decay
-X-Admin-Api-Key: your-admin-key
-
-# Trigger decay for global scope only
-POST /admin/knowledge/decay?scope=global
-X-Admin-Api-Key: your-admin-key
-
-# Trigger decay for specific token scope
-POST /admin/knowledge/decay?scope=token&token_id=token_abc123
-X-Admin-Api-Key: your-admin-key
-```
-
-Response:
-```json
-{
-  "message": "Decay applied",
-  "entries_affected": 42,
-  "scope": "global",
-  "timestamp": "2025-12-17T10:30:00.123Z"
-}
-```
+Manual decay is deprecated. The legacy `/admin/knowledge/decay` endpoint remains for compatibility but returns a 410 status and does not mutate data because decay is applied lazily on reads. Use `/admin/knowledge/stats` to observe approximate totals instead.
 
 #### Admin: Models
 
@@ -601,8 +581,7 @@ curl -X DELETE http://localhost:3000/admin/tokens/token_abc123 \
 | `REDIS_URL` | Redis connection URL | `redis://localhost:6379` |
 | `REDIS_ENABLED` | Enable Redis storage | `false` |
 | `LOG_LEVEL` | Logging level (debug, info, warn, error) | `info` |
-| `KNOWLEDGE_DECAY_RATE` | Decay rate per cycle (0-1) | `0.05` |
-| `KNOWLEDGE_DECAY_INTERVAL_HOURS` | Hours between automatic decay cycles | `24` |
+| `KNOWLEDGE_DECAY_LAMBDA` | Exponential decay constant applied per millisecond | `0.000000001` |
 | `MIN_VOTES_FOR_STRONG_CONFIDENCE` | Minimum votes for strong confidence | `5` |
 
 ### Token Configuration Options
@@ -755,7 +734,7 @@ src/
 │   └── engine.ts      # Policy evaluation logic
 ├── knowledge/         # Knowledge store
 │   ├── index.ts       # Knowledge store exports
-│   └── store.ts       # Vote recording, consensus, decay
+│   └── store.ts       # Vote recording, consensus, lazy decay, incremental stats
 ├── models/            # Model registry
 │   ├── index.ts       # Registry exports
 │   └── registry.ts    # Model definitions and registry
