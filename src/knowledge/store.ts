@@ -5,6 +5,7 @@ import {
   KnowledgeScopeContext,
   KnowledgeScope,
 } from '../types';
+import { ModelRegistry } from '../models';
 import Redis from 'ioredis';
 import { createLogger } from '../logging';
 
@@ -177,6 +178,11 @@ function buildScopePattern(scopeContext?: KnowledgeScopeContext): string {
  */
 export class InMemoryKnowledgeStore implements KnowledgeStore {
   private entries: Map<string, KnowledgeEntry> = new Map();
+  private modelRegistry: ModelRegistry;
+
+  constructor(modelRegistry: ModelRegistry) {
+    this.modelRegistry = modelRegistry;
+  }
 
   async get(
     intentCluster: string,
@@ -192,6 +198,15 @@ export class InMemoryKnowledgeStore implements KnowledgeStore {
     model: string,
     scopeContext: KnowledgeScopeContext
   ): Promise<KnowledgeEntry> {
+    // Validate model before recording vote
+    this.modelRegistry.assertModelExists(model, 'knowledge_vote');
+    this.modelRegistry.assertModelActive(model, 'knowledge_vote');
+
+    // For global scope, ensure model is global-eligible
+    if (scopeContext.scope === 'global') {
+      this.modelRegistry.assertModelGlobalEligible(model, 'knowledge_vote');
+    }
+
     const key = buildScopedKey(intentCluster, scopeContext);
     this.logScopeAccess('recordVote', scopeContext, intentCluster);
 
@@ -376,9 +391,11 @@ export class InMemoryKnowledgeStore implements KnowledgeStore {
  */
 export class RedisKnowledgeStore implements KnowledgeStore {
   private redis: Redis;
+  private modelRegistry: ModelRegistry;
 
-  constructor(redis: Redis) {
+  constructor(redis: Redis, modelRegistry: ModelRegistry) {
     this.redis = redis;
+    this.modelRegistry = modelRegistry;
   }
 
   async get(
@@ -398,6 +415,15 @@ export class RedisKnowledgeStore implements KnowledgeStore {
     model: string,
     scopeContext: KnowledgeScopeContext
   ): Promise<KnowledgeEntry> {
+    // Validate model before recording vote
+    this.modelRegistry.assertModelExists(model, 'knowledge_vote');
+    this.modelRegistry.assertModelActive(model, 'knowledge_vote');
+
+    // For global scope, ensure model is global-eligible
+    if (scopeContext.scope === 'global') {
+      this.modelRegistry.assertModelGlobalEligible(model, 'knowledge_vote');
+    }
+
     const key = buildScopedKey(intentCluster, scopeContext);
     this.logScopeAccess('recordVote', scopeContext, intentCluster);
 
@@ -568,9 +594,9 @@ export class RedisKnowledgeStore implements KnowledgeStore {
 /**
  * Create appropriate knowledge store based on environment
  */
-export function createKnowledgeStore(redis?: Redis): KnowledgeStore {
+export function createKnowledgeStore(redis: Redis | undefined, modelRegistry: ModelRegistry): KnowledgeStore {
   if (redis) {
-    return new RedisKnowledgeStore(redis);
+    return new RedisKnowledgeStore(redis, modelRegistry);
   }
-  return new InMemoryKnowledgeStore();
+  return new InMemoryKnowledgeStore(modelRegistry);
 }

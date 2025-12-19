@@ -1,7 +1,11 @@
 import { Router, Request, Response } from 'express';
 import { FeedbackHandler } from './handler';
 import { FeedbackRequest } from '../types';
+import { ModelRegistry, ModelValidationError } from '../models';
+import { createLogger } from '../logging';
 import { z } from 'zod';
+
+const logger = createLogger(process.env.LOG_LEVEL);
 
 const FeedbackRequestSchema = z.object({
   request_id: z.string().min(1, 'Request ID is required'),
@@ -24,7 +28,10 @@ const FeedbackRequestSchema = z.object({
 /**
  * Create feedback routes
  */
-export function createFeedbackRoutes(feedbackHandler: FeedbackHandler): Router {
+export function createFeedbackRoutes(
+  feedbackHandler: FeedbackHandler,
+  modelRegistry: ModelRegistry
+): Router {
   const router = Router();
 
   router.post('/', async (req: Request, res: Response): Promise<void> => {
@@ -51,6 +58,49 @@ export function createFeedbackRoutes(feedbackHandler: FeedbackHandler): Router {
       }
 
       const feedbackRequest: FeedbackRequest = parsed.data;
+
+      // Validate model identifiers
+      try {
+        // Validate selected_model
+        modelRegistry.assertModelExists(feedbackRequest.selected_model, 'feedback');
+        modelRegistry.assertModelActive(feedbackRequest.selected_model, 'feedback');
+        modelRegistry.assertModelAllowedForToken(
+          feedbackRequest.selected_model,
+          req.tokenConfig,
+          'feedback'
+        );
+
+        // Validate preferred_model if specified
+        if (feedbackRequest.preferred_model) {
+          modelRegistry.assertModelExists(feedbackRequest.preferred_model, 'feedback');
+          modelRegistry.assertModelActive(feedbackRequest.preferred_model, 'feedback');
+          modelRegistry.assertModelAllowedForToken(
+            feedbackRequest.preferred_model,
+            req.tokenConfig,
+            'feedback'
+          );
+        }
+      } catch (error) {
+        if (error instanceof ModelValidationError) {
+          // Log the validation failure
+          logger.warn('Feedback rejected due to invalid model', {
+            request_id: feedbackRequest.request_id,
+            token_id: req.tokenConfig.id,
+            selected_model: feedbackRequest.selected_model,
+            preferred_model: feedbackRequest.preferred_model,
+            error: error.message,
+          });
+
+          res.status(400).json({
+            error: error.name,
+            message: error.message,
+            timestamp: new Date().toISOString(),
+          });
+          return;
+        }
+        throw error;
+      }
+
       const response = await feedbackHandler.processFeedback(
         feedbackRequest,
         req.tokenConfig
