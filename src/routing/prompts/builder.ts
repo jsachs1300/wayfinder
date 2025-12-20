@@ -63,7 +63,7 @@ You must return exactly one primary and one alternate.
 
 SCORING RULES
 
-Scores are integers from 0 to 10.
+Scores are numbers from 0 to 10.
 
 10 = clear best choice with low risk and meaningful advantage
 7 = solid choice with notable tradeoffs
@@ -76,7 +76,7 @@ Use close scores when the decision is marginal.
 
 COST AWARENESS
 
-Prefer more efficient models when capability differences are small.
+Prefer more cost-efficient models when they appear similarly suitable.
 Cost influences score deltas and ordering.
 Do not downgrade a clearly better model solely due to cost.
 
