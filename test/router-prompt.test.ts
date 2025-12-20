@@ -188,16 +188,22 @@ describe('Router Prompt Builder v1.0', () => {
       expect(prompt).toContain('No markdown');
     });
 
-    it('specifies other:<category> format for unknown intents', () => {
+    it('explains special handling for "other" intent', () => {
       const prompt = buildRouterPrompt({
         schema: getRouteDecisionSchema(),
-        intentList: ['code_change'],
+        intentList: getCanonicalIntentList(),
         modelList: ['gpt-4'],
         userPrompt: 'Test',
       });
 
+      // Should list "other" in the intent list
+      expect(prompt).toContain('- other');
+
+      // Should explain the special format requirement
+      expect(prompt).toContain('Special handling for "other"');
       expect(prompt).toContain('other:<category>');
       expect(prompt).toContain('exactly one lowercase word');
+      expect(prompt).toContain('Use "other" only when no specific intent applies');
     });
 
     it('enforces primary.score >= alternate.score', () => {
@@ -325,7 +331,7 @@ describe('Router Prompt Builder v1.0', () => {
   });
 
   describe('Canonical Intent List', () => {
-    it('returns intents from REQUIREMENTS.md', () => {
+    it('returns intents from REQUIREMENTS.md §6.2', () => {
       const intents = getCanonicalIntentList();
 
       expect(intents).toContain('code_change');
@@ -336,18 +342,19 @@ describe('Router Prompt Builder v1.0', () => {
       expect(intents).toContain('data_analysis');
       expect(intents).toContain('content_generation');
       expect(intents).toContain('planning');
+      expect(intents).toContain('other');
     });
 
-    it('does not include "other" in intent list', () => {
+    it('includes "other" as canonical fallback intent', () => {
       const intents = getCanonicalIntentList();
 
-      expect(intents).not.toContain('other');
+      expect(intents).toContain('other');
     });
 
-    it('returns exactly 8 canonical intents', () => {
+    it('returns exactly 9 canonical intents', () => {
       const intents = getCanonicalIntentList();
 
-      expect(intents).toHaveLength(8);
+      expect(intents).toHaveLength(9);
     });
   });
 

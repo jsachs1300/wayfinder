@@ -47,8 +47,11 @@ Select intent from this list only:
 
 {{INTENT_LIST}}
 
-If no intent applies, use: other:<category>
-where <category> is exactly one lowercase word describing the request type.
+Special handling for "other":
+- Use "other" only when no specific intent applies
+- Must be formatted as: other:<category>
+- <category> is exactly one lowercase word describing the request type
+- Examples: other:translation, other:refactoring, other:conversion
 
 MODEL SELECTION
 
@@ -191,8 +194,12 @@ export function getRouteDecisionSchema(): object {
 /**
  * Get the canonical intent list for prompt injection
  *
- * This list is the authoritative set of allowed intents from REQUIREMENTS.md.
- * The router LLM must select from this list or use other:<category>.
+ * This list is the authoritative set of allowed intents from REQUIREMENTS.md §6.2.
+ * The router LLM must select from this list.
+ *
+ * Note: 'other' is included as a canonical intent but has special handling:
+ * - It SHOULD be avoided when a specific intent applies
+ * - It MUST be of the form 'other:<single_word_subcategory>'
  */
 export function getCanonicalIntentList(): string[] {
   return [
@@ -204,5 +211,6 @@ export function getCanonicalIntentList(): string[] {
     'data_analysis',
     'content_generation',
     'planning',
+    'other',
   ];
 }
