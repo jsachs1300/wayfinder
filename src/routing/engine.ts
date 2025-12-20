@@ -17,6 +17,26 @@ import { validateRouteDecision } from './validation.js';
 /**
  * Router LLM interface
  * Implementations must invoke an LLM and return a response conforming to RouteDecision schema
+ *
+ * Example implementation using the v1.0 router prompt:
+ *
+ * ```typescript
+ * import { buildRouterPrompt, getRouteDecisionSchema, getCanonicalIntentList } from './prompts';
+ *
+ * class ProductionRouterLLM implements RouterLLM {
+ *   async invoke(userPrompt: string, eligibleModels: string[], context) {
+ *     const routerPrompt = buildRouterPrompt({
+ *       schema: getRouteDecisionSchema(),
+ *       intentList: getCanonicalIntentList(),
+ *       modelList: eligibleModels,
+ *       userPrompt: userPrompt,
+ *     });
+ *
+ *     const response = await this.llmClient.complete(routerPrompt);
+ *     return JSON.parse(response);
+ *   }
+ * }
+ * ```
  */
 export interface RouterLLM {
   /**
