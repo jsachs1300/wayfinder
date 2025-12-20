@@ -121,6 +121,11 @@ export function buildRouterPrompt(config: RouterPromptConfig): string {
  *
  * This is the authoritative schema definition that will be sent to the router LLM.
  * It must match the Zod schema in validation.ts exactly.
+ *
+ * Key constraints mirrored from validation.ts:
+ * - All string fields require minLength: 1 (non-empty)
+ * - Score is type: number (not integer) to match z.number()
+ * - All nested objects disallow additional properties
  */
 export function getRouteDecisionSchema(): object {
   return {
@@ -128,6 +133,7 @@ export function getRouteDecisionSchema(): object {
     properties: {
       intent: {
         type: 'string',
+        minLength: 1,
         description: 'Intent classification (must be from allowed list or other:<category>)',
       },
       primary: {
@@ -135,16 +141,18 @@ export function getRouteDecisionSchema(): object {
         properties: {
           model: {
             type: 'string',
+            minLength: 1,
             description: 'Model identifier (must be from allowed list)',
           },
           score: {
-            type: 'integer',
+            type: 'number',
             minimum: 0,
             maximum: 10,
             description: 'Confidence score (0-10)',
           },
           reason: {
             type: 'string',
+            minLength: 1,
             description: 'Short, concrete reason for this recommendation',
           },
         },
@@ -156,16 +164,18 @@ export function getRouteDecisionSchema(): object {
         properties: {
           model: {
             type: 'string',
+            minLength: 1,
             description: 'Model identifier (must be from allowed list)',
           },
           score: {
-            type: 'integer',
+            type: 'number',
             minimum: 0,
             maximum: 10,
             description: 'Confidence score (0-10, must be <= primary.score)',
           },
           reason: {
             type: 'string',
+            minLength: 1,
             description: 'Short, concrete reason for this recommendation',
           },
         },

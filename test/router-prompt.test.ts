@@ -238,21 +238,86 @@ describe('Router Prompt Builder v1.0', () => {
       expect(schema.required).toContain('alternate');
     });
 
-    it('defines score as integer with 0-10 range', () => {
+    it('defines score as number with 0-10 range', () => {
       const schema = getRouteDecisionSchema() as any;
 
-      expect(schema.properties.primary.properties.score.type).toBe('integer');
+      expect(schema.properties.primary.properties.score.type).toBe('number');
       expect(schema.properties.primary.properties.score.minimum).toBe(0);
       expect(schema.properties.primary.properties.score.maximum).toBe(10);
 
-      expect(schema.properties.alternate.properties.score.type).toBe('integer');
+      expect(schema.properties.alternate.properties.score.type).toBe('number');
       expect(schema.properties.alternate.properties.score.minimum).toBe(0);
       expect(schema.properties.alternate.properties.score.maximum).toBe(10);
+    });
+
+    it('requires non-empty strings with minLength: 1', () => {
+      const schema = getRouteDecisionSchema() as any;
+
+      // Intent
+      expect(schema.properties.intent.type).toBe('string');
+      expect(schema.properties.intent.minLength).toBe(1);
+
+      // Primary model and reason
+      expect(schema.properties.primary.properties.model.type).toBe('string');
+      expect(schema.properties.primary.properties.model.minLength).toBe(1);
+      expect(schema.properties.primary.properties.reason.type).toBe('string');
+      expect(schema.properties.primary.properties.reason.minLength).toBe(1);
+
+      // Alternate model and reason
+      expect(schema.properties.alternate.properties.model.type).toBe('string');
+      expect(schema.properties.alternate.properties.model.minLength).toBe(1);
+      expect(schema.properties.alternate.properties.reason.type).toBe('string');
+      expect(schema.properties.alternate.properties.reason.minLength).toBe(1);
     });
 
     it('disallows additional properties at all levels', () => {
       const schema = getRouteDecisionSchema() as any;
 
+      expect(schema.additionalProperties).toBe(false);
+      expect(schema.properties.primary.additionalProperties).toBe(false);
+      expect(schema.properties.alternate.additionalProperties).toBe(false);
+    });
+  });
+
+  describe('Schema-Validation Consistency', () => {
+    it('rejects empty string fields matching Zod validation', () => {
+      // The JSON schema specifies minLength: 1 for all strings
+      // This must match the Zod validation: z.string().min(1)
+
+      const schema = getRouteDecisionSchema() as any;
+
+      // Verify schema enforces non-empty strings
+      expect(schema.properties.intent.minLength).toBe(1);
+      expect(schema.properties.primary.properties.model.minLength).toBe(1);
+      expect(schema.properties.primary.properties.reason.minLength).toBe(1);
+      expect(schema.properties.alternate.properties.model.minLength).toBe(1);
+      expect(schema.properties.alternate.properties.reason.minLength).toBe(1);
+    });
+
+    it('accepts number type for scores matching Zod validation', () => {
+      // The JSON schema specifies type: 'number'
+      // This must match the Zod validation: z.number()
+
+      const schema = getRouteDecisionSchema() as any;
+
+      expect(schema.properties.primary.properties.score.type).toBe('number');
+      expect(schema.properties.alternate.properties.score.type).toBe('number');
+    });
+
+    it('enforces same range constraints as Zod validation', () => {
+      const schema = getRouteDecisionSchema() as any;
+
+      // Score range: 0-10 in both schema and validation
+      expect(schema.properties.primary.properties.score.minimum).toBe(0);
+      expect(schema.properties.primary.properties.score.maximum).toBe(10);
+      expect(schema.properties.alternate.properties.score.minimum).toBe(0);
+      expect(schema.properties.alternate.properties.score.maximum).toBe(10);
+    });
+
+    it('enforces strict mode matching Zod .strict()', () => {
+      const schema = getRouteDecisionSchema() as any;
+
+      // additionalProperties: false matches Zod .strict()
       expect(schema.additionalProperties).toBe(false);
       expect(schema.properties.primary.additionalProperties).toBe(false);
       expect(schema.properties.alternate.additionalProperties).toBe(false);
