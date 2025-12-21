@@ -1,21 +1,21 @@
 # Wayfinder
 
-Wayfinder is an AI navigation and routing service that directs user intent to the appropriate LLM based on policy, trust preferences, and an evolving knowledge store. It is a new infrastructure layer for intelligent model selection, not a chatbot or simple wrapper.
+Wayfinder is an LLM routing control plane that delegates routing decisions to an external router LLM, subject to policy constraints and token configuration. It directs requests to the appropriate model based on policy enforcement, trust preferences, and learned knowledge.
 
 ## What Wayfinder Does
 
-Wayfinder acts as a **routing control plane** for LLM requests:
+Wayfinder is a **routing control plane** that:
 
-1. **Classifies Intent** - Analyzes prompts to determine the type of task (coding, legal, creative, etc.)
-2. **Enforces Policy** - Applies token-scoped rules to determine which models are eligible
-3. **Consults Knowledge** - Uses accumulated routing intelligence to find consensus on best models
-4. **Makes Decisions** - Returns an explainable routing decision with confidence levels
+1. **Enforces Policy** - Applies token-scoped rules to determine which models are eligible for selection
+2. **Delegates to Router LLM** - Invokes an external LLM (OpenAI or Anthropic) to make intelligent routing decisions
+3. **Returns Recommendations** - Provides primary and alternate model recommendations with confidence scores and explanations
+4. **Records Feedback** - Accumulates user feedback to build knowledge for observational and analytical purposes
 
-Unlike a simple load balancer, Wayfinder learns from feedback and builds confidence in its routing decisions over time.
+Unlike a load balancer, Wayfinder's router LLM understands prompt semantics and makes informed decisions. Policy constraints ensure all routing respects security and compliance requirements.
 
 ## Quick Start
 
-Get Wayfinder running in 3 steps:
+Get Wayfinder running in 4 steps:
 
 ```bash
 # 1. Clone and install
@@ -25,11 +25,13 @@ npm install
 
 # 2. Configure environment
 cp .env.example .env
-# Edit .env and set ADMIN_API_KEY
+# Edit .env and set ADMIN_API_KEY and ROUTER_LLM_API_KEY
 
 # 3. Run the server
 npm run dev
 ```
+
+The system requires a router LLM API key to function. Without it, you'll get an error. See [Router LLM Setup](#router-llm-setup-required) below.
 
 Then create your first token and make a routing request:
 
@@ -45,6 +47,23 @@ curl -X POST http://localhost:3000/route \
   -H "X-Wayfinder-Token: wf_xxxxx" \
   -H "Content-Type: application/json" \
   -d '{"prompt": "Write a function to reverse a string"}'
+```
+
+Response:
+```json
+{
+  "primary": {
+    "model": "gpt-4-turbo",
+    "score": 8.2,
+    "reason": "Excellent for coding tasks with strong reasoning capabilities"
+  },
+  "alternate": {
+    "model": "claude-3-5-sonnet",
+    "score": 7.8,
+    "reason": "Alternative with comparable coding ability and different strengths"
+  },
+  "request_id": "req_a1b2c3d4-e5f6-7890"
+}
 ```
 
 ## Core Concepts
@@ -203,19 +222,47 @@ curl http://localhost:3000/admin/models \
 
 Models are curated and include major providers (OpenAI, Anthropic, Google, Meta, Mistral). Future versions may support BYOM (Bring Your Own Model) for custom models.
 
-## Routing Lifecycle
+## Routing Decision Flow
+
+Every routing request follows this deterministic flow:
 
 ```
-Request → Auth → Classify Intent → Apply Policy → Check Knowledge → Select Model
-                                        ↓
-                               [Forced by Policy?]
-                                   ↓ Yes        ↓ No
-                            Return Forced   [High Confidence?]
-                                               ↓ Yes      ↓ No
-                                         Use Consensus  [Has Anchor?]
-                                                          ↓ Yes    ↓ No
-                                                    Use Anchor  Use Default
+1. Request arrives with prompt and token
+                ↓
+2. Authenticate token
+                ↓
+3. Load token configuration
+                ↓
+4. Apply policy constraints → determine eligible models
+                ↓
+5. Is there a forced model?
+   ├─ YES → Return forced model immediately
+   └─ NO → Continue to router LLM
+                ↓
+6. Invoke router LLM with:
+   • User prompt
+   • Eligible models (post-policy)
+   • Token configuration
+                ↓
+7. Router LLM returns:
+   • Primary model recommendation + score
+   • Alternate model recommendation + score
+   • Confidence score (0-10)
+   • Inferred intent (for internal analysis only)
+   • Explanation for primary choice
+                ↓
+8. Validate response against canonical schema
+                ↓
+9. Project response (drop intent from user-facing output)
+                ↓
+10. Return result to user
 ```
+
+**Key design principles:**
+- Policy is always enforced BEFORE router LLM invocation
+- Router LLM never sees ineligible models
+- Intent is advisory metadata only—never used for routing
+- Routing is deterministic given same inputs and cached state
 
 ## API Endpoints Summary
 
@@ -267,22 +314,24 @@ Content-Type: application/json
 }
 ```
 
-Response:
+Response (primary and alternate recommendations from router LLM):
 ```json
 {
-  "selected_model": "gpt-4-turbo",
-  "routing_decision": {
-    "reason": "knowledge_consensus",
-    "confidence": "strong",
-    "agreement_score": 0.85,
-    "eligible_models": ["gpt-4-turbo", "claude-3-5-sonnet", "gemini-1.5-pro"],
-    "timestamp": "2025-12-17T10:30:00.123Z",
-    "knowledge_used": true,
-    "policy_forced": false
+  "primary": {
+    "model": "gpt-4-turbo",
+    "score": 8.5,
+    "reason": "Excellent reasoning and code generation. Best choice for algorithmic problems."
+  },
+  "alternate": {
+    "model": "claude-3-5-sonnet",
+    "score": 7.9,
+    "reason": "Strong coding ability with clear explanations. Good alternative with different strengths."
   },
   "request_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 }
 ```
+
+**Note:** Intent is inferred by the router LLM but not returned in user-facing responses (logged internally).
 
 #### Feedback
 
@@ -573,16 +622,51 @@ curl -X DELETE http://localhost:3000/admin/tokens/token_abc123 \
 
 ### Environment Variables
 
+#### Server Configuration
+
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `PORT` | Server port | `3000` |
-| `NODE_ENV` | Environment | `development` |
-| `ADMIN_API_KEY` | Admin authentication key | Required |
+| `NODE_ENV` | Environment (development, production) | `development` |
+
+#### Authentication (Required)
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `ADMIN_API_KEY` | Admin API key for token management | **REQUIRED** |
+
+#### Router LLM (Required)
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `ROUTER_LLM_API_KEY` | API key for router LLM provider | **REQUIRED** |
+| `ROUTER_LLM_PROVIDER` | LLM provider (openai, anthropic) | `openai` |
+| `ROUTER_LLM_MODEL` | Model to use for routing decisions | `gpt-4o-mini` |
+| `ROUTER_LLM_TIMEOUT` | Request timeout in milliseconds | `10000` |
+| `ROUTER_LLM_MAX_RETRIES` | Maximum retry attempts on failure | `2` |
+| `ROUTER_LLM_TEMPERATURE` | Sampling temperature (0.0-2.0) | `0.0` |
+| `ROUTER_LLM_MAX_TOKENS` | Maximum tokens in LLM response | `500` |
+
+#### Redis & Storage
+
+| Variable | Description | Default |
+|----------|-------------|---------|
 | `REDIS_URL` | Redis connection URL | `redis://localhost:6379` |
-| `REDIS_ENABLED` | Enable Redis storage | `false` |
+| `REDIS_ENABLED` | Enable Redis storage (true/false) | `false` |
+
+#### Knowledge Store
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `KNOWLEDGE_DECAY_RATE` | Decay rate for knowledge entries | `0.05` |
+| `KNOWLEDGE_DECAY_INTERVAL_HOURS` | Decay recalculation interval | `24` |
+| `MIN_VOTES_FOR_STRONG_CONFIDENCE` | Minimum votes for strong confidence level | `5` |
+
+#### Logging
+
+| Variable | Description | Default |
+|----------|-------------|---------|
 | `LOG_LEVEL` | Logging level (debug, info, warn, error) | `info` |
-| `KNOWLEDGE_DECAY_LAMBDA` | Exponential decay constant applied per millisecond | `0.000000001` |
-| `MIN_VOTES_FOR_STRONG_CONFIDENCE` | Minimum votes for strong confidence | `5` |
 
 ### Token Configuration Options
 
@@ -631,24 +715,95 @@ Each model includes metadata about:
 
 The system default model is `claude-3-5-sonnet`, used as a fallback when no other selection criteria apply.
 
-## Intent Classification
+## Router LLM Setup (REQUIRED)
 
-Wayfinder uses heuristic pattern matching to classify user prompts into intent categories. This classification drives policy evaluation and knowledge lookups.
+Wayfinder requires a working router LLM to make routing decisions. The system WILL FAIL without proper configuration.
 
-### Supported Intent Labels
+### Supported Providers
 
-| Intent | Description | Example Prompts |
-|--------|-------------|-----------------|
-| `code_review` | Code review and quality analysis | "Review this code", "Find bugs in this function" |
-| `coding` | Writing or modifying code | "Write a function to sort an array", "Implement a REST API" |
-| `legal` | Legal questions and compliance | "Is this contract legal?", "GDPR compliance requirements" |
-| `summarization` | Text summarization tasks | "Summarize this article", "TL;DR of this document" |
-| `reasoning` | Analytical and logical tasks | "Explain why this works", "Compare pros and cons" |
-| `creative` | Creative writing and content | "Write a story", "Create a blog post" |
-| `support` | Help and troubleshooting | "How do I fix this error?", "Help me understand" |
-| `other` | Fallback for unclassified prompts | Prompts that don't match other patterns |
+- **OpenAI** - gpt-4o-mini, gpt-4-turbo, gpt-4, o1-preview
+- **Anthropic** - claude-3-5-sonnet, claude-3-opus
 
-The classifier returns both the intent label and a confidence score (0-1) based on pattern matching strength.
+### Environment Configuration
+
+Set these variables in your `.env` file:
+
+```bash
+# REQUIRED: Your router LLM provider API key
+# Generate from https://platform.openai.com/api-keys (OpenAI)
+# or https://console.anthropic.com/account/keys (Anthropic)
+ROUTER_LLM_API_KEY=sk-your-api-key-here
+
+# OPTIONAL: Provider to use (default: openai)
+ROUTER_LLM_PROVIDER=openai
+# Alternative:
+# ROUTER_LLM_PROVIDER=anthropic
+
+# OPTIONAL: Model to use for routing (default depends on provider)
+# OpenAI default: gpt-4o-mini
+# Anthropic default: claude-3-5-sonnet
+ROUTER_LLM_MODEL=gpt-4o-mini
+
+# OPTIONAL: Request timeout in milliseconds (default: 10000)
+ROUTER_LLM_TIMEOUT=10000
+
+# OPTIONAL: Maximum retry attempts on failure (default: 2)
+ROUTER_LLM_MAX_RETRIES=2
+
+# OPTIONAL: Sampling temperature for LLM (default: 0.0 = deterministic)
+# Range: 0.0 (deterministic) to 2.0 (creative)
+ROUTER_LLM_TEMPERATURE=0.0
+
+# OPTIONAL: Maximum tokens in LLM response (default: 500)
+ROUTER_LLM_MAX_TOKENS=500
+```
+
+### Quick Test
+
+After configuration, test that your router LLM works:
+
+```bash
+# This will fail if ROUTER_LLM_API_KEY is not set or invalid
+npm run dev
+
+# In another terminal, try a route request
+curl -X POST http://localhost:3000/route \
+  -H "X-Wayfinder-Token: wf_xxxxx" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Hello"}'
+```
+
+If you see `RouterLLMError` or `ROUTER_LLM_API_KEY` error, check:
+1. API key is set in `.env`
+2. API key is valid for your provider
+3. API key has sufficient quota
+
+## Intent (Metadata Only)
+
+The router LLM infers intent from the user prompt as part of its decision-making process. Intent is logged for internal observability and analysis, but MUST NOT influence routing logic.
+
+**Important:** Removing or changing intent inference MUST NOT change routing behavior.
+
+### Intent Labels
+
+The router LLM returns one of these canonical intent labels:
+
+- `code_change` - Writing or modifying code
+- `debugging` - Finding and fixing bugs
+- `architecture_design` - System design and architecture decisions
+- `explanation` - Understanding concepts and explaining behavior
+- `summarization` - Condensing content
+- `data_analysis` - Working with data and statistics
+- `content_generation` - Creating new content
+- `planning` - Task planning and organization
+- `other:<subcategory>` - Fallback for other intents
+
+Intent is purely advisory and used only for:
+- Observational telemetry
+- Internal analysis and metrics
+- Future feature development
+
+Removing intent from the routing decision does NOT break the system.
 
 ## Error Responses
 
@@ -711,6 +866,24 @@ All API endpoints return consistent error responses with the following structure
 
 ## Architecture
 
+### Core Design
+
+Wayfinder architecture centers on the router LLM as the decision maker, with policy as a constraint layer:
+
+```
+User Request
+    ↓
+Authentication (Token validation)
+    ↓
+Policy Engine (Filter eligible models)
+    ↓
+Router LLM (Make routing decision)
+    ↓
+Response Validation & Projection
+    ↓
+User Response (primary, alternate, request_id)
+```
+
 ### Project Structure
 
 ```
@@ -718,7 +891,7 @@ src/
 ├── server.ts          # Entry point, starts Express server
 ├── app.ts             # Express app setup and route mounting
 ├── types/             # TypeScript type definitions
-│   └── index.ts       # Core types for routing, policy, knowledge
+│   └── index.ts       # Core types (RouteDecision, TokenConfig, etc.)
 ├── auth/              # Authentication middleware
 │   ├── index.ts       # Auth middleware exports
 │   └── middleware.ts  # Token & admin auth validation
@@ -726,55 +899,67 @@ src/
 │   ├── index.ts       # Token store exports
 │   ├── store.ts       # Token storage (in-memory & Redis)
 │   └── routes.ts      # Admin token endpoints
-├── intent/            # Intent classification
-│   ├── index.ts       # Classifier exports
-│   └── classifier.ts  # Heuristic-based intent classifier
-├── policy/            # Policy engine
+├── policy/            # Policy evaluation engine
 │   ├── index.ts       # Policy engine exports
-│   └── engine.ts      # Policy evaluation logic
-├── knowledge/         # Knowledge store
+│   └── engine.ts      # Policy rule evaluation logic
+├── routing/           # LLM-driven routing
+│   ├── engine.ts      # Orchestrates routing flow
+│   ├── config.ts      # Router LLM configuration loading
+│   ├── routes.ts      # /route endpoint
+│   ├── validation.ts  # Canonical schema validation
+│   ├── projection.ts  # Response projection (drops intent)
+│   └── router-llm/    # Router LLM implementations
+│       ├── default-router-llm.ts    # Production LLM provider
+│       ├── stub-router-llm.ts       # Testing stub
+│       ├── config.ts                # Configuration types
+│       ├── prompt-builder.ts        # Prompt construction
+│       ├── response-parser.ts       # Response parsing
+│       ├── errors.ts                # Error types
+│       └── providers/               # Provider clients
+│           ├── openai-client.ts     # OpenAI API
+│           ├── anthropic-client.ts  # Anthropic API
+│           └── types.ts             # Provider interface
+├── knowledge/         # Knowledge store (observational telemetry)
 │   ├── index.ts       # Knowledge store exports
-│   └── store.ts       # Vote recording, consensus, lazy decay, incremental stats
+│   └── store.ts       # Vote recording and consensus calculation
 ├── models/            # Model registry
 │   ├── index.ts       # Registry exports
-│   └── registry.ts    # Model definitions and registry
-├── routing/           # Routing engine
-│   ├── index.ts       # Routing engine exports
-│   ├── engine.ts      # Core routing decision logic
-│   └── routes.ts      # /route endpoint
+│   ├── registry.ts    # Model definitions
+│   └── errors.ts      # Model validation errors
 ├── feedback/          # Feedback handling
 │   ├── index.ts       # Feedback handler exports
 │   ├── handler.ts     # Feedback processing logic
 │   └── routes.ts      # /feedback endpoint
-├── polling/           # Opinion polling (future/stub)
+├── polling/           # Opinion polling (stub)
 │   ├── index.ts       # Polling exports
-│   └── stub.ts        # Placeholder for real polling
+│   └── stub.ts        # Placeholder for future polling
 └── logging/           # Structured logging
     ├── index.ts       # Logger exports
-    └── logger.ts      # Console-based structured logger
+    ├── logger.ts      # Console-based logger
+    └── routing-decision.ts # Routing decision logging
 ```
 
 ### Component Responsibilities
 
-- **Auth**: Validates admin API keys and user tokens, sets token config on request
-- **Tokens**: Creates, stores, updates, rotates, and deletes token configurations
-- **Intent**: Classifies user prompts into intent categories using keyword patterns
-- **Policy**: Evaluates policy rules to determine eligible models and forced selections
-- **Knowledge**: Stores model votes per intent, calculates consensus and confidence
-- **Models**: Registry of available LLM models with metadata
-- **Routing**: Orchestrates intent, policy, and knowledge to make routing decisions
-- **Feedback**: Processes user feedback to update knowledge store
-- **Polling**: Placeholder for future opinion polling from actual models
-- **Logging**: Structured logging with request IDs and metadata
+- **Auth**: Validates tokens, loads token config, enforces per-request authentication
+- **Routing Engine**: Orchestrates policy evaluation and router LLM invocation
+- **Router LLM**: Makes actual routing decisions (external LLM call)
+- **Policy Engine**: Constrains eligible models based on token rules
+- **Tokens**: CRUD operations for token configurations (policy boundaries)
+- **Knowledge Store**: Records feedback, calculates consensus (observational only)
+- **Model Registry**: Validates model identifiers, tracks availability and status
+- **Feedback**: Processes user ratings to update knowledge
+- **Logging**: Structured logging of decisions for observability
 
 ## Design Principles
 
-1. **Policy Before Optimization** - Rules are enforced before knowledge is consulted
-2. **Explainable Decisions** - Every routing decision includes a reason and audit trail
-3. **Graceful Degradation** - Falls back through anchor → default → system default
-4. **Knowledge Decay** - Old data loses influence but is never deleted
-5. **Token Isolation** - Each token is a complete policy boundary
-6. **Extensibility** - Interfaces allow swapping implementations (BYOM ready)
+1. **LLM-Driven Routing** - All routing decisions originate from the router LLM, never from local heuristics
+2. **Policy as Constraint** - Policy filters eligible models; it never selects or ranks them
+3. **Intent as Metadata** - Intent is inferred by the LLM for logging and analysis, but MUST NOT influence routing
+4. **Token-Scoped Policies** - Each token is a complete policy boundary with its own configuration
+5. **Fail Fast on Invalid Configuration** - Policy violations and configuration errors are surfaced immediately
+6. **Explainable Decisions** - Every routing response includes confidence scores and reasoning from the LLM
+7. **Deterministic Behavior** - Given the same inputs and cached state, routing produces the same results
 
 ## Usage Examples
 
@@ -917,22 +1102,75 @@ curl "http://localhost:3000/admin/knowledge/stats?scope=token&token_id=$TOKEN_ID
 
 ## Troubleshooting
 
-### Redis Connection Issues
+### Router LLM Configuration
 
-**Problem:** Wayfinder fails to connect to Redis
+**Problem:** `RouterLLMError: ROUTER_LLM_API_KEY environment variable is required`
+
+**Cause:** System cannot start without a router LLM API key.
 
 **Solution:**
+1. Get API key from your provider:
+   - OpenAI: https://platform.openai.com/api-keys
+   - Anthropic: https://console.anthropic.com/account/keys
+
+2. Add to `.env`:
+   ```bash
+   ROUTER_LLM_API_KEY=sk-your-key-here
+   ROUTER_LLM_PROVIDER=openai  # or 'anthropic'
+   ```
+
+3. Restart the server
+
+### Router LLM API Failures
+
+**Problem:** `RouterLLMRetryExhaustedError` or timeouts in routing requests
+
+**Possible causes:**
+- API key is invalid or expired
+- API key has insufficient quota
+- Provider is experiencing issues
+- Timeout is too short for heavy load
+
+**Solutions:**
 ```bash
-# Check if Redis is running
-redis-cli ping
+# Increase timeout (default 10s)
+ROUTER_LLM_TIMEOUT=15000
 
-# If using Docker, ensure Redis service is healthy
-docker-compose ps
+# Reduce max retries if getting stuck (default 2)
+ROUTER_LLM_MAX_RETRIES=1
 
-# Disable Redis and use in-memory storage
-# In .env:
-REDIS_ENABLED=false
+# Check API key validity by calling provider directly
+# (This step depends on your provider)
 ```
+
+### Router LLM Response Validation
+
+**Problem:** `RouterLLMContractViolation` error
+
+**Cause:** Router LLM returned a response that violates the canonical schema.
+
+**Schema requirements:**
+```json
+{
+  "intent": "string",
+  "primary": {
+    "model": "string",
+    "score": number,
+    "reason": "string"
+  },
+  "alternate": {
+    "model": "string",
+    "score": number,
+    "reason": "string"
+  }
+}
+```
+
+**Solutions:**
+- Check LLM prompt engineering in `src/routing/router-llm/prompt-builder.ts`
+- Verify router LLM is capable of returning JSON
+- Try switching LLM model to one with better structured output support
+- Increase `ROUTER_LLM_MAX_TOKENS` if response is being truncated
 
 ### Authentication Failures
 
@@ -950,7 +1188,7 @@ REDIS_ENABLED=false
 
 **Common causes:**
 - Missing required fields (e.g., `prompt` in `/route` request)
-- Invalid intent label (must be one of the supported intent types)
+- Invalid model identifier not in registry
 - Invalid policy rule type
 - Confidence threshold outside 0-1 range
 
@@ -958,34 +1196,42 @@ REDIS_ENABLED=false
 
 ### No Models Eligible After Policy
 
-**Problem:** Routing returns an error or unexpected model
+**Problem:** Router LLM has no models to choose from
 
-**Solution:**
-- Review your policy rules - they may be too restrictive
-- Check `allowed_models` and `denied_models` on the token
-- Use `GET /admin/models` to see all available models
-- Review the `audit_trail` in routing decisions to see which policies were applied
-
-### Knowledge Not Being Used
-
-**Problem:** Routes always use trusted anchor or default model
-
-**Possible causes:**
-- Insufficient feedback submitted (need multiple votes for strong confidence)
-- Confidence threshold set too high
-- Not enough votes for the intent cluster (need at least `MIN_VOTES_FOR_STRONG_CONFIDENCE`)
+**Cause:** Policy rules or denied_models list excluded all available models.
 
 **Solution:**
 ```bash
-# Check current knowledge stats
-curl http://localhost:3000/admin/knowledge/stats \
+# Check available models
+curl http://localhost:3000/admin/models \
   -H "X-Admin-Api-Key: your-admin-key"
 
-# Lower confidence threshold on token
-curl -X PATCH http://localhost:3000/admin/tokens/YOUR_TOKEN_ID \
+# Review token's policy rules
+curl http://localhost:3000/admin/tokens/TOKEN_ID \
+  -H "X-Admin-Api-Key: your-admin-key"
+
+# Update to allow more models
+curl -X PATCH http://localhost:3000/admin/tokens/TOKEN_ID \
   -H "X-Admin-Api-Key: your-admin-key" \
   -H "Content-Type: application/json" \
-  -d '{"confidence_threshold": 0.5}'
+  -d '{"allowed_models": ["gpt-4-turbo", "claude-3-opus"]}'
+```
+
+### Redis Connection Issues
+
+**Problem:** Wayfinder fails to connect to Redis
+
+**Solution:**
+```bash
+# Check if Redis is running
+redis-cli ping
+
+# If using Docker, ensure Redis service is healthy
+docker-compose ps
+
+# Disable Redis and use in-memory storage
+# In .env:
+REDIS_ENABLED=false
 ```
 
 ### Docker Build Failures
@@ -1001,17 +1247,43 @@ docker-compose build --no-cache
 docker-compose logs wayfinder
 
 # Ensure Node.js version compatibility
-# Check Dockerfile uses node:20-alpine or compatible version
+# Check Dockerfile uses node:18+ or compatible version
 ```
 
-## Future Scope
+## Future Roadmap
 
-- **BYOM (Bring Your Own Model)** - Register custom model endpoints
-- **Real Opinion Polling** - Actual model consensus voting
-- **Advanced Intent Classification** - ML-based classification
-- **Metrics & Observability** - Prometheus metrics, tracing
-- **Rate Limiting** - Per-token rate limits
-- **Model Execution** - Actually route to LLM providers
+### Short-term (v1.x)
+
+- **Real Opinion Polling** - Asynchronous polling of actual models to populate knowledge
+- **Org-Scoped Knowledge** - Shared learning within organizations (in addition to global and token scopes)
+- **Hybrid Knowledge Scope** - Combination of global and token-scoped learning
+- **Advanced Observability** - Enhanced logging and metrics
+
+### Medium-term (v2.x)
+
+- **Knowledge-Guided Routing** - Use knowledge store to optimize router LLM decisions
+- **Model Metadata in Decisions** - Return expanded model information in routing responses
+- **Compliance & Audit** - Detailed audit trails and compliance reporting
+- **Rate Limiting** - Per-token rate limits and quota management
+
+### Longer-term
+
+- **BYOM (Bring Your Own Model)** - Support for custom/internal LLM models
+- **Multi-Modal Routing** - Route based on content type (text, image, etc.)
+- **Cost Optimization** - Automatic model selection based on cost targets
+- **Advanced Prompt Optimization** - Rewrite prompts for specific models
+
+## What Wayfinder Does NOT Do
+
+Wayfinder is NOT:
+- A chatbot or conversational interface
+- A prompt optimizer or rewriter
+- A local heuristic router
+- A model execution engine
+- A capability matcher based on static task labels
+- An auto-ML engine
+
+These are intentional non-goals that keep the system focused and maintainable.
 
 ## License
 

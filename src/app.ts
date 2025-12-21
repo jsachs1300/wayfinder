@@ -7,7 +7,7 @@ import { createIntentClassifier, IntentClassifier } from './intent';
 import { createPolicyEngine, PolicyEngine } from './policy';
 import { createKnowledgeStore, KnowledgeStore } from './knowledge';
 import { createModelRegistry, DefaultModelRegistry } from './models';
-import { createRoutingEngine, createRoutingRoutes, RoutingEngine, StubRouterLLM } from './routing';
+import { createRoutingEngine, createRoutingRoutes, RoutingEngine, StubRouterLLM, DefaultRouterLLM } from './routing';
 import { createFeedbackHandler, createFeedbackRoutes, FeedbackHandler } from './feedback';
 import { createOpinionPoller, OpinionPoller } from './polling';
 import { createLogger, Logger } from './logging';
@@ -56,10 +56,27 @@ export function createApp(deps?: Partial<AppDependencies>): {
   const opinionPoller = deps?.opinionPoller ?? createOpinionPoller(knowledgeStore, modelRegistry);
   const feedbackHandler = deps?.feedbackHandler ?? createFeedbackHandler(knowledgeStore);
 
+  // Initialize router LLM (use DefaultRouterLLM if configured, otherwise StubRouterLLM)
+  let routerLLM;
+  if (process.env.ROUTER_LLM_API_KEY) {
+    try {
+      routerLLM = new DefaultRouterLLM(undefined, console);
+      logger.info('Router LLM initialized with real provider');
+    } catch (error) {
+      logger.warn('Failed to initialize Router LLM, falling back to stub', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      routerLLM = new StubRouterLLM();
+    }
+  } else {
+    logger.info('Router LLM API key not configured, using stub implementation');
+    routerLLM = new StubRouterLLM();
+  }
+
   const routingEngine =
     deps?.routingEngine ??
     createRoutingEngine({
-      routerLLM: new StubRouterLLM(),
+      routerLLM,
     });
 
   const dependencies: AppDependencies = {

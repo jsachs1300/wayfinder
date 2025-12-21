@@ -1,0 +1,333 @@
+/**
+ * Tests for Prompt Builder and Response Parser
+ */
+
+import { describe, it, expect } from 'vitest';
+import { buildRoutingPrompt } from '../../src/routing/router-llm/prompt-builder.js';
+import {
+  parseRouteDecision,
+  extractJSON,
+  parseRouteDecisionLenient,
+} from '../../src/routing/router-llm/response-parser.js';
+import {
+  RouterLLMParseError,
+  RouterLLMValidationError,
+  RouterLLMPolicyBypassError,
+} from '../../src/routing/router-llm/errors.js';
+import type { TokenConfig } from '../../src/types/index.js';
+
+describe('buildRoutingPrompt', () => {
+  const mockTokenConfig: TokenConfig = {
+    id: 'token-123',
+    token_hash: 'hash',
+    created_at: '2024-01-01T00:00:00Z',
+    updated_at: '2024-01-01T00:00:00Z',
+  };
+
+  it('should build basic prompt with required fields', () => {
+    const prompt = buildRoutingPrompt({
+      prompt: 'Write a Python function to sort a list',
+      eligibleModels: ['gpt-4', 'claude-3-opus', 'gpt-4o-mini'],
+      tokenConfig: mockTokenConfig,
+    });
+
+    expect(prompt).toContain('Write a Python function to sort a list');
+    expect(prompt).toContain('gpt-4');
+    expect(prompt).toContain('claude-3-opus');
+    expect(prompt).toContain('gpt-4o-mini');
+    expect(prompt).toContain('intent');
+    expect(prompt).toContain('primary');
+    expect(prompt).toContain('alternate');
+    expect(prompt).toContain('score');
+    expect(prompt).toContain('reason');
+  });
+
+  it('should include prefer model when provided', () => {
+    const prompt = buildRoutingPrompt({
+      prompt: 'Test prompt',
+      eligibleModels: ['gpt-4', 'claude-3-opus'],
+      tokenConfig: mockTokenConfig,
+      preferModel: 'gpt-4',
+    });
+
+    expect(prompt).toContain('gpt-4');
+    expect(prompt).toContain('preference');
+  });
+
+  it('should handle single eligible model', () => {
+    const prompt = buildRoutingPrompt({
+      prompt: 'Test prompt',
+      eligibleModels: ['gpt-4'],
+      tokenConfig: mockTokenConfig,
+    });
+
+    expect(prompt).toContain('gpt-4');
+    expect(prompt).toContain('ELIGIBLE MODELS');
+  });
+
+  it('should include JSON schema specification', () => {
+    const prompt = buildRoutingPrompt({
+      prompt: 'Test prompt',
+      eligibleModels: ['gpt-4'],
+      tokenConfig: mockTokenConfig,
+    });
+
+    expect(prompt).toContain('JSON');
+    expect(prompt).toContain('schema');
+    expect(prompt).toContain('"intent"');
+    expect(prompt).toContain('"primary"');
+    expect(prompt).toContain('"alternate"');
+    expect(prompt).toContain('"model"');
+    expect(prompt).toContain('"score"');
+    expect(prompt).toContain('"reason"');
+  });
+
+  it('should include scoring guidance', () => {
+    const prompt = buildRoutingPrompt({
+      prompt: 'Test prompt',
+      eligibleModels: ['gpt-4'],
+      tokenConfig: mockTokenConfig,
+    });
+
+    expect(prompt).toContain('0-10');
+    expect(prompt).toContain('SCORING');
+  });
+});
+
+describe('parseRouteDecision', () => {
+  const eligibleModels = ['gpt-4', 'claude-3-opus', 'gpt-4o-mini'];
+
+  it('should parse valid RouteDecision JSON', () => {
+    const validResponse = JSON.stringify({
+      intent: 'coding',
+      primary: {
+        model: 'gpt-4',
+        score: 9,
+        reason: 'Excellent for coding tasks',
+      },
+      alternate: {
+        model: 'claude-3-opus',
+        score: 8,
+        reason: 'Strong alternative with good reasoning',
+      },
+    });
+
+    const decision = parseRouteDecision(validResponse, eligibleModels);
+
+    expect(decision.intent).toBe('coding');
+    expect(decision.primary.model).toBe('gpt-4');
+    expect(decision.primary.score).toBe(9);
+    expect(decision.alternate.model).toBe('claude-3-opus');
+  });
+
+  it('should throw RouterLLMParseError on invalid JSON', () => {
+    const invalidJSON = 'not valid json {';
+
+    expect(() => parseRouteDecision(invalidJSON, eligibleModels)).toThrow(RouterLLMParseError);
+  });
+
+  it('should throw RouterLLMValidationError on missing intent', () => {
+    const invalidResponse = JSON.stringify({
+      primary: {
+        model: 'gpt-4',
+        score: 9,
+        reason: 'Test',
+      },
+      alternate: {
+        model: 'claude-3-opus',
+        score: 8,
+        reason: 'Test',
+      },
+    });
+
+    expect(() => parseRouteDecision(invalidResponse, eligibleModels)).toThrow(RouterLLMValidationError);
+  });
+
+  it('should throw RouterLLMValidationError on missing primary', () => {
+    const invalidResponse = JSON.stringify({
+      intent: 'coding',
+      alternate: {
+        model: 'claude-3-opus',
+        score: 8,
+        reason: 'Test',
+      },
+    });
+
+    expect(() => parseRouteDecision(invalidResponse, eligibleModels)).toThrow(RouterLLMValidationError);
+  });
+
+  it('should throw RouterLLMValidationError on missing alternate', () => {
+    const invalidResponse = JSON.stringify({
+      intent: 'coding',
+      primary: {
+        model: 'gpt-4',
+        score: 9,
+        reason: 'Test',
+      },
+    });
+
+    expect(() => parseRouteDecision(invalidResponse, eligibleModels)).toThrow(RouterLLMValidationError);
+  });
+
+  it('should throw RouterLLMValidationError on invalid score', () => {
+    const invalidResponse = JSON.stringify({
+      intent: 'coding',
+      primary: {
+        model: 'gpt-4',
+        score: 15, // Invalid: > 10
+        reason: 'Test',
+      },
+      alternate: {
+        model: 'claude-3-opus',
+        score: 8,
+        reason: 'Test',
+      },
+    });
+
+    expect(() => parseRouteDecision(invalidResponse, eligibleModels)).toThrow(RouterLLMValidationError);
+  });
+
+  it('should throw RouterLLMValidationError on missing model field', () => {
+    const invalidResponse = JSON.stringify({
+      intent: 'coding',
+      primary: {
+        score: 9,
+        reason: 'Test',
+      },
+      alternate: {
+        model: 'claude-3-opus',
+        score: 8,
+        reason: 'Test',
+      },
+    });
+
+    expect(() => parseRouteDecision(invalidResponse, eligibleModels)).toThrow(RouterLLMValidationError);
+  });
+
+  it('should throw RouterLLMValidationError on additional properties', () => {
+    const invalidResponse = JSON.stringify({
+      intent: 'coding',
+      primary: {
+        model: 'gpt-4',
+        score: 9,
+        reason: 'Test',
+      },
+      alternate: {
+        model: 'claude-3-opus',
+        score: 8,
+        reason: 'Test',
+      },
+      extra_field: 'not allowed',
+    });
+
+    expect(() => parseRouteDecision(invalidResponse, eligibleModels)).toThrow(RouterLLMValidationError);
+  });
+
+  it('should throw RouterLLMPolicyBypassError when primary model not in eligible set', () => {
+    const invalidResponse = JSON.stringify({
+      intent: 'coding',
+      primary: {
+        model: 'gpt-5', // Not in eligible models
+        score: 9,
+        reason: 'Test',
+      },
+      alternate: {
+        model: 'claude-3-opus',
+        score: 8,
+        reason: 'Test',
+      },
+    });
+
+    expect(() => parseRouteDecision(invalidResponse, eligibleModels)).toThrow(RouterLLMPolicyBypassError);
+  });
+
+  it('should throw RouterLLMPolicyBypassError when alternate model not in eligible set', () => {
+    const invalidResponse = JSON.stringify({
+      intent: 'coding',
+      primary: {
+        model: 'gpt-4',
+        score: 9,
+        reason: 'Test',
+      },
+      alternate: {
+        model: 'gpt-5', // Not in eligible models
+        score: 8,
+        reason: 'Test',
+      },
+    });
+
+    expect(() => parseRouteDecision(invalidResponse, eligibleModels)).toThrow(RouterLLMPolicyBypassError);
+  });
+});
+
+describe('extractJSON', () => {
+  it('should extract JSON from markdown code block', () => {
+    const response = '```json\n{"intent":"test","primary":{"model":"gpt-4","score":9,"reason":"test"},"alternate":{"model":"claude","score":8,"reason":"test"}}\n```';
+    const extracted = extractJSON(response);
+
+    expect(extracted).not.toContain('```');
+    expect(JSON.parse(extracted)).toBeDefined();
+  });
+
+  it('should extract JSON from code block without language', () => {
+    const response = '```\n{"intent":"test","primary":{"model":"gpt-4","score":9,"reason":"test"},"alternate":{"model":"claude","score":8,"reason":"test"}}\n```';
+    const extracted = extractJSON(response);
+
+    expect(extracted).not.toContain('```');
+    expect(JSON.parse(extracted)).toBeDefined();
+  });
+
+  it('should extract JSON from text with surrounding content', () => {
+    const response = 'Here is my response:\n{"intent":"test","primary":{"model":"gpt-4","score":9,"reason":"test"},"alternate":{"model":"claude","score":8,"reason":"test"}}\nDone!';
+    const extracted = extractJSON(response);
+
+    expect(extracted).not.toContain('Here is my response');
+    expect(extracted).not.toContain('Done!');
+    expect(JSON.parse(extracted)).toBeDefined();
+  });
+
+  it('should return original if already valid JSON', () => {
+    const response = '{"intent":"test","primary":{"model":"gpt-4","score":9,"reason":"test"},"alternate":{"model":"claude","score":8,"reason":"test"}}';
+    const extracted = extractJSON(response);
+
+    expect(extracted).toBe(response);
+  });
+
+  it('should return original if no JSON found', () => {
+    const response = 'No JSON here';
+    const extracted = extractJSON(response);
+
+    expect(extracted).toBe('No JSON here');
+  });
+});
+
+describe('parseRouteDecisionLenient', () => {
+  const eligibleModels = ['gpt-4', 'claude-3-opus', 'gpt-4o-mini'];
+
+  it('should parse JSON from markdown code block', () => {
+    const response = '```json\n{"intent":"coding","primary":{"model":"gpt-4","score":9,"reason":"Great for code"},"alternate":{"model":"claude-3-opus","score":8,"reason":"Good alternative"}}\n```';
+    const decision = parseRouteDecisionLenient(response, eligibleModels);
+
+    expect(decision.intent).toBe('coding');
+    expect(decision.primary.model).toBe('gpt-4');
+  });
+
+  it('should parse JSON with surrounding text', () => {
+    const response = 'Here is my routing decision:\n{"intent":"coding","primary":{"model":"gpt-4","score":9,"reason":"Great"},"alternate":{"model":"claude-3-opus","score":8,"reason":"Good"}}\nHope this helps!';
+    const decision = parseRouteDecisionLenient(response, eligibleModels);
+
+    expect(decision.intent).toBe('coding');
+  });
+
+  it('should still validate schema after extraction', () => {
+    const response = '```json\n{"intent":"coding","primary":{"model":"gpt-4","score":15,"reason":"Test"},"alternate":{"model":"claude-3-opus","score":8,"reason":"Test"}}\n```';
+
+    expect(() => parseRouteDecisionLenient(response, eligibleModels)).toThrow(RouterLLMValidationError);
+  });
+
+  it('should validate model eligibility after extraction', () => {
+    const response = '```json\n{"intent":"coding","primary":{"model":"gpt-5","score":9,"reason":"Test"},"alternate":{"model":"claude-3-opus","score":8,"reason":"Test"}}\n```';
+
+    expect(() => parseRouteDecisionLenient(response, eligibleModels)).toThrow(RouterLLMPolicyBypassError);
+  });
+});
