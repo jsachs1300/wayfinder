@@ -24,6 +24,7 @@ import {
   RouterLLMRetryExhaustedError,
   RouterLLMTimeoutError,
   RouterLLMPolicyBypassError,
+  RouterLLMProviderError,
 } from './errors.js';
 
 /**
@@ -70,6 +71,25 @@ export class DefaultRouterLLM implements RouterLLM {
       requestMetadata?: Record<string, unknown>;
     }
   ): Promise<unknown> {
+    // Input validation
+    if (!prompt || prompt.trim().length === 0) {
+      throw new RouterLLMError('Prompt cannot be empty');
+    }
+
+    if (prompt.length > 100000) {
+      throw new RouterLLMError(
+        `Prompt exceeds maximum length of 100,000 characters (got ${prompt.length}). ` +
+        'This limit prevents prompt injection attacks and excessive API costs.'
+      );
+    }
+
+    if (!eligibleModels || eligibleModels.length === 0) {
+      throw new RouterLLMError(
+        'At least one eligible model is required for routing decisions. ' +
+        'Check that policy evaluation returned eligible models.'
+      );
+    }
+
     // Build the routing prompt
     const routingPrompt = buildRoutingPrompt({
       prompt,
@@ -159,6 +179,20 @@ export class DefaultRouterLLM implements RouterLLM {
             eligibleModels: error.eligibleModels,
           });
           throw error;
+        }
+
+        // Don't retry on 4xx errors (except 429 rate limit which is retryable)
+        // These errors indicate client-side issues that won't be resolved by retrying
+        if (error instanceof RouterLLMProviderError && error.statusCode) {
+          const nonRetryableStatuses = [400, 401, 403, 404, 422];
+          if (nonRetryableStatuses.includes(error.statusCode)) {
+            this.logger?.error('[RouterLLM] Non-retryable HTTP error, not retrying', {
+              statusCode: error.statusCode,
+              provider: error.provider,
+              error: error.message,
+            });
+            throw error;
+          }
         }
 
         // Log retry-eligible error

@@ -335,6 +335,263 @@ describe('DefaultRouterLLM', () => {
     const client = routerLLM.getClient();
     expect(client.getProviderName()).toBe('openai');
   });
+
+  describe('Input Validation', () => {
+    it('should throw error on empty prompt', async () => {
+      const routerLLM = new DefaultRouterLLM(testConfig);
+
+      await expect(
+        routerLLM.invoke('', ['gpt-4', 'claude-3-opus'], { tokenConfig: mockTokenConfig })
+      ).rejects.toThrow('Prompt cannot be empty');
+    });
+
+    it('should throw error on whitespace-only prompt', async () => {
+      const routerLLM = new DefaultRouterLLM(testConfig);
+
+      await expect(
+        routerLLM.invoke('   ', ['gpt-4', 'claude-3-opus'], { tokenConfig: mockTokenConfig })
+      ).rejects.toThrow('Prompt cannot be empty');
+    });
+
+    it('should throw error on prompt exceeding maximum length', async () => {
+      const routerLLM = new DefaultRouterLLM(testConfig);
+      const longPrompt = 'a'.repeat(100001); // Exceeds 100,000 limit
+
+      await expect(
+        routerLLM.invoke(longPrompt, ['gpt-4', 'claude-3-opus'], { tokenConfig: mockTokenConfig })
+      ).rejects.toThrow('Prompt exceeds maximum length');
+    });
+
+    it('should throw error on empty eligible models array', async () => {
+      const routerLLM = new DefaultRouterLLM(testConfig);
+
+      await expect(
+        routerLLM.invoke('Test prompt', [], { tokenConfig: mockTokenConfig })
+      ).rejects.toThrow('At least one eligible model is required');
+    });
+
+    it('should accept prompt at maximum length boundary', async () => {
+      const mockResponse = {
+        id: 'chatcmpl-123',
+        object: 'chat.completion',
+        created: 1677652288,
+        model: 'gpt-4o-mini',
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: JSON.stringify({
+                intent: 'coding',
+                primary: { model: 'gpt-4', score: 9, reason: 'Test' },
+                alternate: { model: 'claude-3-opus', score: 8, reason: 'Test' },
+              }),
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+      };
+
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+
+      const routerLLM = new DefaultRouterLLM(testConfig);
+      const maxLengthPrompt = 'a'.repeat(100000); // Exactly at limit
+
+      const decision = await routerLLM.invoke(maxLengthPrompt, ['gpt-4', 'claude-3-opus'], {
+        tokenConfig: mockTokenConfig,
+      });
+
+      expect(decision).toBeDefined();
+    });
+  });
+
+  describe('Non-Retryable HTTP Errors', () => {
+    it('should not retry on 400 Bad Request', async () => {
+      const fetchSpy = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        json: async () => ({ error: { message: 'Invalid request' } }),
+      } as Response);
+      global.fetch = fetchSpy;
+
+      const routerLLM = new DefaultRouterLLM(testConfig);
+
+      await expect(
+        routerLLM.invoke('Test', ['gpt-4', 'claude-3-opus'], { tokenConfig: mockTokenConfig })
+      ).rejects.toThrow(RouterLLMProviderError);
+
+      // Should only be called once (no retries)
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('should not retry on 401 Unauthorized', async () => {
+      const fetchSpy = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        statusText: 'Unauthorized',
+        json: async () => ({ error: { message: 'Invalid API key' } }),
+      } as Response);
+      global.fetch = fetchSpy;
+
+      const routerLLM = new DefaultRouterLLM(testConfig);
+
+      await expect(
+        routerLLM.invoke('Test', ['gpt-4', 'claude-3-opus'], { tokenConfig: mockTokenConfig })
+      ).rejects.toThrow(RouterLLMProviderError);
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('should not retry on 403 Forbidden', async () => {
+      const fetchSpy = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 403,
+        statusText: 'Forbidden',
+        json: async () => ({ error: { message: 'Access denied' } }),
+      } as Response);
+      global.fetch = fetchSpy;
+
+      const routerLLM = new DefaultRouterLLM(testConfig);
+
+      await expect(
+        routerLLM.invoke('Test', ['gpt-4', 'claude-3-opus'], { tokenConfig: mockTokenConfig })
+      ).rejects.toThrow(RouterLLMProviderError);
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('should not retry on 404 Not Found', async () => {
+      const fetchSpy = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+        json: async () => ({ error: { message: 'Model not found' } }),
+      } as Response);
+      global.fetch = fetchSpy;
+
+      const routerLLM = new DefaultRouterLLM(testConfig);
+
+      await expect(
+        routerLLM.invoke('Test', ['gpt-4', 'claude-3-opus'], { tokenConfig: mockTokenConfig })
+      ).rejects.toThrow(RouterLLMProviderError);
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('should not retry on 422 Unprocessable Entity', async () => {
+      const fetchSpy = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 422,
+        statusText: 'Unprocessable Entity',
+        json: async () => ({ error: { message: 'Invalid parameters' } }),
+      } as Response);
+      global.fetch = fetchSpy;
+
+      const routerLLM = new DefaultRouterLLM(testConfig);
+
+      await expect(
+        routerLLM.invoke('Test', ['gpt-4', 'claude-3-opus'], { tokenConfig: mockTokenConfig })
+      ).rejects.toThrow(RouterLLMProviderError);
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('should retry on 429 Rate Limit (retryable 4xx)', async () => {
+      const fetchSpy = vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 429,
+          statusText: 'Too Many Requests',
+          json: async () => ({ error: { message: 'Rate limit exceeded' } }),
+        } as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            id: 'chatcmpl-123',
+            object: 'chat.completion',
+            created: 1677652288,
+            model: 'gpt-4o-mini',
+            choices: [
+              {
+                index: 0,
+                message: {
+                  role: 'assistant',
+                  content: JSON.stringify({
+                    intent: 'coding',
+                    primary: { model: 'gpt-4', score: 9, reason: 'Test' },
+                    alternate: { model: 'claude-3-opus', score: 8, reason: 'Test' },
+                  }),
+                },
+                finish_reason: 'stop',
+              },
+            ],
+            usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+          }),
+        } as Response);
+      global.fetch = fetchSpy;
+
+      const routerLLM = new DefaultRouterLLM(testConfig);
+
+      const decision = await routerLLM.invoke('Test', ['gpt-4', 'claude-3-opus'], {
+        tokenConfig: mockTokenConfig,
+      });
+
+      expect(decision).toBeDefined();
+      // Should be called twice (initial + 1 retry)
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it('should retry on 500 Internal Server Error (retryable 5xx)', async () => {
+      const fetchSpy = vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 500,
+          statusText: 'Internal Server Error',
+          json: async () => ({ error: { message: 'Server error' } }),
+        } as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            id: 'chatcmpl-123',
+            object: 'chat.completion',
+            created: 1677652288,
+            model: 'gpt-4o-mini',
+            choices: [
+              {
+                index: 0,
+                message: {
+                  role: 'assistant',
+                  content: JSON.stringify({
+                    intent: 'coding',
+                    primary: { model: 'gpt-4', score: 9, reason: 'Test' },
+                    alternate: { model: 'claude-3-opus', score: 8, reason: 'Test' },
+                  }),
+                },
+                finish_reason: 'stop',
+              },
+            ],
+            usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+          }),
+        } as Response);
+      global.fetch = fetchSpy;
+
+      const routerLLM = new DefaultRouterLLM(testConfig);
+
+      const decision = await routerLLM.invoke('Test', ['gpt-4', 'claude-3-opus'], {
+        tokenConfig: mockTokenConfig,
+      });
+
+      expect(decision).toBeDefined();
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+    });
+  });
 });
 
 describe('StubRouterLLM', () => {
