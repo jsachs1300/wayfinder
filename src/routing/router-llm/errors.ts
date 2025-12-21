@@ -102,3 +102,20 @@ export class RouterLLMRetryExhaustedError extends RouterLLMError {
     this.name = 'RouterLLMRetryExhaustedError';
   }
 }
+
+/**
+ * Policy bypass error
+ * Thrown when LLM selects a model that is not in the eligible set
+ * This indicates the LLM is attempting to bypass policy constraints
+ */
+export class RouterLLMPolicyBypassError extends RouterLLMError {
+  constructor(
+    message: string,
+    public readonly selectedModel: string,
+    public readonly eligibleModels: string[],
+    public readonly field: 'primary' | 'alternate'
+  ) {
+    super(message);
+    this.name = 'RouterLLMPolicyBypassError';
+  }
+}

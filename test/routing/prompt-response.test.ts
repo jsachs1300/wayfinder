@@ -12,6 +12,7 @@ import {
 import {
   RouterLLMParseError,
   RouterLLMValidationError,
+  RouterLLMPolicyBypassError,
 } from '../../src/routing/router-llm/errors.js';
 import type { TokenConfig } from '../../src/types/index.js';
 
@@ -94,6 +95,8 @@ describe('buildRoutingPrompt', () => {
 });
 
 describe('parseRouteDecision', () => {
+  const eligibleModels = ['gpt-4', 'claude-3-opus', 'gpt-4o-mini'];
+
   it('should parse valid RouteDecision JSON', () => {
     const validResponse = JSON.stringify({
       intent: 'coding',
@@ -109,7 +112,7 @@ describe('parseRouteDecision', () => {
       },
     });
 
-    const decision = parseRouteDecision(validResponse);
+    const decision = parseRouteDecision(validResponse, eligibleModels);
 
     expect(decision.intent).toBe('coding');
     expect(decision.primary.model).toBe('gpt-4');
@@ -120,7 +123,7 @@ describe('parseRouteDecision', () => {
   it('should throw RouterLLMParseError on invalid JSON', () => {
     const invalidJSON = 'not valid json {';
 
-    expect(() => parseRouteDecision(invalidJSON)).toThrow(RouterLLMParseError);
+    expect(() => parseRouteDecision(invalidJSON, eligibleModels)).toThrow(RouterLLMParseError);
   });
 
   it('should throw RouterLLMValidationError on missing intent', () => {
@@ -137,7 +140,7 @@ describe('parseRouteDecision', () => {
       },
     });
 
-    expect(() => parseRouteDecision(invalidResponse)).toThrow(RouterLLMValidationError);
+    expect(() => parseRouteDecision(invalidResponse, eligibleModels)).toThrow(RouterLLMValidationError);
   });
 
   it('should throw RouterLLMValidationError on missing primary', () => {
@@ -150,7 +153,7 @@ describe('parseRouteDecision', () => {
       },
     });
 
-    expect(() => parseRouteDecision(invalidResponse)).toThrow(RouterLLMValidationError);
+    expect(() => parseRouteDecision(invalidResponse, eligibleModels)).toThrow(RouterLLMValidationError);
   });
 
   it('should throw RouterLLMValidationError on missing alternate', () => {
@@ -163,7 +166,7 @@ describe('parseRouteDecision', () => {
       },
     });
 
-    expect(() => parseRouteDecision(invalidResponse)).toThrow(RouterLLMValidationError);
+    expect(() => parseRouteDecision(invalidResponse, eligibleModels)).toThrow(RouterLLMValidationError);
   });
 
   it('should throw RouterLLMValidationError on invalid score', () => {
@@ -181,7 +184,7 @@ describe('parseRouteDecision', () => {
       },
     });
 
-    expect(() => parseRouteDecision(invalidResponse)).toThrow(RouterLLMValidationError);
+    expect(() => parseRouteDecision(invalidResponse, eligibleModels)).toThrow(RouterLLMValidationError);
   });
 
   it('should throw RouterLLMValidationError on missing model field', () => {
@@ -198,7 +201,7 @@ describe('parseRouteDecision', () => {
       },
     });
 
-    expect(() => parseRouteDecision(invalidResponse)).toThrow(RouterLLMValidationError);
+    expect(() => parseRouteDecision(invalidResponse, eligibleModels)).toThrow(RouterLLMValidationError);
   });
 
   it('should throw RouterLLMValidationError on additional properties', () => {
@@ -217,7 +220,43 @@ describe('parseRouteDecision', () => {
       extra_field: 'not allowed',
     });
 
-    expect(() => parseRouteDecision(invalidResponse)).toThrow(RouterLLMValidationError);
+    expect(() => parseRouteDecision(invalidResponse, eligibleModels)).toThrow(RouterLLMValidationError);
+  });
+
+  it('should throw RouterLLMPolicyBypassError when primary model not in eligible set', () => {
+    const invalidResponse = JSON.stringify({
+      intent: 'coding',
+      primary: {
+        model: 'gpt-5', // Not in eligible models
+        score: 9,
+        reason: 'Test',
+      },
+      alternate: {
+        model: 'claude-3-opus',
+        score: 8,
+        reason: 'Test',
+      },
+    });
+
+    expect(() => parseRouteDecision(invalidResponse, eligibleModels)).toThrow(RouterLLMPolicyBypassError);
+  });
+
+  it('should throw RouterLLMPolicyBypassError when alternate model not in eligible set', () => {
+    const invalidResponse = JSON.stringify({
+      intent: 'coding',
+      primary: {
+        model: 'gpt-4',
+        score: 9,
+        reason: 'Test',
+      },
+      alternate: {
+        model: 'gpt-5', // Not in eligible models
+        score: 8,
+        reason: 'Test',
+      },
+    });
+
+    expect(() => parseRouteDecision(invalidResponse, eligibleModels)).toThrow(RouterLLMPolicyBypassError);
   });
 });
 
@@ -263,9 +302,11 @@ describe('extractJSON', () => {
 });
 
 describe('parseRouteDecisionLenient', () => {
+  const eligibleModels = ['gpt-4', 'claude-3-opus', 'gpt-4o-mini'];
+
   it('should parse JSON from markdown code block', () => {
     const response = '```json\n{"intent":"coding","primary":{"model":"gpt-4","score":9,"reason":"Great for code"},"alternate":{"model":"claude-3-opus","score":8,"reason":"Good alternative"}}\n```';
-    const decision = parseRouteDecisionLenient(response);
+    const decision = parseRouteDecisionLenient(response, eligibleModels);
 
     expect(decision.intent).toBe('coding');
     expect(decision.primary.model).toBe('gpt-4');
@@ -273,14 +314,20 @@ describe('parseRouteDecisionLenient', () => {
 
   it('should parse JSON with surrounding text', () => {
     const response = 'Here is my routing decision:\n{"intent":"coding","primary":{"model":"gpt-4","score":9,"reason":"Great"},"alternate":{"model":"claude-3-opus","score":8,"reason":"Good"}}\nHope this helps!';
-    const decision = parseRouteDecisionLenient(response);
+    const decision = parseRouteDecisionLenient(response, eligibleModels);
 
     expect(decision.intent).toBe('coding');
   });
 
   it('should still validate schema after extraction', () => {
-    const response = '```json\n{"intent":"coding","primary":{"model":"gpt-4","score":15,"reason":"Test"},"alternate":{"model":"claude","score":8,"reason":"Test"}}\n```';
+    const response = '```json\n{"intent":"coding","primary":{"model":"gpt-4","score":15,"reason":"Test"},"alternate":{"model":"claude-3-opus","score":8,"reason":"Test"}}\n```';
 
-    expect(() => parseRouteDecisionLenient(response)).toThrow(RouterLLMValidationError);
+    expect(() => parseRouteDecisionLenient(response, eligibleModels)).toThrow(RouterLLMValidationError);
+  });
+
+  it('should validate model eligibility after extraction', () => {
+    const response = '```json\n{"intent":"coding","primary":{"model":"gpt-5","score":9,"reason":"Test"},"alternate":{"model":"claude-3-opus","score":8,"reason":"Test"}}\n```';
+
+    expect(() => parseRouteDecisionLenient(response, eligibleModels)).toThrow(RouterLLMPolicyBypassError);
   });
 });

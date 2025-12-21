@@ -7,7 +7,52 @@
 
 import { validateRouteDecision } from '../validation.js';
 import type { RouteDecision } from '../../types/index.js';
-import { RouterLLMParseError, RouterLLMValidationError } from './errors.js';
+import {
+  RouterLLMParseError,
+  RouterLLMValidationError,
+  RouterLLMPolicyBypassError
+} from './errors.js';
+
+/**
+ * Validates that selected models are in the eligible set
+ *
+ * This is a critical security check that prevents the LLM from bypassing
+ * policy constraints by hallucinating or selecting unauthorized models.
+ *
+ * @param decision - Validated RouteDecision
+ * @param eligibleModels - Models that were marked eligible by policy
+ * @throws RouterLLMPolicyBypassError if selected model is not eligible
+ */
+function validateModelEligibility(
+  decision: RouteDecision,
+  eligibleModels: string[]
+): void {
+  const eligibleSet = new Set(eligibleModels);
+
+  // Validate primary model
+  if (!eligibleSet.has(decision.primary.model)) {
+    throw new RouterLLMPolicyBypassError(
+      `Router LLM selected primary model "${decision.primary.model}" which is not in the eligible set. ` +
+      `This indicates the LLM ignored policy constraints or hallucinated a model name. ` +
+      `Eligible models: [${eligibleModels.join(', ')}]`,
+      decision.primary.model,
+      eligibleModels,
+      'primary'
+    );
+  }
+
+  // Validate alternate model
+  if (!eligibleSet.has(decision.alternate.model)) {
+    throw new RouterLLMPolicyBypassError(
+      `Router LLM selected alternate model "${decision.alternate.model}" which is not in the eligible set. ` +
+      `This indicates the LLM ignored policy constraints or hallucinated a model name. ` +
+      `Eligible models: [${eligibleModels.join(', ')}]`,
+      decision.alternate.model,
+      eligibleModels,
+      'alternate'
+    );
+  }
+}
 
 /**
  * Parses a router LLM response into a validated RouteDecision
@@ -15,14 +60,20 @@ import { RouterLLMParseError, RouterLLMValidationError } from './errors.js';
  * Steps:
  * 1. Parse raw response as JSON
  * 2. Validate against RouteDecision schema using Zod
- * 3. Return validated decision
+ * 3. Validate selected models are in eligible set (security check)
+ * 4. Return validated decision
  *
  * @param rawResponse - Raw text response from LLM provider
+ * @param eligibleModels - Models that policy marked as eligible (REQUIRED for security)
  * @returns Validated RouteDecision
  * @throws RouterLLMParseError if JSON parsing fails
  * @throws RouterLLMValidationError if schema validation fails
+ * @throws RouterLLMPolicyBypassError if selected models not in eligible set
  */
-export function parseRouteDecision(rawResponse: string): RouteDecision {
+export function parseRouteDecision(
+  rawResponse: string,
+  eligibleModels: string[]
+): RouteDecision {
   // Step 1: Parse JSON
   let parsed: unknown;
   try {
@@ -36,8 +87,9 @@ export function parseRouteDecision(rawResponse: string): RouteDecision {
   }
 
   // Step 2: Validate against schema
+  let decision: RouteDecision;
   try {
-    return validateRouteDecision(parsed);
+    decision = validateRouteDecision(parsed);
   } catch (error) {
     // Extract validation errors from Zod error
     const validationErrors: string[] = [];
@@ -56,6 +108,12 @@ export function parseRouteDecision(rawResponse: string): RouteDecision {
       error instanceof Error ? error : undefined
     );
   }
+
+  // Step 3: Validate model eligibility (CRITICAL SECURITY CHECK)
+  validateModelEligibility(decision, eligibleModels);
+
+  // Step 4: Return validated decision
+  return decision;
 }
 
 /**
@@ -91,11 +149,16 @@ export function extractJSON(response: string): string {
  * that may contain additional text or formatting.
  *
  * @param rawResponse - Raw text response from LLM provider
+ * @param eligibleModels - Models that policy marked as eligible (REQUIRED for security)
  * @returns Validated RouteDecision
  * @throws RouterLLMParseError if JSON extraction/parsing fails
  * @throws RouterLLMValidationError if schema validation fails
+ * @throws RouterLLMPolicyBypassError if selected models not in eligible set
  */
-export function parseRouteDecisionLenient(rawResponse: string): RouteDecision {
+export function parseRouteDecisionLenient(
+  rawResponse: string,
+  eligibleModels: string[]
+): RouteDecision {
   const extracted = extractJSON(rawResponse);
-  return parseRouteDecision(extracted);
+  return parseRouteDecision(extracted, eligibleModels);
 }

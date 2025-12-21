@@ -23,6 +23,7 @@ import {
   RouterLLMError,
   RouterLLMRetryExhaustedError,
   RouterLLMTimeoutError,
+  RouterLLMPolicyBypassError,
 } from './errors.js';
 
 /**
@@ -118,8 +119,8 @@ export class DefaultRouterLLM implements RouterLLM {
           outputTokens: response.metadata.outputTokens,
         });
 
-        // Parse and validate response
-        const decision = parseRouteDecisionLenient(response.content);
+        // Parse and validate response (includes security check for model eligibility)
+        const decision = parseRouteDecisionLenient(response.content, eligibleModels);
 
         // Log decision
         this.logger?.log('[RouterLLM] Routing decision', {
@@ -146,6 +147,16 @@ export class DefaultRouterLLM implements RouterLLM {
         if (error instanceof RouterLLMError && error.name === 'RouterLLMValidationError') {
           this.logger?.error('[RouterLLM] Validation error, not retrying', {
             error: error.message,
+          });
+          throw error;
+        }
+
+        // Don't retry on policy bypass errors (LLM selected ineligible model)
+        if (error instanceof RouterLLMPolicyBypassError) {
+          this.logger?.error('[RouterLLM] Policy bypass detected, not retrying', {
+            field: error.field,
+            selectedModel: error.selectedModel,
+            eligibleModels: error.eligibleModels,
           });
           throw error;
         }
