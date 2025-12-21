@@ -103,33 +103,5 @@ export function createRoutingEngine(deps: RoutingEngineDependencies): RoutingEng
   return new DefaultRoutingEngine(deps);
 }
 
-/**
- * Stub RouterLLM implementation for testing
- * Returns a valid RouteDecision with placeholder data
- */
-export class StubRouterLLM implements RouterLLM {
-  async invoke(
-    prompt: string,
-    eligibleModels: string[],
-    context: {
-      tokenConfig: TokenConfig;
-      preferModel?: string;
-      requestMetadata?: Record<string, unknown>;
-    },
-  ): Promise<unknown> {
-    // Return a valid RouteDecision structure
-    return {
-      intent: 'code_change',
-      primary: {
-        model: eligibleModels[0] || 'gpt-4',
-        score: 8,
-        reason: 'Best suited for this task based on prompt analysis',
-      },
-      alternate: {
-        model: eligibleModels[1] || 'claude-3-sonnet',
-        score: 6,
-        reason: 'Viable alternative with different strengths',
-      },
-    };
-  }
-}
+// StubRouterLLM has been moved to src/routing/router-llm/stub-router-llm.ts
+// Import it from there if needed for testing
