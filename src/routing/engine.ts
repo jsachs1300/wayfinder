@@ -13,6 +13,8 @@
 
 import type { RouteRequest, TokenConfig, RouteDecision } from '../types/index.js';
 import { validateRouteDecision } from './validation.js';
+import type { PolicyEngine } from '../policy/engine.js';
+import type { ModelRegistry } from '../models/registry.js';
 
 /**
  * Router LLM interface
@@ -68,6 +70,8 @@ export interface RoutingEngine {
 
 export interface RoutingEngineDependencies {
   routerLLM: RouterLLM;
+  policyEngine: PolicyEngine;
+  modelRegistry: ModelRegistry;
 }
 
 export class DefaultRoutingEngine implements RoutingEngine {
@@ -78,11 +82,30 @@ export class DefaultRoutingEngine implements RoutingEngine {
     tokenConfig: TokenConfig,
     requestId?: string,
   ): Promise<RouteDecision> {
-    // TODO: Implement policy evaluation to determine eligible models
-    // For now, use a placeholder - this will be replaced with actual policy engine
-    const eligibleModels = ['gpt-4', 'claude-3-opus', 'claude-3-sonnet'];
+    // Get all available models from registry
+    const availableModels = this.deps.modelRegistry.getAvailableModels();
+    const availableModelIds = availableModels.map((m) => m.id);
 
-    // Invoke router LLM
+    // Apply policy evaluation to determine eligible models
+    // NOTE: Intent-based policy rules present a timing challenge:
+    //   - Intent is inferred by the router LLM (not available yet)
+    //   - But policy evaluation happens before calling the router LLM
+    //   - Solution: Use "other" as placeholder intent for initial filtering
+    //   - This applies global allow/deny rules correctly
+    //   - Intent-based rules (ForceModelByIntent, RestrictModelsByIntent)
+    //     will use "other" until architectural decision is made (see P1)
+    const policyResult = this.deps.policyEngine.evaluate(
+      'other',
+      availableModelIds,
+      tokenConfig
+    );
+
+    // If policy forces a model, use only that model
+    const eligibleModels = policyResult.forced_model
+      ? [policyResult.forced_model]
+      : policyResult.eligible_models;
+
+    // Invoke router LLM with policy-filtered eligible models
     const rawResponse = await this.deps.routerLLM.invoke(request.prompt, eligibleModels, {
       tokenConfig,
       preferModel: request.prefer_model,

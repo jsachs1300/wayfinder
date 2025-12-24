@@ -77,6 +77,8 @@ export function createApp(deps?: Partial<AppDependencies>): {
     deps?.routingEngine ??
     createRoutingEngine({
       routerLLM,
+      policyEngine,
+      modelRegistry,
     });
 
   const dependencies: AppDependencies = {
