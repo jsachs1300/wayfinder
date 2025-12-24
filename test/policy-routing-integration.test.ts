@@ -14,10 +14,19 @@ import type { RouterLLM } from '../src/routing/engine';
 import { createPolicyEngine } from '../src/policy';
 import { createModelRegistry } from '../src/models';
 import type { TokenConfig, RouteRequest } from '../src/types';
+import type { Logger } from '../src/logging/logger';
 
 describe('Policy-Routing Integration', () => {
   const policyEngine = createPolicyEngine();
   const modelRegistry = createModelRegistry();
+
+  // Mock logger for tests
+  const mockLogger: Logger = {
+    debug: () => {},
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+  };
 
   function createTokenConfig(overrides: Partial<TokenConfig> = {}): TokenConfig {
     return {
@@ -56,6 +65,7 @@ describe('Policy-Routing Integration', () => {
         routerLLM: testRouterLLM,
         policyEngine,
         modelRegistry,
+        logger: mockLogger,
       });
 
       const tokenConfig = createTokenConfig({
@@ -102,6 +112,7 @@ describe('Policy-Routing Integration', () => {
         routerLLM: testRouterLLM,
         policyEngine,
         modelRegistry,
+        logger: mockLogger,
       });
 
       const tokenConfig = createTokenConfig({
@@ -149,6 +160,7 @@ describe('Policy-Routing Integration', () => {
         routerLLM: testRouterLLM,
         policyEngine,
         modelRegistry,
+        logger: mockLogger,
       });
 
       const tokenConfig = createTokenConfig({
@@ -186,6 +198,7 @@ describe('Policy-Routing Integration', () => {
         routerLLM: testRouterLLM,
         policyEngine,
         modelRegistry,
+        logger: mockLogger,
       });
 
       const tokenConfig = createTokenConfig({
@@ -248,6 +261,7 @@ describe('Policy-Routing Integration', () => {
         routerLLM: testRouterLLM,
         policyEngine,
         modelRegistry,
+        logger: mockLogger,
       });
 
       const tokenConfig = createTokenConfig({
@@ -283,6 +297,7 @@ describe('Policy-Routing Integration', () => {
         routerLLM: testRouterLLM,
         policyEngine,
         modelRegistry,
+        logger: mockLogger,
       });
 
       // Create a token config that denies all models
@@ -301,6 +316,98 @@ describe('Policy-Routing Integration', () => {
       await expect(engine.route(request, tokenConfig)).rejects.toThrow(
         /check your token configuration/
       );
+    });
+
+    it('should throw error when forced model is not in registry', async () => {
+      const testRouterLLM: RouterLLM = {
+        async invoke() {
+          throw new Error('Should not be called');
+        },
+      };
+
+      // Create a mock policy engine that returns a forced model not in registry
+      const mockPolicyEngine = {
+        evaluate: () => ({
+          eligible_models: [],
+          forced_model: 'non-existent-model-xyz',
+          audit_trail: [],
+        }),
+      };
+
+      const engine = new DefaultRoutingEngine({
+        routerLLM: testRouterLLM,
+        policyEngine: mockPolicyEngine as any,
+        modelRegistry,
+        logger: mockLogger,
+      });
+
+      const tokenConfig = createTokenConfig({});
+
+      const request: RouteRequest = {
+        prompt: 'Write a function',
+      };
+
+      // Expect error about forced model not in registry
+      await expect(engine.route(request, tokenConfig)).rejects.toThrow(
+        /Policy forced model 'non-existent-model-xyz' not found in model registry/
+      );
+    });
+
+    it('should only warn once per token for intent-based rules', async () => {
+      let warnCount = 0;
+      const testLogger: Logger = {
+        debug: () => {},
+        info: () => {},
+        warn: () => { warnCount++; },
+        error: () => {},
+      };
+
+      const testRouterLLM: RouterLLM = {
+        async invoke(_prompt: string, eligibleModels: string[]) {
+          return {
+            intent: 'other',
+            primary: {
+              model: eligibleModels[0],
+              score: 8,
+              reason: 'Test',
+            },
+            alternate: {
+              model: eligibleModels[1] || eligibleModels[0],
+              score: 6,
+              reason: 'Test alternate',
+            },
+          };
+        },
+      };
+
+      const engine = new DefaultRoutingEngine({
+        routerLLM: testRouterLLM,
+        policyEngine,
+        modelRegistry,
+        logger: testLogger,
+      });
+
+      const tokenConfig = createTokenConfig({
+        policy_rules: [
+          {
+            type: 'ForceModelByIntent',
+            intent: 'coding',
+            models: ['gpt-4-turbo'],
+          },
+        ],
+      });
+
+      const request: RouteRequest = {
+        prompt: 'Write a function',
+      };
+
+      // Make 3 routing requests with same token
+      await engine.route(request, tokenConfig);
+      await engine.route(request, tokenConfig);
+      await engine.route(request, tokenConfig);
+
+      // Should only warn once despite 3 requests
+      expect(warnCount).toBe(1);
     });
   });
 });

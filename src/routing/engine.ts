@@ -15,6 +15,7 @@ import type { RouteRequest, TokenConfig, RouteDecision } from '../types/index.js
 import { validateRouteDecision } from './validation.js';
 import type { PolicyEngine } from '../policy/engine.js';
 import type { ModelRegistry } from '../models/registry.js';
+import type { Logger } from '../logging/logger.js';
 
 /**
  * Router LLM interface
@@ -72,9 +73,12 @@ export interface RoutingEngineDependencies {
   routerLLM: RouterLLM;
   policyEngine: PolicyEngine;
   modelRegistry: ModelRegistry;
+  logger: Logger;
 }
 
 export class DefaultRoutingEngine implements RoutingEngine {
+  private warnedTokens = new Set<string>(); // Track tokens we've warned about intent-based rules
+
   constructor(private readonly deps: RoutingEngineDependencies) {}
 
   async route(
@@ -86,17 +90,17 @@ export class DefaultRoutingEngine implements RoutingEngine {
     const availableModels = this.deps.modelRegistry.getAvailableModels();
     const availableModelIds = availableModels.map((m) => m.id);
 
-    // Warn if intent-based policy rules are configured (they will match 'other' for all requests)
+    // Warn if intent-based policy rules are configured (only once per token to avoid spam)
     const hasIntentBasedRules = tokenConfig.policy_rules?.some(
       rule => rule.type === 'ForceModelByIntent' || rule.type === 'RestrictModelsByIntent'
     );
-    if (hasIntentBasedRules) {
-      console.warn(
-        `[Routing Engine] Token ${tokenConfig.id} has intent-based policy rules, ` +
-        `but all requests currently use placeholder intent "other". ` +
-        `Intent-based rules will only match if configured for intent "other". ` +
-        `See routing engine for details on intent timing (tracked as P1).`
-      );
+    if (hasIntentBasedRules && !this.warnedTokens.has(tokenConfig.id)) {
+      this.warnedTokens.add(tokenConfig.id);
+      this.deps.logger.warn('Intent-based policy rules present with placeholder intent', {
+        tokenId: tokenConfig.id,
+        message: 'All requests use placeholder intent "other". Intent-based rules only match if configured for "other".',
+        tracking: 'Intent timing architectural decision tracked as P1',
+      });
     }
 
     // Apply policy evaluation to determine eligible models
@@ -116,6 +120,14 @@ export class DefaultRoutingEngine implements RoutingEngine {
     // If policy forces a model, terminate routing immediately per REQUIREMENTS.md §7.2
     // Skip router LLM invocation to ensure deterministic behavior and avoid failures
     if (policyResult.forced_model) {
+      // Validate that forced model exists in registry
+      if (!availableModelIds.includes(policyResult.forced_model)) {
+        throw new Error(
+          `Policy forced model '${policyResult.forced_model}' not found in model registry. ` +
+          `Available models: ${availableModelIds.join(', ')}`
+        );
+      }
+
       return {
         intent: 'other', // Placeholder intent since policy-forced routing doesn't use LLM
         primary: {

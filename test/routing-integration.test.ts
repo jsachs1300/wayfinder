@@ -16,6 +16,7 @@ import type { TokenConfig } from '../src/types';
 import { createTokenStore, InMemoryTokenStore } from '../src/tokens';
 import { createPolicyEngine } from '../src/policy';
 import { createModelRegistry } from '../src/models';
+import type { Logger } from '../src/logging/logger';
 
 describe('Routing Integration', () => {
   let app: any;
@@ -23,6 +24,12 @@ describe('Routing Integration', () => {
   let testToken: string;
   const policyEngine = createPolicyEngine();
   const modelRegistry = createModelRegistry();
+  const logger: Logger = {
+    debug: () => {},
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+  };
 
   beforeEach(async () => {
     // Create token store and token
@@ -52,7 +59,7 @@ describe('Routing Integration', () => {
         },
       };
 
-      const routingEngine = createRoutingEngine({ routerLLM: validRouterLLM, policyEngine, modelRegistry });
+      const routingEngine = createRoutingEngine({ routerLLM: validRouterLLM, policyEngine, modelRegistry, logger });
       const { app: testApp } = createApp({ tokenStore, routingEngine });
 
       const response = await request(testApp)
