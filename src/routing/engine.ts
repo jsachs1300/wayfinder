@@ -113,10 +113,26 @@ export class DefaultRoutingEngine implements RoutingEngine {
       tokenConfig
     );
 
-    // If policy forces a model, use only that model
-    const eligibleModels = policyResult.forced_model
-      ? [policyResult.forced_model]
-      : policyResult.eligible_models;
+    // If policy forces a model, terminate routing immediately per REQUIREMENTS.md §7.2
+    // Skip router LLM invocation to ensure deterministic behavior and avoid failures
+    if (policyResult.forced_model) {
+      return {
+        intent: 'other', // Placeholder intent since policy-forced routing doesn't use LLM
+        primary: {
+          model: policyResult.forced_model,
+          score: 10,
+          reason: 'Model forced by policy rule (routing terminated per REQUIREMENTS.md §7.2)',
+        },
+        alternate: {
+          model: policyResult.forced_model,
+          score: 10,
+          reason: 'No alternate available when model is forced by policy',
+        },
+      };
+    }
+
+    // Use policy-filtered eligible models for router LLM
+    const eligibleModels = policyResult.eligible_models;
 
     // Validate that policy evaluation resulted in at least one eligible model
     if (eligibleModels.length === 0) {

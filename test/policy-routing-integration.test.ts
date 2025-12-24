@@ -172,25 +172,13 @@ describe('Policy-Routing Integration', () => {
   });
 
   describe('Forced Model Policy', () => {
-    it('should enforce forced model when policy rule matches', async () => {
-      let receivedModels: string[] = [];
+    it('should skip router LLM and return forced model directly', async () => {
+      let llmWasCalled = false;
 
       const testRouterLLM: RouterLLM = {
-        async invoke(_prompt: string, eligibleModels: string[]) {
-          receivedModels = eligibleModels;
-          return {
-            intent: 'coding',
-            primary: {
-              model: eligibleModels[0],
-              score: 8,
-              reason: 'Selected forced model',
-            },
-            alternate: {
-              model: eligibleModels[0],
-              score: 8,
-              reason: 'Only one option available',
-            },
-          };
+        async invoke() {
+          llmWasCalled = true;
+          throw new Error('Router LLM should not be called when model is forced by policy');
         },
       };
 
@@ -216,9 +204,20 @@ describe('Policy-Routing Integration', () => {
 
       const decision = await engine.route(request, tokenConfig);
 
-      // Verify router LLM only received the forced model
-      expect(receivedModels).toEqual(['claude-3-opus']);
+      // Verify router LLM was NOT called (per REQUIREMENTS.md §7.2)
+      expect(llmWasCalled).toBe(false);
+
+      // Verify forced model is used for both primary and alternate
       expect(decision.primary.model).toBe('claude-3-opus');
+      expect(decision.alternate.model).toBe('claude-3-opus');
+
+      // Verify deterministic high confidence score
+      expect(decision.primary.score).toBe(10);
+      expect(decision.alternate.score).toBe(10);
+
+      // Verify reasoning indicates policy enforcement
+      expect(decision.primary.reason).toContain('forced by policy');
+      expect(decision.primary.reason).toContain('REQUIREMENTS.md §7.2');
     });
   });
 
