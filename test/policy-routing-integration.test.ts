@@ -271,4 +271,37 @@ describe('Policy-Routing Integration', () => {
       expect(receivedModels).toContain('claude-3-opus');
     });
   });
+
+  describe('Error Cases', () => {
+    it('should throw error when policy results in no eligible models', async () => {
+      const testRouterLLM: RouterLLM = {
+        async invoke() {
+          throw new Error('Should not be called');
+        },
+      };
+
+      const engine = new DefaultRoutingEngine({
+        routerLLM: testRouterLLM,
+        policyEngine,
+        modelRegistry,
+      });
+
+      // Create a token config that denies all models
+      const tokenConfig = createTokenConfig({
+        allowed_models: ['non-existent-model'],
+      });
+
+      const request: RouteRequest = {
+        prompt: 'Write a function',
+      };
+
+      // Expect the routing to throw an error about no eligible models
+      await expect(engine.route(request, tokenConfig)).rejects.toThrow(
+        /No eligible models available after policy evaluation/
+      );
+      await expect(engine.route(request, tokenConfig)).rejects.toThrow(
+        /check your token configuration/
+      );
+    });
+  });
 });

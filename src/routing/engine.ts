@@ -86,6 +86,19 @@ export class DefaultRoutingEngine implements RoutingEngine {
     const availableModels = this.deps.modelRegistry.getAvailableModels();
     const availableModelIds = availableModels.map((m) => m.id);
 
+    // Warn if intent-based policy rules are configured (they will match 'other' for all requests)
+    const hasIntentBasedRules = tokenConfig.policy_rules?.some(
+      rule => rule.type === 'ForceModelByIntent' || rule.type === 'RestrictModelsByIntent'
+    );
+    if (hasIntentBasedRules) {
+      console.warn(
+        `[Routing Engine] Token ${tokenConfig.id} has intent-based policy rules, ` +
+        `but all requests currently use placeholder intent "other". ` +
+        `Intent-based rules will only match if configured for intent "other". ` +
+        `See routing engine for details on intent timing (tracked as P1).`
+      );
+    }
+
     // Apply policy evaluation to determine eligible models
     // NOTE: Intent-based policy rules present a timing challenge:
     //   - Intent is inferred by the router LLM (not available yet)
@@ -104,6 +117,15 @@ export class DefaultRoutingEngine implements RoutingEngine {
     const eligibleModels = policyResult.forced_model
       ? [policyResult.forced_model]
       : policyResult.eligible_models;
+
+    // Validate that policy evaluation resulted in at least one eligible model
+    if (eligibleModels.length === 0) {
+      throw new Error(
+        'No eligible models available after policy evaluation. ' +
+        'Please check your token configuration (allowed_models, denied_models, policy_rules). ' +
+        'At least one model must be eligible for routing.'
+      );
+    }
 
     // Invoke router LLM with policy-filtered eligible models
     const rawResponse = await this.deps.routerLLM.invoke(request.prompt, eligibleModels, {
