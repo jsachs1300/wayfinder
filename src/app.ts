@@ -3,7 +3,6 @@ import Redis from 'ioredis';
 
 import { tokenAuthMiddleware, adminAuthMiddleware, requestIdMiddleware } from './auth';
 import { createTokenStore, createAdminRoutes, TokenStore } from './tokens';
-import { createIntentClassifier, IntentClassifier } from './intent';
 import { createPolicyEngine, PolicyEngine } from './policy';
 import { createKnowledgeStore, KnowledgeStore } from './knowledge';
 import { createModelRegistry, DefaultModelRegistry } from './models';
@@ -18,7 +17,6 @@ import { createLogger, Logger } from './logging';
 export interface AppDependencies {
   redis?: Redis;
   tokenStore: TokenStore;
-  intentClassifier: IntentClassifier;
   policyEngine: PolicyEngine;
   knowledgeStore: KnowledgeStore;
   modelRegistry: DefaultModelRegistry;
@@ -49,7 +47,6 @@ export function createApp(deps?: Partial<AppDependencies>): {
   // Initialize dependencies
   const logger = deps?.logger ?? createLogger(process.env.LOG_LEVEL);
   const tokenStore = deps?.tokenStore ?? createTokenStore(redis);
-  const intentClassifier = deps?.intentClassifier ?? createIntentClassifier();
   const policyEngine = deps?.policyEngine ?? createPolicyEngine();
   const modelRegistry = deps?.modelRegistry ?? createModelRegistry();
   const knowledgeStore = deps?.knowledgeStore ?? createKnowledgeStore(redis, modelRegistry);
@@ -84,7 +81,6 @@ export function createApp(deps?: Partial<AppDependencies>): {
   const dependencies: AppDependencies = {
     redis,
     tokenStore,
-    intentClassifier,
     policyEngine,
     knowledgeStore,
     modelRegistry,

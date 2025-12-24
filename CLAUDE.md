@@ -33,23 +33,22 @@ Wayfinder is an **LLM routing control plane** that directs requests to appropria
 ### Core Routing Flow
 
 ```
-Request → Auth → Classify Intent → Apply Policy → Check Knowledge → Select Model
+Request → Auth → Apply Policy → Invoke Router LLM → Return Decision
 ```
 
 The routing engine (`src/routing/engine.ts`) orchestrates this flow:
-1. **Intent Classification**: Heuristic pattern matching categorizes prompts (coding, legal, creative, etc.)
-2. **Policy Evaluation**: Token-scoped rules determine eligible models (policy always enforced before optimization)
-3. **Knowledge Consensus**: If high confidence exists for the intent cluster, use the consensus model
-4. **Fallback Chain**: trusted_anchor → default_model → system_default
+1. **Policy Evaluation**: Token-scoped rules determine eligible models (policy always enforced before routing)
+2. **Router LLM Invocation**: LLM makes routing decision and infers intent from user prompt
+3. **Response Validation**: Validates router LLM response against canonical schema
+4. **Intent Logging**: Intent returned by router LLM is logged for analysis (not used for routing logic)
 
 ### Key Components
 
 | Directory | Responsibility |
 |-----------|---------------|
-| `src/routing/` | Orchestrates routing decisions via `DefaultRoutingEngine` |
+| `src/routing/` | Orchestrates routing decisions via `DefaultRoutingEngine` and router LLM |
 | `src/policy/` | Evaluates token policy rules (ForceModelByIntent, RestrictModelsByIntent, etc.) |
 | `src/knowledge/` | Stores model votes per intent, calculates agreement scores, applies decay |
-| `src/intent/` | Keyword-based intent classification returning label + confidence |
 | `src/tokens/` | Token CRUD operations, supports in-memory and Redis storage |
 | `src/models/` | Registry of LLM models with metadata (provider, capabilities, cost/speed tiers) |
 | `src/feedback/` | Processes user feedback to update knowledge store |
