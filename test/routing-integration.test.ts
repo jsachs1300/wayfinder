@@ -14,11 +14,22 @@ import type { RouterLLM } from '../src/routing';
 import { createRoutingEngine } from '../src/routing';
 import type { TokenConfig } from '../src/types';
 import { createTokenStore, InMemoryTokenStore } from '../src/tokens';
+import { createPolicyEngine } from '../src/policy';
+import { createModelRegistry } from '../src/models';
+import type { Logger } from '../src/logging/logger';
 
 describe('Routing Integration', () => {
   let app: any;
   let tokenStore: InMemoryTokenStore;
   let testToken: string;
+  const policyEngine = createPolicyEngine();
+  const modelRegistry = createModelRegistry();
+  const logger: Logger = {
+    debug: () => {},
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+  };
 
   beforeEach(async () => {
     // Create token store and token
@@ -48,7 +59,7 @@ describe('Routing Integration', () => {
         },
       };
 
-      const routingEngine = createRoutingEngine({ routerLLM: validRouterLLM });
+      const routingEngine = createRoutingEngine({ routerLLM: validRouterLLM, policyEngine, modelRegistry, logger });
       const { app: testApp } = createApp({ tokenStore, routingEngine });
 
       const response = await request(testApp)
@@ -94,7 +105,7 @@ describe('Routing Integration', () => {
         },
       };
 
-      const routingEngine = createRoutingEngine({ routerLLM: customIntentRouterLLM });
+      const routingEngine = createRoutingEngine({ routerLLM: customIntentRouterLLM, policyEngine, modelRegistry });
       const { app: testApp } = createApp({ tokenStore, routingEngine });
 
       const response = await request(testApp)
@@ -126,7 +137,7 @@ describe('Routing Integration', () => {
         },
       };
 
-      const routingEngine = createRoutingEngine({ routerLLM: invalidRouterLLM });
+      const routingEngine = createRoutingEngine({ routerLLM: invalidRouterLLM, policyEngine, modelRegistry });
       const { app: testApp } = createApp({ tokenStore, routingEngine });
 
       const response = await request(testApp)
@@ -153,7 +164,7 @@ describe('Routing Integration', () => {
         },
       };
 
-      const routingEngine = createRoutingEngine({ routerLLM: invalidRouterLLM });
+      const routingEngine = createRoutingEngine({ routerLLM: invalidRouterLLM, policyEngine, modelRegistry });
       const { app: testApp } = createApp({ tokenStore, routingEngine });
 
       const response = await request(testApp)
@@ -179,7 +190,7 @@ describe('Routing Integration', () => {
         },
       };
 
-      const routingEngine = createRoutingEngine({ routerLLM: invalidRouterLLM });
+      const routingEngine = createRoutingEngine({ routerLLM: invalidRouterLLM, policyEngine, modelRegistry });
       const { app: testApp } = createApp({ tokenStore, routingEngine });
 
       const response = await request(testApp)
@@ -210,7 +221,7 @@ describe('Routing Integration', () => {
         },
       };
 
-      const routingEngine = createRoutingEngine({ routerLLM: invalidRouterLLM });
+      const routingEngine = createRoutingEngine({ routerLLM: invalidRouterLLM, policyEngine, modelRegistry });
       const { app: testApp } = createApp({ tokenStore, routingEngine });
 
       const response = await request(testApp)
@@ -242,7 +253,7 @@ describe('Routing Integration', () => {
         },
       };
 
-      const routingEngine = createRoutingEngine({ routerLLM: invalidRouterLLM });
+      const routingEngine = createRoutingEngine({ routerLLM: invalidRouterLLM, policyEngine, modelRegistry });
       const { app: testApp } = createApp({ tokenStore, routingEngine });
 
       const response = await request(testApp)
@@ -280,7 +291,7 @@ describe('Routing Integration', () => {
         },
       };
 
-      const routingEngine = createRoutingEngine({ routerLLM: invalidRouterLLM });
+      const routingEngine = createRoutingEngine({ routerLLM: invalidRouterLLM, policyEngine, modelRegistry });
       const { app: testApp } = createApp({ tokenStore, routingEngine });
 
       const response = await request(testApp)
@@ -313,7 +324,7 @@ describe('Routing Integration', () => {
         },
       };
 
-      const routingEngine = createRoutingEngine({ routerLLM });
+      const routingEngine = createRoutingEngine({ routerLLM, policyEngine, modelRegistry });
       const { app: testApp } = createApp({ tokenStore, routingEngine });
 
       const response = await request(testApp)
