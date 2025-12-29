@@ -1,0 +1,1577 @@
+[
+  {
+    "req_id": "REQ-001",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Wayfinder is an AI navigation and routing service that determines which LLM should handle a given query.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 1. Purpose & Scope\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 1
+      }
+    }
+  },
+  {
+    "req_id": "REQ-002",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Wayfinder does not generate answers.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 1. Purpose & Scope\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 2
+      }
+    }
+  },
+  {
+    "req_id": "REQ-003",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Wayfinder does not modify prompts.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 1. Purpose & Scope\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 3
+      }
+    }
+  },
+  {
+    "req_id": "REQ-004",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Wayfinder does not hide uncertainty.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 1. Purpose & Scope\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 4
+      }
+    }
+  },
+  {
+    "req_id": "REQ-005",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Wayfinder delegates routing judgment to a router LLM, subject to explicit policy constraints and token configuration.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 1. Purpose & Scope\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 5
+      }
+    }
+  },
+  {
+    "req_id": "REQ-006",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Wayfinder returns a primary model.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 1. Purpose & Scope\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 6
+      }
+    }
+  },
+  {
+    "req_id": "REQ-007",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Wayfinder returns a reasonable alternate.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 1. Purpose & Scope\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 7
+      }
+    }
+  },
+  {
+    "req_id": "REQ-008",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Wayfinder returns a confidence score.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 1. Purpose & Scope\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 8
+      }
+    }
+  },
+  {
+    "req_id": "REQ-009",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Wayfinder returns an explainable rationale.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 1. Purpose & Scope\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 9
+      }
+    }
+  },
+  {
+    "req_id": "REQ-010",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Wayfinder returns inferred intent metadata (internal).",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 1. Purpose & Scope\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 10
+      }
+    }
+  },
+  {
+    "req_id": "REQ-011",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "All routing decisions (primary, alternate, confidence) MUST originate from a router LLM.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 2.1 LLM-Driven Routing\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 11
+      }
+    }
+  },
+  {
+    "req_id": "REQ-012",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "No heuristic, rule-based, or metadata-based routing is permitted.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 2.1 LLM-Driven Routing\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 12
+      }
+    }
+  },
+  {
+    "req_id": "REQ-013",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "The system MUST NOT re-rank, override, or reinterpret the router LLM's decision.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 2.1 LLM-Driven Routing\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 13
+      }
+    }
+  },
+  {
+    "req_id": "REQ-014",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Policy constrains eligibility of models.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 2.2 Policy as Constraint, Not Selector\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 14
+      }
+    }
+  },
+  {
+    "req_id": "REQ-015",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Policy MUST NOT select, rank, or score models.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 2.2 Policy as Constraint, Not Selector\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 15
+      }
+    }
+  },
+  {
+    "req_id": "REQ-016",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "If policy forces a model, routing MUST terminate immediately.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 2.2 Policy as Constraint, Not Selector\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 16
+      }
+    }
+  },
+  {
+    "req_id": "REQ-017",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Intent is inferred only by the router LLM.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 2.3 Intent Is Metadata, Not Control Flow\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 17
+      }
+    }
+  },
+  {
+    "req_id": "REQ-018",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Intent is stored as metadata for analysis and future features.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 2.3 Intent Is Metadata, Not Control Flow\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 18
+      }
+    }
+  },
+  {
+    "req_id": "REQ-019",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Intent MUST NOT directly drive routing decisions.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 2.3 Intent Is Metadata, Not Control Flow\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 19
+      }
+    }
+  },
+  {
+    "req_id": "REQ-020",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Removing intent MUST NOT break routing behavior.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 2.3 Intent Is Metadata, Not Control Flow\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 20
+      }
+    }
+  },
+  {
+    "req_id": "REQ-021",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "The system MUST NOT use regex classifiers, keyword matching, static intent-to-model mappings, or model capabilities or task labels.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 2.4 No Heuristics, No Capabilities\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 21
+      }
+    }
+  },
+  {
+    "req_id": "REQ-022",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "All such logic is explicitly forbidden.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 2.4 No Heuristics, No Capabilities\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 22
+      }
+    }
+  },
+  {
+    "req_id": "REQ-023",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Given the same token configuration, policy constraints, eligible model set, and cached state, routing results MUST be deterministic.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 2.5 Deterministic Behavior\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 23
+      }
+    }
+  },
+  {
+    "req_id": "REQ-024",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Wayfinder authenticates requests.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 3. System Boundaries\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 24
+      }
+    }
+  },
+  {
+    "req_id": "REQ-025",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Wayfinder loads token configuration.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 3. System Boundaries\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 25
+      }
+    }
+  },
+  {
+    "req_id": "REQ-026",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Wayfinder enforces policy constraints.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 3. System Boundaries\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 26
+      }
+    }
+  },
+  {
+    "req_id": "REQ-027",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Wayfinder determines eligible models.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 3. System Boundaries\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 27
+      }
+    }
+  },
+  {
+    "req_id": "REQ-028",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Wayfinder requests routing judgment from a router LLM.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 3. System Boundaries\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 28
+      }
+    }
+  },
+  {
+    "req_id": "REQ-029",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Wayfinder returns the LLM's routing decision with explanation.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 3. System Boundaries\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 29
+      }
+    }
+  },
+  {
+    "req_id": "REQ-030",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Wayfinder records metadata for observability and learning.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 3. System Boundaries\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 30
+      }
+    }
+  },
+  {
+    "req_id": "REQ-031",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Wayfinder does not answer user prompts.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 3. System Boundaries\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 31
+      }
+    }
+  },
+  {
+    "req_id": "REQ-032",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Wayfinder does not implement local routing logic.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 3. System Boundaries\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 32
+      }
+    }
+  },
+  {
+    "req_id": "REQ-033",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Wayfinder does not infer intent heuristically.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 3. System Boundaries\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 33
+      }
+    }
+  },
+  {
+    "req_id": "REQ-034",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Wayfinder does not learn silently without logging.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 3. System Boundaries\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 34
+      }
+    }
+  },
+  {
+    "req_id": "REQ-035",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Each API token represents a policy boundary.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 4.1 Token Model\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 35
+      }
+    }
+  },
+  {
+    "req_id": "REQ-036",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "A token MAY define: trusted_anchor_model, allowed_models (allowlist), denied_models (denylist), policy_rules, default_model, confidence_threshold, knowledge_scope, logging_level, environment.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 4.1 Token Model\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 36
+      }
+    }
+  },
+  {
+    "req_id": "REQ-037",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "All token configuration MUST be validated at ingestion time.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 4.1 Token Model\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 37
+      }
+    }
+  },
+  {
+    "req_id": "REQ-038",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "The model registry is a passive catalog and validation layer.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 5.1 Registry Role\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 38
+      }
+    }
+  },
+  {
+    "req_id": "REQ-039",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "The model registry MAY contain model identifiers, provider, availability, status (active / deprecated / disabled), context window size, descriptive cost / speed tiers, and eligibility constraints.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 5.1 Registry Role\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 39
+      }
+    }
+  },
+  {
+    "req_id": "REQ-040",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "The model registry MUST NOT rank models, score models, declare capabilities, encode routing logic, or infer suitability.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 5.1 Registry Role\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 40
+      }
+    }
+  },
+  {
+    "req_id": "REQ-041",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Model identifiers MUST be validated at token creation/update.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 5.2 Validation\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 41
+      }
+    }
+  },
+  {
+    "req_id": "REQ-042",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Model identifiers MUST be validated at policy ingestion.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 5.2 Validation\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 42
+      }
+    }
+  },
+  {
+    "req_id": "REQ-043",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Model identifiers MUST be validated at routing results.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 5.2 Validation\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 43
+      }
+    }
+  },
+  {
+    "req_id": "REQ-044",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Model identifiers MUST be validated at feedback ingestion.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 5.2 Validation\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 44
+      }
+    }
+  },
+  {
+    "req_id": "REQ-045",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Invalid identifiers MUST fail fast.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 5.2 Validation\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 45
+      }
+    }
+  },
+  {
+    "req_id": "REQ-046",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Every routing decision MUST include an inferred intent label.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 6.1 Intent Semantics\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 46
+      }
+    }
+  },
+  {
+    "req_id": "REQ-047",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Intent is inferred only by the router LLM.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 6.1 Intent Semantics\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 47
+      }
+    }
+  },
+  {
+    "req_id": "REQ-048",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Intent classification MUST be replaceable without affecting routing.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 6.1 Intent Semantics\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 48
+      }
+    }
+  },
+  {
+    "req_id": "REQ-049",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Canonical intents (initial set): code_change, debugging, architecture_design, explanation, summarization, data_analysis, content_generation, planning, other.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 6.2 Intent Taxonomy\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 49
+      }
+    }
+  },
+  {
+    "req_id": "REQ-050",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Exactly one intent MUST be returned.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 6.2 Intent Taxonomy\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 50
+      }
+    }
+  },
+  {
+    "req_id": "REQ-051",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "other SHOULD be avoided.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 6.2 Intent Taxonomy\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 51
+      }
+    }
+  },
+  {
+    "req_id": "REQ-052",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "If used, other MUST be of the form other:<single_word_subcategory>.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 6.2 Intent Taxonomy\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 52
+      }
+    }
+  },
+  {
+    "req_id": "REQ-053",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Intent labels are experimental telemetry, not a stable API.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 6.2 Intent Taxonomy\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 53
+      }
+    }
+  },
+  {
+    "req_id": "REQ-054",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Policies constrain which models are eligible.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 7.1 Policy Role\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 54
+      }
+    }
+  },
+  {
+    "req_id": "REQ-055",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Policies never choose or rank models.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 7.1 Policy Role\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 55
+      }
+    }
+  },
+  {
+    "req_id": "REQ-056",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Policy evaluation order (mandatory): 1) Global allow/deny 2) Intent-based eligibility constraints (if defined) 3) Forced model rules.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 7.2 Policy Evaluation Order\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 56
+      }
+    }
+  },
+  {
+    "req_id": "REQ-057",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "If a forced model is selected, routing MUST terminate.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 7.2 Policy Evaluation Order\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 57
+      }
+    }
+  },
+  {
+    "req_id": "REQ-058",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Policies MUST be validated at ingestion.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 7.3 Guarantees\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 58
+      }
+    }
+  },
+  {
+    "req_id": "REQ-059",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Invalid policy MUST fail fast.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 7.3 Guarantees\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 59
+      }
+    }
+  },
+  {
+    "req_id": "REQ-060",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Policy application MUST be auditable.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 7.3 Guarantees\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 60
+      }
+    }
+  },
+  {
+    "req_id": "REQ-061",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Authenticate token.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 8. Routing Decision Flow\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 61
+      }
+    }
+  },
+  {
+    "req_id": "REQ-062",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Load token config.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 8. Routing Decision Flow\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 62
+      }
+    }
+  },
+  {
+    "req_id": "REQ-063",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Apply policy constraints.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 8. Routing Decision Flow\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 63
+      }
+    }
+  },
+  {
+    "req_id": "REQ-064",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Determine eligible model set.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 8. Routing Decision Flow\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 64
+      }
+    }
+  },
+  {
+    "req_id": "REQ-065",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Invoke router LLM with user prompt, eligible models, and routing criteria.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 8. Routing Decision Flow\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 65
+      }
+    }
+  },
+  {
+    "req_id": "REQ-066",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Receive from LLM: primary model.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 8. Routing Decision Flow\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 66
+      }
+    }
+  },
+  {
+    "req_id": "REQ-067",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Receive from LLM: alternate model.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 8. Routing Decision Flow\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 67
+      }
+    }
+  },
+  {
+    "req_id": "REQ-068",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Receive from LLM: confidence score (0-10).",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 8. Routing Decision Flow\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 68
+      }
+    }
+  },
+  {
+    "req_id": "REQ-069",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Receive from LLM: inferred intent.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 8. Routing Decision Flow\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 69
+      }
+    }
+  },
+  {
+    "req_id": "REQ-070",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Receive from LLM: concise reasoning.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 8. Routing Decision Flow\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 70
+      }
+    }
+  },
+  {
+    "req_id": "REQ-071",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Validate response.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 8. Routing Decision Flow\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 71
+      }
+    }
+  },
+  {
+    "req_id": "REQ-072",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Cache decision.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 8. Routing Decision Flow\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 72
+      }
+    }
+  },
+  {
+    "req_id": "REQ-073",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Return result.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 8. Routing Decision Flow\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 73
+      }
+    }
+  },
+  {
+    "req_id": "REQ-074",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "At no point may local logic override the LLM's decision.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 8. Routing Decision Flow\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 74
+      }
+    }
+  },
+  {
+    "req_id": "REQ-075",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Confidence represents how confident the router LLM is that the primary model is the best choice compared to the alternate.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 9. Confidence Semantics\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 75
+      }
+    }
+  },
+  {
+    "req_id": "REQ-076",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Range: 0-10.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 9. Confidence Semantics\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 76
+      }
+    }
+  },
+  {
+    "req_id": "REQ-077",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Confidence is derived solely from the router LLM.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 9. Confidence Semantics\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 77
+      }
+    }
+  },
+  {
+    "req_id": "REQ-078",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Confidence MUST NOT be computed heuristically.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 9. Confidence Semantics\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 78
+      }
+    }
+  },
+  {
+    "req_id": "REQ-079",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Knowledge is observational telemetry.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 10.1 Knowledge Role\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 79
+      }
+    }
+  },
+  {
+    "req_id": "REQ-080",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Knowledge is not used to select or rank models in v1.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 10.1 Knowledge Role\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 80
+      }
+    }
+  },
+  {
+    "req_id": "REQ-081",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Knowledge exists to support analysis, explainability, and future evolution.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 10.1 Knowledge Role\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 81
+      }
+    }
+  },
+  {
+    "req_id": "REQ-082",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Supported scopes: global (default) and token (enterprise).",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 10.2 Scope\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 82
+      }
+    }
+  },
+  {
+    "req_id": "REQ-083",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "No cross-scope reads or writes are permitted.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 10.2 Scope\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 83
+      }
+    }
+  },
+  {
+    "req_id": "REQ-084",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Opinion polling exists to populate knowledge.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 11. Opinion Polling\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 84
+      }
+    }
+  },
+  {
+    "req_id": "REQ-085",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Polling MUST be asynchronous.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 11. Opinion Polling\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 85
+      }
+    }
+  },
+  {
+    "req_id": "REQ-086",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Polling MUST NOT block routing.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 11. Opinion Polling\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 86
+      }
+    }
+  },
+  {
+    "req_id": "REQ-087",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Interfaces MUST exist even if stubbed.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 11. Opinion Polling\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 87
+      }
+    }
+  },
+  {
+    "req_id": "REQ-088",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Wayfinder MUST log routing decision, explanation, confidence, inferred intent, applied policy, knowledge scope, and request ID.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 12. Observability & Logging\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 88
+      }
+    }
+  },
+  {
+    "req_id": "REQ-089",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Logs MUST allow full post-hoc reconstruction of decisions.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 12. Observability & Logging\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 89
+      }
+    }
+  },
+  {
+    "req_id": "REQ-090",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Wayfinder MUST fail fast on invalid configuration.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 13. Failure Modes\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 90
+      }
+    }
+  },
+  {
+    "req_id": "REQ-091",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Wayfinder MUST surface policy conflicts explicitly.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 13. Failure Modes\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 91
+      }
+    }
+  },
+  {
+    "req_id": "REQ-092",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Wayfinder MUST treat uncertainty as a first-class state.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 13. Failure Modes\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 92
+      }
+    }
+  },
+  {
+    "req_id": "REQ-093",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Wayfinder MUST never silently degrade correctness.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 13. Failure Modes\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 93
+      }
+    }
+  },
+  {
+    "req_id": "REQ-094",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Wayfinder is NOT a chatbot.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 14. Explicit Non-Goals\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 94
+      }
+    }
+  },
+  {
+    "req_id": "REQ-095",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Wayfinder is NOT a prompt optimizer.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 14. Explicit Non-Goals\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 95
+      }
+    }
+  },
+  {
+    "req_id": "REQ-096",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Wayfinder is NOT a heuristic router.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 14. Explicit Non-Goals\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 96
+      }
+    }
+  },
+  {
+    "req_id": "REQ-097",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Wayfinder is NOT a capability-based system.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 14. Explicit Non-Goals\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 97
+      }
+    }
+  },
+  {
+    "req_id": "REQ-098",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Wayfinder is NOT a model marketplace.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 14. Explicit Non-Goals\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 98
+      }
+    }
+  },
+  {
+    "req_id": "REQ-099",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Wayfinder is NOT an auto-ML engine.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 14. Explicit Non-Goals\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 99
+      }
+    }
+  },
+  {
+    "req_id": "REQ-100",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Routing decisions originate solely from the router LLM.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 15. Success Criteria\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 100
+      }
+    }
+  },
+  {
+    "req_id": "REQ-101",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Policy constraints cannot be bypassed.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 15. Success Criteria\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 101
+      }
+    }
+  },
+  {
+    "req_id": "REQ-102",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Removing intent does not break routing.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 15. Success Criteria\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 102
+      }
+    }
+  },
+  {
+    "req_id": "REQ-103",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Removing alternates does not break routing.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 15. Success Criteria\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 103
+      }
+    }
+  },
+  {
+    "req_id": "REQ-104",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Adding new models requires no code changes.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 15. Success Criteria\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 104
+      }
+    }
+  },
+  {
+    "req_id": "REQ-105",
+    "body": {
+      "section": {
+        "status": "unaddressed",
+        "direction": "Architecture remains simple, explainable, and reversible.",
+        "feedback": "dependencies: none stated in REQUIREMENTS.md\nnotes: source 15. Success Criteria\nevidence: n/a",
+        "decision": "pending"
+      },
+      "priority": {
+        "tier": "p1",
+        "rank": 105
+      }
+    }
+  }
+]

@@ -11,7 +11,7 @@
  * It MUST NOT influence routing logic, scoring, or model eligibility.
  */
 
-import type { RouteRequest, TokenConfig, RouteDecision } from '../types/index.js';
+import type { RouteRequest, TokenConfig, RouteDecision, PolicyEvaluationLogEvent } from '../types/index.js';
 import { validateRouteDecision } from './validation.js';
 import type { PolicyEngine } from '../policy/engine.js';
 import type { ModelRegistry } from '../models/registry.js';
@@ -116,6 +116,21 @@ export class DefaultRoutingEngine implements RoutingEngine {
       availableModelIds,
       tokenConfig
     );
+
+    // Structured logging for policy evaluation
+    const policyLogEvent: PolicyEvaluationLogEvent = {
+      event_type: 'policy_evaluation',
+      timestamp: new Date().toISOString(),
+      request_id: requestId || 'unknown',
+      token_id: tokenConfig.id,
+      eligible_models: policyResult.eligible_models,
+      forced_model: policyResult.forced_model,
+      rules_applied: policyResult.audit_trail.length,
+      has_intent_based_rules: hasIntentBasedRules,
+      warned_about_intent_limitation: this.warnedTokens.has(tokenConfig.id),
+    };
+
+    this.deps.logger.debug('Policy evaluation completed', policyLogEvent);
 
     // If policy forces a model, terminate routing immediately per REQUIREMENTS.md §7.2
     // Skip router LLM invocation to ensure deterministic behavior and avoid failures

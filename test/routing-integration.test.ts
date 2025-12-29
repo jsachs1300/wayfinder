@@ -105,7 +105,7 @@ describe('Routing Integration', () => {
         },
       };
 
-      const routingEngine = createRoutingEngine({ routerLLM: customIntentRouterLLM, policyEngine, modelRegistry });
+      const routingEngine = createRoutingEngine({ routerLLM: customIntentRouterLLM, policyEngine, modelRegistry, logger });
       const { app: testApp } = createApp({ tokenStore, routingEngine });
 
       const response = await request(testApp)
@@ -137,7 +137,7 @@ describe('Routing Integration', () => {
         },
       };
 
-      const routingEngine = createRoutingEngine({ routerLLM: invalidRouterLLM, policyEngine, modelRegistry });
+      const routingEngine = createRoutingEngine({ routerLLM: invalidRouterLLM, policyEngine, modelRegistry, logger });
       const { app: testApp } = createApp({ tokenStore, routingEngine });
 
       const response = await request(testApp)
@@ -164,7 +164,7 @@ describe('Routing Integration', () => {
         },
       };
 
-      const routingEngine = createRoutingEngine({ routerLLM: invalidRouterLLM, policyEngine, modelRegistry });
+      const routingEngine = createRoutingEngine({ routerLLM: invalidRouterLLM, policyEngine, modelRegistry, logger });
       const { app: testApp } = createApp({ tokenStore, routingEngine });
 
       const response = await request(testApp)
@@ -190,7 +190,7 @@ describe('Routing Integration', () => {
         },
       };
 
-      const routingEngine = createRoutingEngine({ routerLLM: invalidRouterLLM, policyEngine, modelRegistry });
+      const routingEngine = createRoutingEngine({ routerLLM: invalidRouterLLM, policyEngine, modelRegistry, logger });
       const { app: testApp } = createApp({ tokenStore, routingEngine });
 
       const response = await request(testApp)
@@ -221,7 +221,7 @@ describe('Routing Integration', () => {
         },
       };
 
-      const routingEngine = createRoutingEngine({ routerLLM: invalidRouterLLM, policyEngine, modelRegistry });
+      const routingEngine = createRoutingEngine({ routerLLM: invalidRouterLLM, policyEngine, modelRegistry, logger });
       const { app: testApp } = createApp({ tokenStore, routingEngine });
 
       const response = await request(testApp)
@@ -253,7 +253,7 @@ describe('Routing Integration', () => {
         },
       };
 
-      const routingEngine = createRoutingEngine({ routerLLM: invalidRouterLLM, policyEngine, modelRegistry });
+      const routingEngine = createRoutingEngine({ routerLLM: invalidRouterLLM, policyEngine, modelRegistry, logger });
       const { app: testApp } = createApp({ tokenStore, routingEngine });
 
       const response = await request(testApp)
@@ -291,7 +291,7 @@ describe('Routing Integration', () => {
         },
       };
 
-      const routingEngine = createRoutingEngine({ routerLLM: invalidRouterLLM, policyEngine, modelRegistry });
+      const routingEngine = createRoutingEngine({ routerLLM: invalidRouterLLM, policyEngine, modelRegistry, logger });
       const { app: testApp } = createApp({ tokenStore, routingEngine });
 
       const response = await request(testApp)
@@ -324,7 +324,7 @@ describe('Routing Integration', () => {
         },
       };
 
-      const routingEngine = createRoutingEngine({ routerLLM, policyEngine, modelRegistry });
+      const routingEngine = createRoutingEngine({ routerLLM, policyEngine, modelRegistry, logger });
       const { app: testApp } = createApp({ tokenStore, routingEngine });
 
       const response = await request(testApp)
