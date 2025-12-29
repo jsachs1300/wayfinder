@@ -11,7 +11,7 @@
  * It MUST NOT influence routing logic, scoring, or model eligibility.
  */
 
-import type { RouteRequest, TokenConfig, RouteDecision, PolicyEvaluationLogEvent } from '../types/index.js';
+import type { RouteRequest, TokenConfig, RouteDecision, RouteResult, PolicyEvaluationLogEvent } from '../types/index.js';
 import { validateRouteDecision } from './validation.js';
 import type { PolicyEngine } from '../policy/engine.js';
 import type { ModelRegistry } from '../models/registry.js';
@@ -66,7 +66,7 @@ export interface RoutingEngine {
     request: RouteRequest,
     tokenConfig: TokenConfig,
     requestId?: string,
-  ): Promise<RouteDecision>;
+  ): Promise<RouteResult>;
 }
 
 export interface RoutingEngineDependencies {
@@ -85,7 +85,7 @@ export class DefaultRoutingEngine implements RoutingEngine {
     request: RouteRequest,
     tokenConfig: TokenConfig,
     requestId?: string,
-  ): Promise<RouteDecision> {
+  ): Promise<RouteResult> {
     // Get all available models from registry
     const availableModels = this.deps.modelRegistry.getAvailableModels();
     const availableModelIds = availableModels.map((m) => m.id);
@@ -143,7 +143,7 @@ export class DefaultRoutingEngine implements RoutingEngine {
         );
       }
 
-      return {
+      const decision: RouteDecision = {
         intent: 'other', // Placeholder intent since policy-forced routing doesn't use LLM
         primary: {
           model: policyResult.forced_model,
@@ -154,6 +154,14 @@ export class DefaultRoutingEngine implements RoutingEngine {
           model: policyResult.forced_model,
           score: 10,
           reason: 'No alternate available when model is forced by policy',
+        },
+      };
+
+      return {
+        decision,
+        policyMetadata: {
+          forcedModel: policyResult.forced_model,
+          eligibleModelsCount: policyResult.eligible_models.length,
         },
       };
     }
@@ -183,7 +191,13 @@ export class DefaultRoutingEngine implements RoutingEngine {
     // Intent is now captured but not used for routing logic
     // It will be logged for internal analysis only
 
-    return decision;
+    return {
+      decision,
+      policyMetadata: {
+        forcedModel: policyResult.forced_model,
+        eligibleModelsCount: eligibleModels.length,
+      },
+    };
   }
 }
 

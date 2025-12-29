@@ -178,6 +178,22 @@ export interface ModelRecommendation {
 }
 
 /**
+ * Enhanced routing result with policy metadata
+ * Includes both the routing decision and policy enforcement details
+ */
+export interface RouteResult {
+  /** The routing decision from the router LLM */
+  decision: RouteDecision;
+  /** Policy metadata for observability */
+  policyMetadata: {
+    /** Model forced by policy (if any) */
+    forcedModel: string | null;
+    /** Number of models eligible after policy evaluation */
+    eligibleModelsCount: number;
+  };
+}
+
+/**
  * User-facing routing response (projection of RouteDecision)
  * Intent is omitted from user-facing responses
  */

@@ -67,9 +67,9 @@ export function createRoutingRoutes(
 
       const routeRequest: RouteRequest = parsed.data;
 
-      // Get routing decision from engine (includes intent)
+      // Get routing decision from engine (includes intent and policy metadata)
       // The engine handles policy evaluation and logging internally
-      const decision = await routingEngine.route(
+      const result = await routingEngine.route(
         routeRequest,
         req.tokenConfig,
         req.requestId,
@@ -84,16 +84,19 @@ export function createRoutingRoutes(
         token_id: req.tokenConfig.id,
         prompt_length: routeRequest.prompt.length,
         prompt_hash: hashPrompt(routeRequest.prompt),
-        primary_model: decision.primary.model,
-        primary_score: decision.primary.score,
-        primary_reason: decision.primary.reason,
-        alternate_model: decision.alternate.model,
-        alternate_score: decision.alternate.score,
-        alternate_reason: decision.alternate.reason,
-        intent: decision.intent,
-        policy_applied: req.tokenConfig.policy_rules !== undefined && req.tokenConfig.policy_rules.length > 0,
-        forced_model: null, // Determined by engine, not known here
-        eligible_models_count: 0, // Determined by engine, not known here
+        primary_model: result.decision.primary.model,
+        primary_score: result.decision.primary.score,
+        primary_reason: result.decision.primary.reason,
+        alternate_model: result.decision.alternate.model,
+        alternate_score: result.decision.alternate.score,
+        alternate_reason: result.decision.alternate.reason,
+        intent: result.decision.intent,
+        policy_applied: result.policyMetadata.forcedModel !== null ||
+                       (req.tokenConfig.allowed_models !== undefined && req.tokenConfig.allowed_models.length > 0) ||
+                       (req.tokenConfig.denied_models !== undefined && req.tokenConfig.denied_models.length > 0) ||
+                       (req.tokenConfig.policy_rules !== undefined && req.tokenConfig.policy_rules.length > 0),
+        forced_model: result.policyMetadata.forcedModel,
+        eligible_models_count: result.policyMetadata.eligibleModelsCount,
         knowledge_scope: req.tokenConfig.knowledge_scope || 'global',
         environment: req.tokenConfig.environment,
       };
@@ -101,7 +104,7 @@ export function createRoutingRoutes(
       logger.info('Routing decision completed', logEvent);
 
       // Project to user-facing response (drops intent)
-      const response = projectRouteResponse(decision, req.requestId || 'unknown');
+      const response = projectRouteResponse(result.decision, req.requestId || 'unknown');
 
       res.json(response);
     } catch (error) {
