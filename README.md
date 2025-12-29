@@ -83,6 +83,8 @@ Policy is **always enforced before optimization**. The evaluation order is:
 2. Intent-based restrictions (`RestrictModelsByIntent`)
 3. Forced models (`ForceModelByIntent`)
 
+> ⚠️ **Note:** Intent-based rules (steps 2-3) are currently in beta with a known timing limitation. They only match if configured for intent `"other"`. Use global allow/deny rules (step 1) for production. See [Policy Rule Types](#policy-rule-types) for details.
+
 ### Knowledge Store
 
 The knowledge store is **not a traditional cache**:
@@ -359,12 +361,12 @@ Content-Type: application/json
 
 {
   "trusted_anchor_model": "claude-3-5-sonnet",
-  "allowed_models": ["gpt-4-turbo", "claude-3-5-sonnet"],
+  "allowed_models": ["gpt-4-turbo", "claude-3-5-sonnet", "claude-3-opus"],
   "policy_rules": [
     {
-      "type": "ForceModelByIntent",
-      "intent": "legal",
-      "models": ["claude-3-opus"]
+      "type": "AllowModelsGlobal",
+      "models": ["gpt-4-turbo", "claude-3-opus"],
+      "priority": 1
     }
   ],
   "confidence_threshold": 0.6,
@@ -530,11 +532,12 @@ curl -X POST http://localhost:3000/admin/tokens \
   -d '{
     "trusted_anchor_model": "claude-3-5-sonnet",
     "default_model": "gpt-4o",
+    "allowed_models": ["gpt-4-turbo", "claude-3-5-sonnet", "claude-3-opus"],
     "policy_rules": [
       {
-        "type": "ForceModelByIntent",
-        "intent": "legal",
-        "models": ["claude-3-opus"]
+        "type": "AllowModelsGlobal",
+        "models": ["gpt-4-turbo", "claude-3-opus"],
+        "priority": 1
       }
     ]
   }'
@@ -684,12 +687,87 @@ curl -X DELETE http://localhost:3000/admin/tokens/token_abc123 \
 
 ### Policy Rule Types
 
+Wayfinder supports two categories of policy rules: **Production-Ready Global Rules** and **Beta Intent-Based Rules**.
+
+#### Global Rules (Production Ready)
+
+Global rules apply regardless of intent and are fully supported for production use:
+
 | Type | Description |
 |------|-------------|
-| `ForceModelByIntent` | Always use specified model for intent |
-| `RestrictModelsByIntent` | Only allow specified models for intent |
-| `AllowModelsGlobal` | Globally allow only these models |
-| `DenyModelsGlobal` | Globally deny these models |
+| `AllowModelsGlobal` | Globally allow only these models (allowlist) |
+| `DenyModelsGlobal` | Globally deny these models (denylist) |
+
+**Recommended Usage:**
+- Use `allowed_models` in token configuration for simple allowlisting
+- Use `denied_models` in token configuration for simple denylisting
+- Use `AllowModelsGlobal` / `DenyModelsGlobal` policy rules for priority-based control
+
+#### Intent-Based Rules (Beta)
+
+> ⚠️ **Beta Feature with Known Limitations**
+
+Intent-based policy rules are currently in **beta** and have an architectural limitation:
+
+| Type | Description | Status |
+|------|-------------|--------|
+| `ForceModelByIntent` | Always use specified model for intent | **Beta - Limited** |
+| `RestrictModelsByIntent` | Only allow specified models for intent | **Beta - Limited** |
+
+**Current Limitation:**
+
+Intent-based rules face a timing challenge:
+- Intent is inferred **by the router LLM** during routing
+- But policy evaluation happens **before** calling the router LLM
+- Solution: All requests currently use placeholder intent `"other"` for policy evaluation
+
+**What This Means:**
+- ✅ **Global allow/deny rules work perfectly** - Use these for production
+- ⚠️ **Intent-based rules only match if configured for intent `"other"`**
+- ❌ Configuring rules for specific intents (e.g., `"coding"`, `"legal"`) will not match as expected
+
+**Example - Intent-Based Rules (Beta Workaround):**
+
+```json
+{
+  "policy_rules": [
+    {
+      "type": "ForceModelByIntent",
+      "intent": "other",
+      "models": ["claude-3-opus"],
+      "priority": 1
+    }
+  ]
+}
+```
+
+This will force `claude-3-opus` for all requests since all requests currently use `"other"` as the placeholder intent during policy evaluation.
+
+**Recommended Approach:**
+
+For now, use **global rules** instead of intent-based rules:
+
+```json
+{
+  "allowed_models": ["gpt-4-turbo", "claude-3-5-sonnet", "claude-3-opus"],
+  "denied_models": ["gpt-3.5-turbo"],
+  "policy_rules": [
+    {
+      "type": "AllowModelsGlobal",
+      "models": ["gpt-4-turbo", "claude-3-opus"],
+      "priority": 1
+    }
+  ]
+}
+```
+
+**Future Plans:**
+
+This limitation will be addressed in a future version through architectural improvements. We're tracking this as a P1 priority. The fix will likely involve:
+- Refactoring policy evaluation to support two-phase filtering (pre-LLM and post-LLM)
+- Or restructuring the system to make intent available earlier in the flow
+
+For updates, see the [GitHub issues](https://github.com/jsachs1300/wayfinder/issues).
 
 ## Available Models
 
@@ -983,31 +1061,30 @@ curl -X POST http://localhost:3000/route \
   -d '{"prompt": "Write a function to merge two sorted arrays"}'
 ```
 
-### Example 2: Policy-Driven Routing
+### Example 2: Policy-Driven Routing (Production-Ready)
 
-Force specific models for certain intent types:
+Use global rules to restrict model selection:
 
 ```bash
-# Create token with legal compliance policy
+# Create token with model restrictions (recommended approach)
 curl -X POST http://localhost:3000/admin/tokens \
   -H "X-Admin-Api-Key: your-admin-key" \
   -H "Content-Type: application/json" \
   -d '{
     "default_model": "gpt-4o",
+    "allowed_models": ["gpt-4-turbo", "claude-3-5-sonnet", "claude-3-opus"],
+    "denied_models": ["gpt-3.5-turbo"],
     "policy_rules": [
       {
-        "type": "ForceModelByIntent",
-        "intent": "legal",
-        "models": ["claude-3-opus"]
-      },
-      {
-        "type": "RestrictModelsByIntent",
-        "intent": "coding",
-        "models": ["gpt-4-turbo", "claude-3-5-sonnet"]
+        "type": "AllowModelsGlobal",
+        "models": ["gpt-4-turbo", "claude-3-opus"],
+        "priority": 1
       }
     ]
   }'
 ```
+
+**Note:** Intent-based rules (ForceModelByIntent, RestrictModelsByIntent) are currently in beta and only work with intent `"other"`. See [Policy Rule Types](#policy-rule-types) for details.
 
 ### Example 3: Learning from Feedback
 
@@ -1250,10 +1327,53 @@ docker-compose logs wayfinder
 # Check Dockerfile uses node:18+ or compatible version
 ```
 
+### Intent-Based Policy Rules Not Working
+
+**Problem:** Intent-based policy rules (ForceModelByIntent, RestrictModelsByIntent) don't match as expected
+
+**Cause:** Intent-based rules are currently in **beta** with a known timing limitation. All requests use placeholder intent `"other"` during policy evaluation.
+
+**Solution:**
+
+```bash
+# Option 1: Use global rules instead (recommended)
+curl -X PATCH http://localhost:3000/admin/tokens/TOKEN_ID \
+  -H "X-Admin-Api-Key: your-admin-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "allowed_models": ["gpt-4-turbo", "claude-3-opus"],
+    "policy_rules": [
+      {
+        "type": "AllowModelsGlobal",
+        "models": ["gpt-4-turbo", "claude-3-opus"],
+        "priority": 1
+      }
+    ]
+  }'
+
+# Option 2: Use intent-based rules with "other" intent (beta workaround)
+curl -X PATCH http://localhost:3000/admin/tokens/TOKEN_ID \
+  -H "X-Admin-Api-Key: your-admin-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "policy_rules": [
+      {
+        "type": "ForceModelByIntent",
+        "intent": "other",
+        "models": ["claude-3-opus"],
+        "priority": 1
+      }
+    ]
+  }'
+```
+
+See [Policy Rule Types](#policy-rule-types) for detailed explanation and migration guidance.
+
 ## Future Roadmap
 
 ### Short-term (v1.x)
 
+- **Intent-Based Policy Rules (Full Support)** - Fix timing limitation to enable true intent-based routing policies (P1)
 - **Real Opinion Polling** - Asynchronous polling of actual models to populate knowledge
 - **Org-Scoped Knowledge** - Shared learning within organizations (in addition to global and token scopes)
 - **Hybrid Knowledge Scope** - Combination of global and token-scoped learning
