@@ -175,7 +175,7 @@ export function createApp(deps?: Partial<AppDependencies>): {
 
   // Protected routes (require token auth)
   // Mount routers at their specific paths
-  app.use('/route', tokenAuthMiddleware(tokenStore), createRoutingRoutes(routingEngine));
+  app.use('/route', tokenAuthMiddleware(tokenStore), createRoutingRoutes(routingEngine, logger));
   app.use('/feedback', tokenAuthMiddleware(tokenStore), createFeedbackRoutes(feedbackHandler, modelRegistry));
 
   // 404 handler

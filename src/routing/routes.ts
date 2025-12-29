@@ -11,10 +11,19 @@
  */
 
 import { Router, Request, Response } from 'express';
+import { createHash } from 'crypto';
 import { RoutingEngine } from './engine.js';
 import { projectRouteResponse } from './projection.js';
-import type { RouteRequest } from '../types/index.js';
+import type { RouteRequest, RoutingDecisionLogEvent, RoutingErrorLogEvent } from '../types/index.js';
+import type { Logger } from '../logging/logger.js';
 import { z, ZodError } from 'zod';
+
+/**
+ * Create SHA256 hash of prompt for privacy-safe logging
+ */
+function hashPrompt(prompt: string): string {
+  return createHash('sha256').update(prompt).digest('hex');
+}
 
 const RouteRequestSchema = z.object({
   prompt: z.string().min(1, 'Prompt is required'),
@@ -26,7 +35,10 @@ const RouteRequestSchema = z.object({
 /**
  * Create routing routes
  */
-export function createRoutingRoutes(routingEngine: RoutingEngine): Router {
+export function createRoutingRoutes(
+  routingEngine: RoutingEngine,
+  logger: Logger
+): Router {
   const router = Router();
 
   router.post('/', async (req: Request, res: Response): Promise<void> => {
@@ -55,22 +67,65 @@ export function createRoutingRoutes(routingEngine: RoutingEngine): Router {
 
       const routeRequest: RouteRequest = parsed.data;
 
-      // Get routing decision from engine (includes intent)
-      const decision = await routingEngine.route(
+      // Get routing decision from engine (includes intent and policy metadata)
+      // The engine handles policy evaluation and logging internally
+      const result = await routingEngine.route(
         routeRequest,
         req.tokenConfig,
         req.requestId,
       );
 
-      // TODO: Log intent for internal analysis
-      // Intent is advisory only and not used for routing logic
-      console.log(`[INTENT] Request ${req.requestId}: ${decision.intent}`);
+      // Structured logging for routing decision per REQUIREMENTS.md §12
+      // Note: Policy details are logged by the routing engine during evaluation
+      const logEvent: RoutingDecisionLogEvent = {
+        event_type: 'routing_decision',
+        timestamp: new Date().toISOString(),
+        request_id: req.requestId || 'unknown',
+        token_id: req.tokenConfig.id,
+        prompt_length: routeRequest.prompt.length,
+        prompt_hash: hashPrompt(routeRequest.prompt),
+        primary_model: result.decision.primary.model,
+        primary_score: result.decision.primary.score,
+        primary_reason: result.decision.primary.reason,
+        alternate_model: result.decision.alternate.model,
+        alternate_score: result.decision.alternate.score,
+        alternate_reason: result.decision.alternate.reason,
+        intent: result.decision.intent,
+        policy_applied: result.policyMetadata.forcedModel !== null ||
+                       (req.tokenConfig.allowed_models !== undefined && req.tokenConfig.allowed_models.length > 0) ||
+                       (req.tokenConfig.denied_models !== undefined && req.tokenConfig.denied_models.length > 0) ||
+                       (req.tokenConfig.policy_rules !== undefined && req.tokenConfig.policy_rules.length > 0),
+        forced_model: result.policyMetadata.forcedModel,
+        eligible_models_count: result.policyMetadata.eligibleModelsCount,
+        knowledge_scope: req.tokenConfig.knowledge_scope || 'global',
+        environment: req.tokenConfig.environment,
+      };
+
+      logger.info('Routing decision completed', logEvent);
 
       // Project to user-facing response (drops intent)
-      const response = projectRouteResponse(decision, req.requestId || 'unknown');
+      const response = projectRouteResponse(result.decision, req.requestId || 'unknown');
 
       res.json(response);
     } catch (error) {
+      const routeRequest = RouteRequestSchema.safeParse(req.body);
+      const prompt = routeRequest.success ? routeRequest.data.prompt : '';
+
+      // Structured error logging
+      const errorLogEvent: RoutingErrorLogEvent = {
+        event_type: 'routing_error',
+        timestamp: new Date().toISOString(),
+        request_id: req.requestId || 'unknown',
+        token_id: req.tokenConfig?.id || 'unknown',
+        error_type: error instanceof ZodError ? 'RouterLLMContractViolation' : 'InternalError',
+        error_message: error instanceof Error ? error.message : 'Unknown error',
+        prompt_length: prompt.length,
+        prompt_hash: prompt ? hashPrompt(prompt) : '',
+        stage: error instanceof ZodError ? 'response_validation' : 'unknown',
+      };
+
+      logger.error('Routing request failed', errorLogEvent);
+
       // Handle validation errors from router LLM response
       if (error instanceof ZodError) {
         res.status(500).json({

@@ -178,6 +178,22 @@ export interface ModelRecommendation {
 }
 
 /**
+ * Enhanced routing result with policy metadata
+ * Includes both the routing decision and policy enforcement details
+ */
+export interface RouteResult {
+  /** The routing decision from the router LLM */
+  decision: RouteDecision;
+  /** Policy metadata for observability */
+  policyMetadata: {
+    /** Model forced by policy (if any) */
+    forcedModel: string | null;
+    /** Number of models eligible after policy evaluation */
+    eligibleModelsCount: number;
+  };
+}
+
+/**
  * User-facing routing response (projection of RouteDecision)
  * Intent is omitted from user-facing responses
  */
@@ -324,6 +340,86 @@ export interface LogEntry {
   token_id?: string;
   request_id?: string;
   metadata?: Record<string, unknown>;
+}
+
+/**
+ * Structured log event for routing decisions
+ * Per REQUIREMENTS.md §12: Must log routing decision, explanation, confidence,
+ * inferred intent, applied policy, knowledge scope, and request ID
+ */
+export interface RoutingDecisionLogEvent {
+  event_type: 'routing_decision';
+  timestamp: string;
+  request_id: string;
+  token_id: string;
+
+  // Privacy-safe prompt metadata (never log full prompt)
+  prompt_length: number;
+  prompt_hash: string; // SHA256 hash for correlation
+
+  // Routing decision (per REQUIREMENTS.md §12)
+  primary_model: string;
+  primary_score: number;
+  primary_reason: string;
+  alternate_model: string;
+  alternate_score: number;
+  alternate_reason: string;
+
+  // Intent (inferred by router LLM, metadata only per REQUIREMENTS.md §2.3)
+  intent: string;
+
+  // Policy enforcement details
+  policy_applied: boolean;
+  forced_model: string | null;
+  eligible_models_count: number;
+
+  // Knowledge scope
+  knowledge_scope: KnowledgeScope;
+
+  // Additional context
+  environment?: Environment;
+}
+
+/**
+ * Structured log event for policy evaluation
+ * Logs policy constraints applied before routing
+ */
+export interface PolicyEvaluationLogEvent {
+  event_type: 'policy_evaluation';
+  timestamp: string;
+  request_id: string;
+  token_id: string;
+
+  // Policy results
+  eligible_models: string[];
+  forced_model: string | null;
+  rules_applied: number;
+
+  // Warnings
+  has_intent_based_rules: boolean;
+  warned_about_intent_limitation: boolean;
+}
+
+/**
+ * Structured log event for routing errors
+ * Logs failures during routing with privacy-safe details
+ */
+export interface RoutingErrorLogEvent {
+  event_type: 'routing_error';
+  timestamp: string;
+  request_id: string;
+  token_id: string;
+
+  // Error details
+  error_type: string;
+  error_message: string;
+
+  // Privacy-safe prompt metadata
+  prompt_length: number;
+  prompt_hash: string;
+
+  // Context
+  stage: 'validation' | 'policy_evaluation' | 'router_llm' | 'response_validation' | 'unknown';
 }
 
 // API Errors
