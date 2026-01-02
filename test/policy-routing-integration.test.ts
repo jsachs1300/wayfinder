@@ -215,22 +215,28 @@ describe('Policy-Routing Integration', () => {
         prompt: 'Write a function',
       };
 
-      const decision = await engine.route(request, tokenConfig);
+      const result = await engine.route(request, tokenConfig);
 
       // Verify router LLM was NOT called (per REQUIREMENTS.md §7.2)
       expect(llmWasCalled).toBe(false);
 
+      // Verify result structure
+      expect(result.decision).toBeDefined();
+      expect(result.policyMetadata).toBeDefined();
+      expect(result.policyMetadata.forcedModel).toBe('claude-3-opus');
+      expect(result.policyMetadata.eligibleModelsCount).toBe(1);
+
       // Verify forced model is used for both primary and alternate
-      expect(decision.primary.model).toBe('claude-3-opus');
-      expect(decision.alternate.model).toBe('claude-3-opus');
+      expect(result.decision.primary.model).toBe('claude-3-opus');
+      expect(result.decision.alternate.model).toBe('claude-3-opus');
 
       // Verify deterministic high confidence score
-      expect(decision.primary.score).toBe(10);
-      expect(decision.alternate.score).toBe(10);
+      expect(result.decision.primary.score).toBe(10);
+      expect(result.decision.alternate.score).toBe(10);
 
       // Verify reasoning indicates policy enforcement
-      expect(decision.primary.reason).toContain('forced by policy');
-      expect(decision.primary.reason).toContain('REQUIREMENTS.md §7.2');
+      expect(result.decision.primary.reason).toContain('forced by policy');
+      expect(result.decision.primary.reason).toContain('REQUIREMENTS.md §7.2');
     });
   });
 
