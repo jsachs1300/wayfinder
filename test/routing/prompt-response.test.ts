@@ -3,18 +3,18 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { buildRoutingPrompt } from '../../src/routing/router-llm/prompt-builder.js';
+import { buildRoutingPrompt } from '../../src/routing/router-llm/prompt-builder';
 import {
   parseRouteDecision,
   extractJSON,
   parseRouteDecisionLenient,
-} from '../../src/routing/router-llm/response-parser.js';
+} from '../../src/routing/router-llm/response-parser';
 import {
   RouterLLMParseError,
   RouterLLMValidationError,
   RouterLLMPolicyBypassError,
-} from '../../src/routing/router-llm/errors.js';
-import type { TokenConfig } from '../../src/types/index.js';
+} from '../../src/routing/router-llm/errors';
+import type { TokenConfig } from '../../src/types/index';
 
 describe('buildRoutingPrompt', () => {
   const mockTokenConfig: TokenConfig = {

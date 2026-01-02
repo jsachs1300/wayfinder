@@ -3,16 +3,16 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { DefaultRouterLLM } from '../../src/routing/router-llm/default-router-llm.js';
-import { StubRouterLLM } from '../../src/routing/router-llm/stub-router-llm.js';
-import type { TokenConfig } from '../../src/types/index.js';
-import type { RouterLLMConfig } from '../../src/routing/config.js';
+import { DefaultRouterLLM } from '../../src/routing/router-llm/default-router-llm';
+import { StubRouterLLM } from '../../src/routing/router-llm/stub-router-llm';
+import type { TokenConfig } from '../../src/types/index';
+import type { RouterLLMConfig } from '../../src/routing/config';
 import {
   RouterLLMProviderError,
   RouterLLMTimeoutError,
   RouterLLMValidationError,
   RouterLLMRetryExhaustedError,
-} from '../../src/routing/router-llm/errors.js';
+} from '../../src/routing/router-llm/errors';
 
 describe('DefaultRouterLLM', () => {
   let originalFetch: typeof global.fetch;
