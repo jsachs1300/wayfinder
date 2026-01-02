@@ -5,7 +5,7 @@
  * Intent is dropped from user-facing responses as it's advisory only.
  */
 
-import type { RouteDecision, RouteResponse } from '../types/index.js';
+import type { RouteDecision, RouteResponse } from '../types/index';
 
 /**
  * Projects RouteDecision to user-facing RouteResponse

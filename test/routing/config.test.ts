@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { loadRouterLLMConfig } from '../../src/routing/config.js';
+import { loadRouterLLMConfig } from '../../src/routing/config';
 
 describe('loadRouterLLMConfig', () => {
   let originalEnv: NodeJS.ProcessEnv;

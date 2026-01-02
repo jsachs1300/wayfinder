@@ -3,15 +3,15 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { OpenAIClient } from '../../src/routing/router-llm/providers/openai-client.js';
-import { AnthropicClient } from '../../src/routing/router-llm/providers/anthropic-client.js';
-import { createProviderClient } from '../../src/routing/router-llm/providers/index.js';
-import type { ProviderRequest } from '../../src/routing/router-llm/providers/types.js';
+import { OpenAIClient } from '../../src/routing/router-llm/providers/openai-client';
+import { AnthropicClient } from '../../src/routing/router-llm/providers/anthropic-client';
+import { createProviderClient } from '../../src/routing/router-llm/providers/index';
+import type { ProviderRequest } from '../../src/routing/router-llm/providers/types';
 import {
   RouterLLMProviderError,
   RouterLLMTimeoutError,
   RouterLLMConfigError,
-} from '../../src/routing/router-llm/errors.js';
+} from '../../src/routing/router-llm/errors';
 
 describe('OpenAIClient', () => {
   let client: OpenAIClient;

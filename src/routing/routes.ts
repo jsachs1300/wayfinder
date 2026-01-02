@@ -12,10 +12,10 @@
 
 import { Router, Request, Response } from 'express';
 import { createHash } from 'crypto';
-import { RoutingEngine } from './engine.js';
-import { projectRouteResponse } from './projection.js';
-import type { RouteRequest, RoutingDecisionLogEvent, RoutingErrorLogEvent } from '../types/index.js';
-import type { Logger } from '../logging/logger.js';
+import { RoutingEngine } from './engine';
+import { projectRouteResponse } from './projection';
+import type { RouteRequest, RoutingDecisionLogEvent, RoutingErrorLogEvent } from '../types/index';
+import type { Logger } from '../logging/logger';
 import { z, ZodError } from 'zod';
 
 /**

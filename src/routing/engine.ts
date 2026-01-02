@@ -11,11 +11,11 @@
  * It MUST NOT influence routing logic, scoring, or model eligibility.
  */
 
-import type { RouteRequest, TokenConfig, RouteDecision, RouteResult, PolicyEvaluationLogEvent } from '../types/index.js';
-import { validateRouteDecision } from './validation.js';
-import type { PolicyEngine } from '../policy/engine.js';
-import type { ModelRegistry } from '../models/registry.js';
-import type { Logger } from '../logging/logger.js';
+import type { RouteRequest, TokenConfig, RouteDecision, RouteResult, PolicyEvaluationLogEvent } from '../types/index';
+import { validateRouteDecision } from './validation';
+import type { PolicyEngine } from '../policy/engine';
+import type { ModelRegistry } from '../models/registry';
+import type { Logger } from '../logging/logger';
 
 /**
  * Router LLM interface

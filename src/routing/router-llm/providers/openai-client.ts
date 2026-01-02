@@ -5,11 +5,11 @@
  * Uses native fetch API without external SDKs.
  */
 
-import type { ProviderClient, ProviderRequest, ProviderResponse } from './types.js';
+import type { ProviderClient, ProviderRequest, ProviderResponse } from './types';
 import {
   RouterLLMProviderError,
   RouterLLMTimeoutError,
-} from '../errors.js';
+} from '../errors';
 
 /**
  * OpenAI API request body structure

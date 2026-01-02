@@ -5,7 +5,7 @@
  * simplified logging for the canonical RouteDecision contract.
  */
 
-import type { RoutingDecisionLog, TokenConfig, RoutingReason } from '../types/index.js';
+import type { RoutingDecisionLog, TokenConfig, RoutingReason } from '../types/index';
 
 /**
  * DEPRECATED: Create a routing decision log from routing response and token config

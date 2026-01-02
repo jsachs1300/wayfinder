@@ -5,7 +5,7 @@
  * The prompt MUST instruct the LLM to return a RouteDecision conforming to the schema.
  */
 
-import type { TokenConfig } from '../../types/index.js';
+import type { TokenConfig } from '../../types/index';
 
 /**
  * Context for building the routing prompt

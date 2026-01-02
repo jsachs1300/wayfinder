@@ -27,4 +27,4 @@ export {
   loadRouterLLMConfig,
   type RouterLLMConfig,
   type RouterLLMProvider,
-} from './router-llm/index.js';
+} from './router-llm/index';
