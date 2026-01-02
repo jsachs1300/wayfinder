@@ -5,13 +5,13 @@
  * MUST fail hard on invalid responses - no auto-repair or inference.
  */
 
-import { validateRouteDecision } from '../validation.js';
-import type { RouteDecision } from '../../types/index.js';
+import { validateRouteDecision } from '../validation';
+import type { RouteDecision } from '../../types/index';
 import {
   RouterLLMParseError,
   RouterLLMValidationError,
   RouterLLMPolicyBypassError
-} from './errors.js';
+} from './errors';
 
 /**
  * Validates that selected models are in the eligible set

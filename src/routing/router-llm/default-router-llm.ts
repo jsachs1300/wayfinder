@@ -12,20 +12,20 @@
  * - Schema validation
  */
 
-import type { RouterLLM } from '../engine.js';
-import type { TokenConfig } from '../../types/index.js';
-import type { ProviderClient } from './providers/types.js';
-import { createProviderClient } from './providers/index.js';
-import { loadRouterLLMConfig, type RouterLLMConfig } from '../config.js';
-import { buildRoutingPrompt } from './prompt-builder.js';
-import { parseRouteDecisionLenient } from './response-parser.js';
+import type { RouterLLM } from '../engine';
+import type { TokenConfig } from '../../types/index';
+import type { ProviderClient } from './providers/types';
+import { createProviderClient } from './providers/index';
+import { loadRouterLLMConfig, type RouterLLMConfig } from '../config';
+import { buildRoutingPrompt } from './prompt-builder';
+import { parseRouteDecisionLenient } from './response-parser';
 import {
   RouterLLMError,
   RouterLLMRetryExhaustedError,
   RouterLLMTimeoutError,
   RouterLLMPolicyBypassError,
   RouterLLMProviderError,
-} from './errors.js';
+} from './errors';
 
 /**
  * Default Router LLM implementation

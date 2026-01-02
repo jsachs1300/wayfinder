@@ -7,8 +7,8 @@
  * This is moved from engine.ts to keep it separate from the production implementation.
  */
 
-import type { RouterLLM } from '../engine.js';
-import type { TokenConfig } from '../../types/index.js';
+import type { RouterLLM } from '../engine';
+import type { TokenConfig } from '../../types/index';
 
 /**
  * Stub RouterLLM implementation for testing

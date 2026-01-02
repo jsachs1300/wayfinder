@@ -10,4 +10,4 @@ export {
   getRouteDecisionSchema,
   getCanonicalIntentList,
   type RouterPromptConfig,
-} from './builder.js';
+} from './builder';

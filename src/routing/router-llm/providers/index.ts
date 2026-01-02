@@ -4,15 +4,15 @@
  * Exports all provider clients and provides factory function.
  */
 
-export { OpenAIClient } from './openai-client.js';
-export { AnthropicClient } from './anthropic-client.js';
-export type { ProviderClient, ProviderRequest, ProviderResponse } from './types.js';
+export { OpenAIClient } from './openai-client';
+export { AnthropicClient } from './anthropic-client';
+export type { ProviderClient, ProviderRequest, ProviderResponse } from './types';
 
-import type { RouterLLMProvider } from '../../config.js';
-import type { ProviderClient } from './types.js';
-import { OpenAIClient } from './openai-client.js';
-import { AnthropicClient } from './anthropic-client.js';
-import { RouterLLMConfigError } from '../errors.js';
+import type { RouterLLMProvider } from '../../config';
+import type { ProviderClient } from './types';
+import { OpenAIClient } from './openai-client';
+import { AnthropicClient } from './anthropic-client';
+import { RouterLLMConfigError } from '../errors';
 
 /**
  * Creates a provider client based on the provider type
