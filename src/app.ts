@@ -1,5 +1,7 @@
 import express, { Express, Request, Response, NextFunction } from 'express';
 import Redis from 'ioredis';
+import helmet from 'helmet';
+import cors from 'cors';
 
 import { tokenAuthMiddleware, adminAuthMiddleware, requestIdMiddleware } from './auth';
 import { createTokenStore, createAdminRoutes, TokenStore } from './tokens';
@@ -39,6 +41,62 @@ export function createApp(deps?: Partial<AppDependencies>): {
   // Trust first proxy for correct IP detection (required for rate limiting behind reverse proxy)
   // Without this, all requests appear to come from the proxy IP, defeating IP-based rate limits
   app.set('trust proxy', true);
+
+  // Security headers - Helmet.js
+  // Protects against common web vulnerabilities: XSS, clickjacking, MIME sniffing, etc.
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        baseUri: ["'self'"],
+        fontSrc: ["'self'", "https:", "data:"],
+        frameAncestors: ["'none'"], // Prevent clickjacking
+        imgSrc: ["'self'", "data:"],
+        objectSrc: ["'none'"],
+        scriptSrc: ["'self'"],
+        scriptSrcAttr: ["'none'"],
+        styleSrc: ["'self'", "https:", "'unsafe-inline'"],
+        upgradeInsecureRequests: [], // Upgrade HTTP to HTTPS
+      },
+    },
+    hsts: {
+      maxAge: 31536000, // 1 year
+      includeSubDomains: true,
+      preload: true,
+    },
+    noSniff: true, // X-Content-Type-Options: nosniff
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+    xssFilter: true, // Legacy XSS protection (modern browsers use CSP)
+  }));
+
+  // CORS configuration
+  // Parse allowed origins from environment variable (comma-separated)
+  const allowedOrigins = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
+    : ['*']; // Default: allow all origins (should be restricted in production)
+
+  app.use(cors({
+    origin: (origin, callback) => {
+      // Allow requests with no origin (mobile apps, curl, etc.)
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      // Check if origin is in allowed list or if wildcard is set
+      if (allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        // Reject CORS request - callback(null, false) is the correct way
+        // (throwing an error can cause unexpected behavior in Express)
+        callback(null, false);
+      }
+    },
+    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'X-Wayfinder-Token', 'X-Admin-Api-Key', 'X-Request-Id'],
+    exposedHeaders: ['X-Request-Id', 'RateLimit-Limit', 'RateLimit-Remaining', 'RateLimit-Reset'],
+    credentials: true,
+    maxAge: 86400, // 24 hours - how long browsers cache preflight responses
+  }));
 
   // Initialize Redis connection if enabled
   let redis: Redis | undefined;
@@ -100,7 +158,9 @@ export function createApp(deps?: Partial<AppDependencies>): {
   const rateLimiters = createRateLimiters(redis);
 
   // Middleware
-  app.use(express.json());
+  // Body size limits (prevent large payload DoS attacks)
+  app.use(express.json({ limit: '10kb' }));
+  app.use(express.urlencoded({ extended: false, limit: '10kb' }));
   app.use(requestIdMiddleware());
 
   // Request logging middleware
@@ -202,11 +262,23 @@ export function createApp(deps?: Partial<AppDependencies>): {
   // Error handler
   app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
     logger.error('Unhandled error', { error: err.message, stack: err.stack });
-    res.status(500).json({
+
+    // In production, hide error details to prevent information leakage
+    // In development, include details for debugging
+    const errorResponse: any = {
       error: 'InternalError',
-      message: 'An unexpected error occurred',
+      message: process.env.NODE_ENV === 'production'
+        ? 'An unexpected error occurred'
+        : err.message,
       timestamp: new Date().toISOString(),
-    });
+    };
+
+    // Only include stack trace in development
+    if (process.env.NODE_ENV !== 'production') {
+      errorResponse.stack = err.stack;
+    }
+
+    res.status(500).json(errorResponse);
   });
 
   return { app, dependencies };
