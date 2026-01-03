@@ -5,6 +5,7 @@ import 'dotenv/config';
 
 import { createApp } from './app';
 import { logger } from './logging';
+import { getRateLimitConfigSummary } from './middleware';
 
 const PORT = parseInt(process.env.PORT ?? '3000', 10);
 const NODE_ENV = process.env.NODE_ENV ?? 'development';
@@ -15,6 +16,10 @@ async function main(): Promise<void> {
     environment: NODE_ENV,
     redis_enabled: process.env.REDIS_ENABLED === 'true',
   });
+
+  // Log rate limit configuration
+  const rateLimitConfig = getRateLimitConfigSummary();
+  logger.info('Rate limiting enabled', rateLimitConfig);
 
   const { app, dependencies } = createApp();
 

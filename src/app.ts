@@ -10,6 +10,7 @@ import { createRoutingEngine, createRoutingRoutes, RoutingEngine, StubRouterLLM,
 import { createFeedbackHandler, createFeedbackRoutes, FeedbackHandler } from './feedback';
 import { createOpinionPoller, OpinionPoller } from './polling';
 import { createLogger, Logger } from './logging';
+import { createRateLimiters } from './middleware';
 
 /**
  * Application dependencies container
@@ -91,6 +92,9 @@ export function createApp(deps?: Partial<AppDependencies>): {
     logger,
   };
 
+  // Create rate limiters (uses Redis if available for distributed rate limiting)
+  const rateLimiters = createRateLimiters(redis);
+
   // Middleware
   app.use(express.json());
   app.use(requestIdMiddleware());
@@ -120,8 +124,9 @@ export function createApp(deps?: Partial<AppDependencies>): {
     });
   });
 
-  // Admin routes (require admin auth)
+  // Admin routes (require admin auth + rate limiting)
   const adminRouter = express.Router();
+  adminRouter.use(rateLimiters.admin);
   adminRouter.use(adminAuthMiddleware());
   adminRouter.use(createAdminRoutes(tokenStore, modelRegistry));
 
@@ -173,10 +178,10 @@ export function createApp(deps?: Partial<AppDependencies>): {
 
   app.use('/admin', adminRouter);
 
-  // Protected routes (require token auth)
+  // Protected routes (require token auth + rate limiting)
   // Mount routers at their specific paths
-  app.use('/route', tokenAuthMiddleware(tokenStore), createRoutingRoutes(routingEngine, logger));
-  app.use('/feedback', tokenAuthMiddleware(tokenStore), createFeedbackRoutes(feedbackHandler, modelRegistry));
+  app.use('/route', rateLimiters.routing, tokenAuthMiddleware(tokenStore), createRoutingRoutes(routingEngine, logger));
+  app.use('/feedback', rateLimiters.feedback, tokenAuthMiddleware(tokenStore), createFeedbackRoutes(feedbackHandler, modelRegistry));
 
   // 404 handler
   app.use((_req: Request, res: Response) => {
