@@ -86,7 +86,9 @@ export function createApp(deps?: Partial<AppDependencies>): {
       if (allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
-        callback(new Error('Not allowed by CORS'));
+        // Reject CORS request - callback(null, false) is the correct way
+        // (throwing an error can cause unexpected behavior in Express)
+        callback(null, false);
       }
     },
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
@@ -156,7 +158,9 @@ export function createApp(deps?: Partial<AppDependencies>): {
   const rateLimiters = createRateLimiters(redis);
 
   // Middleware
-  app.use(express.json());
+  // Body size limits (prevent large payload DoS attacks)
+  app.use(express.json({ limit: '10kb' }));
+  app.use(express.urlencoded({ extended: false, limit: '10kb' }));
   app.use(requestIdMiddleware());
 
   // Request logging middleware
@@ -258,11 +262,23 @@ export function createApp(deps?: Partial<AppDependencies>): {
   // Error handler
   app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
     logger.error('Unhandled error', { error: err.message, stack: err.stack });
-    res.status(500).json({
+
+    // In production, hide error details to prevent information leakage
+    // In development, include details for debugging
+    const errorResponse: any = {
       error: 'InternalError',
-      message: 'An unexpected error occurred',
+      message: process.env.NODE_ENV === 'production'
+        ? 'An unexpected error occurred'
+        : err.message,
       timestamp: new Date().toISOString(),
-    });
+    };
+
+    // Only include stack trace in development
+    if (process.env.NODE_ENV !== 'production') {
+      errorResponse.stack = err.stack;
+    }
+
+    res.status(500).json(errorResponse);
   });
 
   return { app, dependencies };
