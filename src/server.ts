@@ -1,7 +1,7 @@
-import dotenv from 'dotenv';
-
-// Load environment variables from .env file
-dotenv.config();
+// IMPORTANT: Must be first import to load .env before any module initialization
+// With CommonJS, all imports are hoisted, but 'dotenv/config' runs its side-effects
+// before other modules are evaluated, ensuring env vars are available at import time
+import 'dotenv/config';
 
 import { createApp } from './app';
 import { logger } from './logging';
