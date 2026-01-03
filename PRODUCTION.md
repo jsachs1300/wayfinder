@@ -78,44 +78,57 @@ npx dotenvx encrypt
 ---
 
 #### 2. **Rate Limiting**
-**Current State:** ❌ NOT IMPLEMENTED
+**Current State:** ✅ IMPLEMENTED
 
 **Why Critical:** Prevent abuse, DDoS attacks, cost overruns (LLM API calls are expensive)
 
-**Implementation:**
+**Implementation Status:**
+- ✅ `express-rate-limit` installed and configured
+- ✅ Per-endpoint rate limits with different strategies:
+  - **Routing** (`/route`): 20 req/min per token (conservative due to LLM costs)
+  - **Admin** (`/admin/*`): 50 req/15min per IP
+  - **Feedback** (`/feedback`): 100 req/15min per token
+  - **Global**: 100 req/15min per IP (fallback)
+- ✅ Redis-backed rate limiting (when Redis is enabled)
+- ✅ Standard `RateLimit-*` headers in responses
+- ✅ IPv6-compatible IP key generation
+- ✅ Fully configurable via environment variables
+
+**Configuration:**
+
+All rate limits are configurable via `.env`:
+
 ```bash
-npm install express-rate-limit
+# Routing endpoint (per token, most critical due to LLM costs)
+RATE_LIMIT_ROUTING_WINDOW_MS=60000   # 1 minute
+RATE_LIMIT_ROUTING_MAX=20            # 20 requests
+
+# Admin endpoints (per IP)
+RATE_LIMIT_ADMIN_WINDOW_MS=900000    # 15 minutes
+RATE_LIMIT_ADMIN_MAX=50              # 50 requests
+
+# Feedback endpoint (per token)
+RATE_LIMIT_FEEDBACK_WINDOW_MS=900000 # 15 minutes
+RATE_LIMIT_FEEDBACK_MAX=100          # 100 requests
+
+# Global fallback (per IP)
+RATE_LIMIT_GLOBAL_WINDOW_MS=900000   # 15 minutes
+RATE_LIMIT_GLOBAL_MAX=100            # 100 requests
 ```
 
-```typescript
-// src/middleware/rate-limit.ts
-import rateLimit from 'express-rate-limit';
-
-export const apiRateLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per window
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: 'Too many requests, please try again later',
-});
-
-export const routingRateLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  max: 20, // 20 routing requests per minute per IP
-  keyGenerator: (req) => req.headers['x-wayfinder-token'] as string || req.ip,
-});
-
-// Apply in app.ts
-app.use('/route', routingRateLimiter);
-app.use('/admin', apiRateLimiter);
+**Response Headers:**
+```http
+RateLimit-Policy: 20;w=60
+RateLimit-Limit: 20
+RateLimit-Remaining: 19
+RateLimit-Reset: 60
 ```
 
-**Action Items:**
-- [ ] Install and configure express-rate-limit
-- [ ] Set per-endpoint limits based on expected usage
-- [ ] Consider Redis-backed rate limiting for distributed systems
-- [ ] Add rate limit headers to responses
-- [ ] Monitor rate limit hits and adjust thresholds
+**Remaining Action Items:**
+- [ ] Monitor rate limit hits in production logs
+- [ ] Adjust thresholds based on actual usage patterns
+- [ ] Set up alerts for excessive rate limit violations
+- [ ] Document rate limits in API documentation for users
 
 ---
 
@@ -439,14 +452,14 @@ jobs:
 
 - [ ] Strong, unique API keys for all services
 - [ ] HTTPS enforced
-- [ ] Rate limiting on all endpoints
+- [x] **Rate limiting on all endpoints** ✅ DONE
 - [ ] Input validation on all user inputs
 - [ ] Security headers (helmet)
 - [ ] CORS properly configured
 - [ ] Error messages sanitized (no stack traces)
 - [ ] Secrets not in code/git
 - [ ] Dependencies scanned for vulnerabilities
-- [ ] DoS protection (rate limiting + CloudFlare)
+- [x] **DoS protection via rate limiting** ✅ DONE (CloudFlare optional)
 - [ ] Monitoring and alerting set up
 - [ ] Backup and recovery tested
 - [ ] Terms of Service published
@@ -515,10 +528,20 @@ jobs:
 If you need to launch quickly with basic security:
 
 ```bash
-# 1. Add rate limiting
-npm install express-rate-limit helmet cors
+# 1. Rate limiting ✅ ALREADY DONE
+# Rate limiting is already implemented! Just configure via .env if needed.
 
-# 2. Update src/app.ts with security middleware (see above)
+# 2. Add security headers (helmet + CORS)
+npm install helmet cors
+
+# Update src/app.ts:
+import helmet from 'helmet';
+import cors from 'cors';
+
+app.use(helmet());
+app.use(cors({
+  origin: process.env.ALLOWED_ORIGINS?.split(',') || '*',
+}));
 
 # 3. Use Docker Compose with Redis
 docker-compose up -d
@@ -536,6 +559,8 @@ ROUTER_LLM_API_KEY=your-openai-or-anthropic-key
 # 6. Monitor with simple health checks
 curl https://api.yourdomain.com/health
 ```
+
+**Time to launch:** ~2-3 hours (down from 3-4 hours with rate limiting complete!)
 
 ---
 
