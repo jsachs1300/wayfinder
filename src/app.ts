@@ -36,6 +36,10 @@ export function createApp(deps?: Partial<AppDependencies>): {
 } {
   const app = express();
 
+  // Trust first proxy for correct IP detection (required for rate limiting behind reverse proxy)
+  // Without this, all requests appear to come from the proxy IP, defeating IP-based rate limits
+  app.set('trust proxy', true);
+
   // Initialize Redis connection if enabled
   let redis: Redis | undefined;
   if (process.env.REDIS_ENABLED === 'true' && process.env.REDIS_URL) {
@@ -115,7 +119,10 @@ export function createApp(deps?: Partial<AppDependencies>): {
     next();
   });
 
-  // Health check endpoint (no auth required)
+  // Health check endpoint (no auth or rate limiting required)
+  // IMPORTANT: This endpoint is defined before rate limiters are applied to routes.
+  // Do not move it after route-specific rate limiters or health checks may be rate limited,
+  // which would break monitoring and alerting systems.
   app.get('/health', (_req: Request, res: Response) => {
     res.json({
       status: 'healthy',
