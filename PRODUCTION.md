@@ -133,94 +133,76 @@ RateLimit-Reset: 60
 ---
 
 #### 3. **HTTPS/TLS**
-**Current State:** ❌ HTTP only
+**Current State:** ❌ HTTP only (requires reverse proxy)
 
 **Why Critical:** Protects API keys and tokens in transit
 
 **Implementation:**
+
+**See [NGINX_GUIDE.md](./NGINX_GUIDE.md) for comprehensive setup instructions** including:
+- Step-by-step Nginx installation
+- Automated SSL with Let's Encrypt/Certbot
+- Production-ready configuration with rate limiting
+- Security hardening (firewall, fail2ban)
+- Load balancing for multiple instances
+- Monitoring and troubleshooting
+
+**Quick Setup Options:**
+
 ```bash
-# Option 1: Reverse proxy (RECOMMENDED)
-# Use Nginx, Caddy, or cloud load balancer
-
-# nginx.conf
-server {
-    listen 443 ssl http2;
-    server_name api.yourdomain.com;
-
-    ssl_certificate /path/to/cert.pem;
-    ssl_certificate_key /path/to/key.pem;
-
-    location / {
-        proxy_pass http://localhost:3000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-
-# Option 2: Let's Encrypt with Caddy (easiest)
+# Option 1: Caddy (easiest - automatic HTTPS)
 # Caddyfile
 api.yourdomain.com {
     reverse_proxy localhost:3000
 }
+
+# Option 2: Nginx with Let's Encrypt (see NGINX_GUIDE.md)
+# Automated setup with certbot
+sudo certbot --nginx -d api.yourdomain.com
 ```
 
 **Action Items:**
-- [ ] Set up reverse proxy (Nginx/Caddy)
+- [ ] Set up reverse proxy (see NGINX_GUIDE.md)
 - [ ] Obtain SSL certificate (Let's Encrypt recommended)
-- [ ] Configure auto-renewal
+- [ ] Configure auto-renewal (certbot handles this)
 - [ ] Enforce HTTPS (redirect HTTP to HTTPS)
-- [ ] Enable HSTS headers
+- [ ] HSTS headers already enabled via helmet ✅
 
 ---
 
 #### 4. **Input Validation & Security Headers**
-**Current State:** ⚠️ Partial (Zod validation exists for some endpoints)
+**Current State:** ✅ Security headers IMPLEMENTED, ✅ Input validation with Zod
 
-**Implementation:**
+**Implementation Status:**
+- ✅ **helmet** installed and configured with comprehensive security headers:
+  - Content Security Policy (CSP) with strict directives
+  - HSTS (HTTP Strict Transport Security) with 1-year max-age, includeSubDomains, preload
+  - X-Content-Type-Options: nosniff (prevents MIME sniffing)
+  - X-Frame-Options / frame-ancestors (prevents clickjacking)
+  - Referrer-Policy: strict-origin-when-cross-origin
+  - XSS protection (legacy header for older browsers)
+- ✅ **CORS** configured with:
+  - Origin validation (configurable via `ALLOWED_ORIGINS` env var)
+  - Proper headers exposed for rate limiting (`RateLimit-*`)
+  - Credentials support
+  - Standard HTTP methods (GET, POST, PATCH, DELETE, OPTIONS)
+- ✅ **Input validation** with Zod schemas on routing/feedback/admin endpoints
+- ✅ **Trust proxy** enabled for correct IP detection behind reverse proxy
+
+**Configuration:**
+
+See `.env.example` for CORS configuration:
 ```bash
-npm install helmet cors express-validator
+# CORS (Cross-Origin Resource Sharing)
+# Comma-separated list of allowed origins (default: * allows all origins)
+# In production, specify exact origins: https://app.example.com,https://admin.example.com
+ALLOWED_ORIGINS=*
 ```
 
-```typescript
-// src/app.ts additions
-import helmet from 'helmet';
-import cors from 'cors';
-
-// Security headers
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-    },
-  },
-  hsts: {
-    maxAge: 31536000,
-    includeSubDomains: true,
-    preload: true,
-  },
-}));
-
-// CORS configuration
-app.use(cors({
-  origin: process.env.ALLOWED_ORIGINS?.split(',') || '*',
-  methods: ['GET', 'POST', 'PATCH', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'X-Wayfinder-Token', 'X-Admin-Api-Key'],
-  credentials: true,
-}));
-
-// Body size limits (prevent large payload attacks)
-app.use(express.json({ limit: '10kb' }));
-```
-
-**Action Items:**
-- [ ] Install helmet and configure security headers
-- [ ] Set up CORS with allowed origins
-- [ ] Add request size limits
-- [ ] Validate all user inputs with Zod schemas
-- [ ] Sanitize error messages (don't leak stack traces)
+**Remaining Action Items:**
+- [ ] Configure production ALLOWED_ORIGINS (replace wildcard with specific domains)
+- [ ] Add request size limits with `app.use(express.json({ limit: '10kb' }))`
+- [ ] Sanitize error messages in production (avoid leaking stack traces)
 
 ---
 
@@ -451,11 +433,11 @@ jobs:
 ## Security Checklist for Public Launch
 
 - [ ] Strong, unique API keys for all services
-- [ ] HTTPS enforced
+- [ ] HTTPS enforced (requires reverse proxy - see NGINX_GUIDE.md)
 - [x] **Rate limiting on all endpoints** ✅ DONE
-- [ ] Input validation on all user inputs
-- [ ] Security headers (helmet)
-- [ ] CORS properly configured
+- [x] **Input validation on all user inputs** ✅ DONE (Zod schemas)
+- [x] **Security headers (helmet)** ✅ DONE
+- [x] **CORS properly configured** ✅ DONE
 - [ ] Error messages sanitized (no stack traces)
 - [ ] Secrets not in code/git
 - [ ] Dependencies scanned for vulnerabilities
@@ -531,36 +513,34 @@ If you need to launch quickly with basic security:
 # 1. Rate limiting ✅ ALREADY DONE
 # Rate limiting is already implemented! Just configure via .env if needed.
 
-# 2. Add security headers (helmet + CORS)
-npm install helmet cors
-
-# Update src/app.ts:
-import helmet from 'helmet';
-import cors from 'cors';
-
-app.use(helmet());
-app.use(cors({
-  origin: process.env.ALLOWED_ORIGINS?.split(',') || '*',
-}));
+# 2. Security headers (helmet + CORS) ✅ ALREADY DONE
+# Security headers are already implemented! Just configure ALLOWED_ORIGINS in .env:
+ALLOWED_ORIGINS=https://app.yourdomain.com,https://yourdomain.com
 
 # 3. Use Docker Compose with Redis
 docker-compose up -d
 
-# 4. Put behind HTTPS reverse proxy (Caddy is easiest)
-# Install Caddy, create Caddyfile:
+# 4. Put behind HTTPS reverse proxy
+# See NGINX_GUIDE.md for comprehensive setup instructions
+# Quick option - Caddy (easiest):
 api.yourdomain.com {
     reverse_proxy localhost:3000
 }
 
+# Or Nginx with Let's Encrypt (see NGINX_GUIDE.md for full setup)
+
 # 5. Set strong environment variables
 ADMIN_API_KEY=$(openssl rand -hex 32)
 ROUTER_LLM_API_KEY=your-openai-or-anthropic-key
+NODE_ENV=production
 
 # 6. Monitor with simple health checks
 curl https://api.yourdomain.com/health
 ```
 
-**Time to launch:** ~2-3 hours (down from 3-4 hours with rate limiting complete!)
+**Time to launch:** ~1-2 hours (down from 3-4 hours with rate limiting and security headers complete!)
+
+**See also:** [NGINX_GUIDE.md](./NGINX_GUIDE.md) for comprehensive reverse proxy setup with SSL/TLS
 
 ---
 
