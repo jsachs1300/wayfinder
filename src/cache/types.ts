@@ -26,8 +26,8 @@ export interface CacheStats {
   hits: number;
   /** Total number of cache misses */
   misses: number;
-  /** Total number of cache entries stored */
-  entries: number;
+  /** Total number of successful cache store operations */
+  stores: number;
   /** Cache hit rate (hits / (hits + misses)) */
   hit_rate: number;
   /** Last updated timestamp */

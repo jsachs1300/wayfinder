@@ -142,6 +142,7 @@ describe('SemanticCache', () => {
           token_id: 'token-1',
           eligible_models_hash: 'hash-123',
         },
+        ttl: 3600,
       });
     });
 

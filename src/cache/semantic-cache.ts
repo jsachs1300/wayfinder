@@ -116,6 +116,7 @@ export class SemanticCache {
           token_id: tokenId,
           eligible_models_hash: eligibleModelsHash,
         },
+        ttl: this.config.ttl,
       });
 
       this.stats.stores++;
@@ -142,7 +143,7 @@ export class SemanticCache {
     return {
       hits: this.stats.hits,
       misses: this.stats.misses,
-      entries: this.stats.stores,
+      stores: this.stats.stores,
       hit_rate: parseFloat(hitRate.toFixed(4)),
       last_updated: new Date().toISOString(),
     };
