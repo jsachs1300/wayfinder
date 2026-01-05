@@ -127,6 +127,173 @@ Wayfinder supports **configurable knowledge scope** for flexibility between shar
 
 > ℹ️ Knowledge decay and statistics are now lazy and incremental (see [issue #6](https://github.com/jsachs1300/wayfinder/issues/6)). Effective scores are computed at read time using exponential decay, and statistics are updated on writes, so aggregate totals are approximate over time without scanning Redis keyspaces.
 
+### Semantic Caching
+
+Wayfinder supports **optional semantic caching** using Redis LangCache to significantly reduce router LLM API costs and improve response times.
+
+**What is Semantic Caching?**
+
+Traditional caching matches exact keys. Semantic caching uses embeddings to match semantically similar prompts, even if the wording differs:
+
+```
+"Write a Python function to reverse a string"  ≈  "Create a string reversal function in Python"
+```
+
+Both prompts would return the same cached routing decision, avoiding redundant LLM calls.
+
+**Why Wayfinder Uses Semantic Caching**
+
+- **Cost Reduction**: Avoid router LLM API calls for similar prompts (can save 40-70% on costs)
+- **Faster Response**: Cache hits return instantly without LLM latency
+- **Consistency**: Similar prompts get consistent routing decisions
+- **Token-Scoped**: Each token has isolated cache namespace for security and compliance
+
+**How It Works**
+
+Per REQUIREMENTS.md §8 step 8, cache is queried:
+1. **After** policy evaluation (ensures policy is always enforced)
+2. **Before** router LLM invocation (only if cache miss)
+3. Cache key includes `token_id` + `eligible_models_hash` for automatic invalidation
+
+**Cache Behavior:**
+- Cache **hit**: Return cached decision, skip router LLM (fast path)
+- Cache **miss**: Invoke router LLM, store result in cache (fire-and-forget)
+- Cache **failure**: Log error, continue with routing (graceful degradation)
+
+**Setup Instructions**
+
+1. **Get LangCache Credentials**
+   - Sign up at [Redis LangCache](https://redis.io/langcache/)
+   - Create a cache instance
+   - Note your: `HOST`, `CACHE_ID`, `API_KEY`
+
+2. **Configure Environment Variables**
+
+   ```bash
+   # Enable semantic caching
+   LANGCACHE_ENABLED=true
+
+   # LangCache API configuration
+   LANGCACHE_HOST=your-cache-id.langcache.redis.io
+   LANGCACHE_CACHE_ID=your-cache-id
+   LANGCACHE_API_KEY=your-langcache-api-key
+
+   # Optional: tune similarity threshold (default: 0.9)
+   LANGCACHE_SIMILARITY_THRESHOLD=0.9
+
+   # Optional: set cache TTL in seconds (default: 3600 = 1 hour)
+   LANGCACHE_TTL=3600
+   ```
+
+3. **Restart Wayfinder**
+
+   ```bash
+   npm run dev  # or npm start
+   ```
+
+   You should see: `Semantic cache initialized`
+
+**Configuration Options**
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `LANGCACHE_ENABLED` | No | `false` | Enable/disable semantic caching |
+| `LANGCACHE_HOST` | Yes* | - | LangCache API hostname |
+| `LANGCACHE_CACHE_ID` | Yes* | - | Cache ID from LangCache console |
+| `LANGCACHE_API_KEY` | Yes* | - | LangCache API authentication key |
+| `LANGCACHE_SIMILARITY_THRESHOLD` | No | `0.9` | Semantic similarity threshold (0.0 - 1.0) |
+| `LANGCACHE_TTL` | No | `3600` | Cache entry TTL in seconds |
+
+*Required only if `LANGCACHE_ENABLED=true`
+
+**Similarity Threshold Guidance**
+
+- **0.95+**: Very strict (only nearly identical prompts match)
+- **0.85-0.95**: Recommended for production (balanced)
+- **0.75-0.85**: Lenient (more cache hits, less precise)
+- **< 0.75**: Too loose (risk of incorrect matches)
+
+**Monitoring Cache Performance**
+
+Get cache statistics:
+
+```bash
+curl http://localhost:3000/admin/cache/stats \
+  -H "X-Admin-Api-Key: your-admin-key"
+```
+
+Response:
+```json
+{
+  "hits": 142,
+  "misses": 58,
+  "entries": 58,
+  "hit_rate": 0.71,
+  "last_updated": "2026-01-04T18:30:00.000Z"
+}
+```
+
+**Cache Management**
+
+Clear entire cache:
+
+```bash
+curl -X POST http://localhost:3000/admin/cache/clear \
+  -H "X-Admin-Api-Key: your-admin-key"
+```
+
+Clear cache for specific token:
+
+```bash
+curl -X POST http://localhost:3000/admin/cache/clear \
+  -H "X-Admin-Api-Key: your-admin-key" \
+  -H "Content-Type: application/json" \
+  -d '{"token_id": "wf_xxxxx"}'
+```
+
+**Token Isolation**
+
+Each token has its own cache namespace. Cached decisions for token A are never returned for token B, even for identical prompts. This ensures:
+- Security (no cross-token data leakage)
+- Compliance (token-specific policies respected)
+- Correctness (policy changes invalidate cache automatically)
+
+**Policy-Aware Caching**
+
+Cache keys include a hash of eligible models. If policy changes which models are eligible, the cache automatically invalidates:
+
+```
+Before policy change: eligible_models = ["gpt-4", "claude-3-opus"]
+After policy change:  eligible_models = ["gpt-4", "gpt-4-turbo"]
+→ Different eligible_models_hash → Cache miss → Fresh routing decision
+```
+
+**Troubleshooting**
+
+**Cache not initializing:**
+```
+Error: LANGCACHE_HOST environment variable is required
+```
+→ Set all required environment variables (`LANGCACHE_HOST`, `LANGCACHE_CACHE_ID`, `LANGCACHE_API_KEY`)
+
+**Low cache hit rate (<20%):**
+- Prompts are too diverse (expected for low-volume traffic)
+- Similarity threshold too high (try lowering to 0.85)
+- Cache TTL too short (consider increasing)
+
+**High cache hit rate but poor decisions:**
+- Similarity threshold too low (try raising to 0.92)
+- Prompts semantically similar but require different models
+
+**Cache errors in logs but routing still works:**
+- This is expected (graceful degradation)
+- Cache failures never block routing
+- Fix underlying LangCache connectivity issue
+
+**Disabling Cache**
+
+Set `LANGCACHE_ENABLED=false` or remove the variable entirely. Wayfinder works perfectly without caching—it's purely an optimization.
+
 ### Confidence Levels
 
 - **Strong** (≥0.8 agreement + minimum votes): High confidence in consensus

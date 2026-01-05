@@ -191,6 +191,8 @@ export interface RouteResult {
     /** Number of models eligible after policy evaluation */
     eligibleModelsCount: number;
   };
+  /** Whether this decision came from cache (optional) */
+  cache_hit?: boolean;
 }
 
 /**

@@ -13,6 +13,7 @@ import { createFeedbackHandler, createFeedbackRoutes, FeedbackHandler } from './
 import { createOpinionPoller, OpinionPoller } from './polling';
 import { createLogger, Logger } from './logging';
 import { createRateLimiters } from './middleware';
+import { SemanticCache, loadCacheConfig } from './cache';
 
 /**
  * Application dependencies container
@@ -109,6 +110,24 @@ export function createApp(deps?: Partial<AppDependencies>): {
 
   // Initialize dependencies
   const logger = deps?.logger ?? createLogger(process.env.LOG_LEVEL);
+
+  // Initialize semantic cache if enabled
+  let cache: SemanticCache | undefined;
+  if (process.env.LANGCACHE_ENABLED === 'true') {
+    try {
+      const cacheConfig = loadCacheConfig();
+      cache = new SemanticCache(cacheConfig);
+      logger.info('Semantic cache initialized', {
+        host: cacheConfig.serverURL,
+        similarity_threshold: cacheConfig.similarityThreshold,
+        ttl: cacheConfig.ttl,
+      });
+    } catch (err) {
+      logger.error('Failed to initialize cache, continuing without caching', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
   const tokenStore = deps?.tokenStore ?? createTokenStore(redis);
   const policyEngine = deps?.policyEngine ?? createPolicyEngine();
   const modelRegistry = deps?.modelRegistry ?? createModelRegistry();
@@ -140,6 +159,7 @@ export function createApp(deps?: Partial<AppDependencies>): {
       policyEngine,
       modelRegistry,
       logger,
+      cache,
     });
 
   const dependencies: AppDependencies = {
@@ -242,6 +262,43 @@ export function createApp(deps?: Partial<AppDependencies>): {
       default: modelRegistry.getDefaultModel(),
     });
   });
+
+  // Cache management endpoints (admin only)
+  if (cache) {
+    adminRouter.get('/cache/stats', async (_req: Request, res: Response) => {
+      try {
+        const stats = await cache.getStats();
+        res.json(stats);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        res.status(500).json({
+          error: 'InternalError',
+          message: 'Failed to get cache stats',
+          details: { error: errorMessage },
+          timestamp: new Date().toISOString(),
+        });
+      }
+    });
+
+    adminRouter.post('/cache/clear', async (req: Request, res: Response) => {
+      try {
+        const { token_id } = req.body;
+        await cache.clear(token_id);
+        res.json({
+          message: token_id ? `Cache cleared for token ${token_id}` : 'All cache cleared',
+          timestamp: new Date().toISOString(),
+        });
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        res.status(500).json({
+          error: 'InternalError',
+          message: 'Failed to clear cache',
+          details: { error: errorMessage },
+          timestamp: new Date().toISOString(),
+        });
+      }
+    });
+  }
 
   app.use('/admin', adminRouter);
 
