@@ -16,6 +16,8 @@ import { validateRouteDecision } from './validation';
 import type { PolicyEngine } from '../policy/engine';
 import type { ModelRegistry } from '../models/registry';
 import type { Logger } from '../logging/logger';
+import type { SemanticCache } from '../cache';
+import { hashEligibleModels, hashPrompt } from '../cache';
 
 /**
  * Router LLM interface
@@ -74,6 +76,7 @@ export interface RoutingEngineDependencies {
   policyEngine: PolicyEngine;
   modelRegistry: ModelRegistry;
   logger: Logger;
+  cache?: SemanticCache;
 }
 
 export class DefaultRoutingEngine implements RoutingEngine {
@@ -178,7 +181,38 @@ export class DefaultRoutingEngine implements RoutingEngine {
       );
     }
 
-    // Invoke router LLM with policy-filtered eligible models
+    // Check cache AFTER policy evaluation, BEFORE router LLM invocation (REQUIREMENTS.md §8 step 8)
+    if (this.deps.cache) {
+      const eligibleModelsHash = hashEligibleModels(eligibleModels);
+      const cached = await this.deps.cache.get(request.prompt, tokenConfig.id, eligibleModelsHash);
+
+      if (cached) {
+        this.deps.logger.debug('Cache hit', {
+          token_id: tokenConfig.id,
+          prompt_hash: hashPrompt(request.prompt),
+          eligible_models_hash: eligibleModelsHash,
+          request_id: requestId,
+        });
+
+        return {
+          decision: cached,
+          policyMetadata: {
+            forcedModel: policyResult.forced_model,
+            eligibleModelsCount: eligibleModels.length,
+          },
+          cache_hit: true,
+        };
+      }
+
+      this.deps.logger.debug('Cache miss', {
+        token_id: tokenConfig.id,
+        prompt_hash: hashPrompt(request.prompt),
+        eligible_models_hash: eligibleModelsHash,
+        request_id: requestId,
+      });
+    }
+
+    // Cache miss - invoke router LLM with policy-filtered eligible models
     const rawResponse = await this.deps.routerLLM.invoke(request.prompt, eligibleModels, {
       tokenConfig,
       preferModel: request.prefer_model,
@@ -187,6 +221,21 @@ export class DefaultRoutingEngine implements RoutingEngine {
 
     // Validate response against canonical schema (fail hard on invalid)
     const decision = validateRouteDecision(rawResponse);
+
+    // Store in cache (fire-and-forget to avoid adding latency)
+    if (this.deps.cache) {
+      const eligibleModelsHash = hashEligibleModels(eligibleModels);
+      this.deps.cache
+        .set(request.prompt, tokenConfig.id, eligibleModelsHash, decision)
+        .catch((err) =>
+          this.deps.logger.warn('Cache store failed', {
+            error: err instanceof Error ? err.message : String(err),
+            token_id: tokenConfig.id,
+            prompt_hash: hashPrompt(request.prompt),
+            request_id: requestId,
+          })
+        );
+    }
 
     // Intent is now captured but not used for routing logic
     // It will be logged for internal analysis only
