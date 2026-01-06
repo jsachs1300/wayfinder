@@ -56,7 +56,11 @@ describe('SemanticCache', () => {
 
       expect(result).toBeNull();
       expect(mockLangCacheClient.search).toHaveBeenCalledWith({
-        prompt: 'token:token-1|models:hash-123|prompt:test prompt',
+        prompt: 'test prompt',
+        attributes: {
+          token_id: 'token-1',
+          eligible_models_hash: 'hash-123',
+        },
         searchStrategies: ['semantic'],
         similarityThreshold: 0.9,
       });
@@ -97,21 +101,24 @@ describe('SemanticCache', () => {
       consoleErrorSpy.mockRestore();
     });
 
-    it('should use token_id and eligible_models_hash in composite key', async () => {
+    it('should use token_id and eligible_models_hash as attributes', async () => {
       mockLangCacheClient.search.mockResolvedValue(null);
 
       await cache.get('coding prompt', 'token-abc', 'models-xyz');
 
       expect(mockLangCacheClient.search).toHaveBeenCalledWith(
         expect.objectContaining({
-          prompt: 'token:token-abc|models:models-xyz|prompt:coding prompt',
+          attributes: {
+            token_id: 'token-abc',
+            eligible_models_hash: 'models-xyz',
+          },
         })
       );
     });
   });
 
   describe('set()', () => {
-    it('should store decision in cache with composite key', async () => {
+    it('should store decision in cache with correct attributes', async () => {
       const decision: RouteDecision = {
         intent: 'coding',
         primary: {
@@ -129,8 +136,12 @@ describe('SemanticCache', () => {
       await cache.set('test prompt', 'token-1', 'hash-123', decision);
 
       expect(mockLangCacheClient.set).toHaveBeenCalledWith({
-        prompt: 'token:token-1|models:hash-123|prompt:test prompt',
+        prompt: 'test prompt',
         response: JSON.stringify(decision),
+        attributes: {
+          token_id: 'token-1',
+          eligible_models_hash: 'hash-123',
+        },
       });
     });
 
@@ -191,21 +202,15 @@ describe('SemanticCache', () => {
       expect(mockLangCacheClient.deleteQuery).not.toHaveBeenCalled();
     });
 
-    it('should clear entire cache even when token_id provided (limitation)', async () => {
-      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
+    it('should clear cache for specific token when token_id provided', async () => {
       await cache.clear('token-123');
 
-      // With composite keys, per-token clearing isn't supported
-      // Should log warning and clear entire cache
-      expect(consoleWarnSpy).toHaveBeenCalledWith(
-        'Per-token cache clearing not supported with composite keys. Clearing entire cache.',
-        { token_id: 'token-123' }
-      );
-      expect(mockLangCacheClient.flush).toHaveBeenCalled();
-      expect(mockLangCacheClient.deleteQuery).not.toHaveBeenCalled();
-
-      consoleWarnSpy.mockRestore();
+      expect(mockLangCacheClient.deleteQuery).toHaveBeenCalledWith({
+        attributes: {
+          token_id: 'token-123',
+        },
+      });
+      expect(mockLangCacheClient.flush).not.toHaveBeenCalled();
     });
 
     it('should throw error on cache clear failure', async () => {
@@ -237,10 +242,12 @@ describe('SemanticCache', () => {
       const result2 = await cache.get('same prompt', 'token-2', 'hash-123');
       expect(result2).toBeNull();
 
-      // Verify second call used token-2 in composite key
+      // Verify second call used token-2
       expect(mockLangCacheClient.search).toHaveBeenLastCalledWith(
         expect.objectContaining({
-          prompt: 'token:token-2|models:hash-123|prompt:same prompt',
+          attributes: expect.objectContaining({
+            token_id: 'token-2',
+          }),
         })
       );
     });
@@ -266,10 +273,12 @@ describe('SemanticCache', () => {
       const result2 = await cache.get('prompt', 'token-1', 'hash-xyz');
       expect(result2).toBeNull();
 
-      // Verify second call used different hash in composite key
+      // Verify second call used different hash
       expect(mockLangCacheClient.search).toHaveBeenLastCalledWith(
         expect.objectContaining({
-          prompt: 'token:token-1|models:hash-xyz|prompt:prompt',
+          attributes: expect.objectContaining({
+            eligible_models_hash: 'hash-xyz',
+          }),
         })
       );
     });
