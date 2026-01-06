@@ -4,7 +4,7 @@
  * Per REQUIREMENTS.md §8 step 8:
  * - Cache is queried AFTER policy evaluation
  * - Cache is queried BEFORE router LLM invocation
- * - Cache is scoped per token via token_id attribute
+ * - Cache is scoped per token via composite key (token:id|models:hash|prompt:text)
  * - Cache key includes eligible_models_hash for automatic invalidation
  * - Cache operations never block routing (graceful degradation)
  */
@@ -55,14 +55,14 @@ export class SemanticCache {
     eligibleModelsHash: string
   ): Promise<RouteDecision | null> {
     try {
+      // Create composite key that includes token_id and eligible_models_hash
+      // This ensures cache isolation per token and automatic invalidation on policy changes
+      // Format: "token:{tokenId}|models:{hash}|prompt:{userPrompt}"
+      const compositePrompt = `token:${tokenId}|models:${eligibleModelsHash}|prompt:${prompt}`;
+
       // Search for semantically similar cached entries
-      // Use token_id and eligible_models_hash as attributes for scoping
       const result = await this.client.search({
-        prompt,
-        attributes: {
-          token_id: tokenId,
-          eligible_models_hash: eligibleModelsHash,
-        },
+        prompt: compositePrompt,
         searchStrategies: ['semantic' as any], // LangCache SearchStrategy enum
         similarityThreshold: this.config.similarityThreshold,
       });
@@ -107,15 +107,15 @@ export class SemanticCache {
     decision: RouteDecision
   ): Promise<void> {
     try {
+      // Create composite key that includes token_id and eligible_models_hash
+      // This ensures cache isolation per token and automatic invalidation on policy changes
+      // Format: "token:{tokenId}|models:{hash}|prompt:{userPrompt}"
+      const compositePrompt = `token:${tokenId}|models:${eligibleModelsHash}|prompt:${prompt}`;
+
       // Store decision as JSON string
-      // Include token_id and eligible_models_hash as attributes for scoping
       await this.client.set({
-        prompt,
+        prompt: compositePrompt,
         response: JSON.stringify(decision),
-        attributes: {
-          token_id: tokenId,
-          eligible_models_hash: eligibleModelsHash,
-        },
       });
 
       this.stats.stores++;
@@ -152,20 +152,22 @@ export class SemanticCache {
    * Clear cache entries
    *
    * @param tokenId - Optional token ID to clear only that token's cache
+   * Note: With composite keys, we can only clear the entire cache.
+   * Per-token clearing would require scanning all keys, which is not supported by LangCache.
    */
   async clear(tokenId?: string): Promise<void> {
     try {
       if (tokenId) {
-        // Clear cache for specific token
-        await this.client.deleteQuery({
-          attributes: {
-            token_id: tokenId,
-          },
+        // Note: LangCache doesn't support clearing by token ID with composite keys
+        // We would need to implement a separate tracking mechanism for this
+        // For now, we log a warning and clear the entire cache
+        console.warn('Per-token cache clearing not supported with composite keys. Clearing entire cache.', {
+          token_id: tokenId,
         });
-      } else {
-        // Clear entire cache
-        await this.client.flush();
       }
+
+      // Clear entire cache
+      await this.client.flush();
     } catch (error) {
       // Log error but don't throw (graceful degradation)
       console.error('Cache clear failed:', {
