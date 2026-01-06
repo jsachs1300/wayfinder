@@ -1,12 +1,19 @@
 /**
- * Semantic Cache implementation using Redis LangCache
+ * Global Semantic Cache implementation using Redis LangCache
  *
- * Per REQUIREMENTS.md §8 step 8:
+ * Design principles:
+ * - Global cache shared across all tokens (no token isolation at cache layer)
+ * - Pure semantic matching on prompts only
  * - Cache is queried AFTER policy evaluation
  * - Cache is queried BEFORE router LLM invocation
- * - Cache is scoped per token via token_id attribute
- * - Cache key includes eligible_models_hash for automatic invalidation
  * - Cache operations never block routing (graceful degradation)
+ * - App handles token-specific behavior at route lookup time, not in cache
+ *
+ * Rationale:
+ * - Routing decisions are often universal (same prompt → same model for all users)
+ * - Token-specific policies handled by policy layer, not cache layer
+ * - Higher cache hit rates = better cost savings
+ * - Simpler implementation = fewer bugs
  */
 
 import { LangCache } from '@redis-ai/langcache';
@@ -42,27 +49,17 @@ export class SemanticCache {
   }
 
   /**
-   * Get a cached routing decision
+   * Get a cached routing decision using global semantic matching
    *
    * @param prompt - User's prompt
-   * @param tokenId - Token ID for scoping
-   * @param eligibleModelsHash - Hash of eligible models for cache invalidation
    * @returns Cached RouteDecision or null if not found
    */
-  async get(
-    prompt: string,
-    tokenId: string,
-    eligibleModelsHash: string
-  ): Promise<RouteDecision | null> {
+  async get(prompt: string): Promise<RouteDecision | null> {
     try {
-      // Search for semantically similar cached entries
-      // Use token_id and eligible_models_hash as attributes for scoping
+      // Search for semantically similar cached entries globally
+      // No token isolation - cache is shared across all tokens
       const result = await this.client.search({
         prompt,
-        attributes: {
-          token_id: tokenId,
-          eligible_models_hash: eligibleModelsHash,
-        },
         searchStrategies: ['semantic' as any], // LangCache SearchStrategy enum
         similarityThreshold: this.config.similarityThreshold,
       });
@@ -84,7 +81,6 @@ export class SemanticCache {
       // Cache failures should never block routing
       console.error('Cache get failed:', {
         error: error instanceof Error ? error.message : String(error),
-        token_id: tokenId,
         prompt_hash: this.hashPrompt(prompt),
       });
       this.stats.misses++;
@@ -93,29 +89,18 @@ export class SemanticCache {
   }
 
   /**
-   * Store a routing decision in cache
+   * Store a routing decision in global cache
    *
    * @param prompt - User's prompt
-   * @param tokenId - Token ID for scoping
-   * @param eligibleModelsHash - Hash of eligible models for cache invalidation
    * @param decision - RouteDecision to cache
    */
-  async set(
-    prompt: string,
-    tokenId: string,
-    eligibleModelsHash: string,
-    decision: RouteDecision
-  ): Promise<void> {
+  async set(prompt: string, decision: RouteDecision): Promise<void> {
     try {
-      // Store decision as JSON string
-      // Include token_id and eligible_models_hash as attributes for scoping
+      // Store decision as JSON string in global cache
+      // No token scoping - any token can retrieve this cached decision
       await this.client.set({
         prompt,
         response: JSON.stringify(decision),
-        attributes: {
-          token_id: tokenId,
-          eligible_models_hash: eligibleModelsHash,
-        },
         ttl: this.config.ttl,
       });
 
@@ -125,7 +110,6 @@ export class SemanticCache {
       // Cache store failures should never block routing
       console.error('Cache set failed:', {
         error: error instanceof Error ? error.message : String(error),
-        token_id: tokenId,
         prompt_hash: this.hashPrompt(prompt),
       });
     }
@@ -150,30 +134,19 @@ export class SemanticCache {
   }
 
   /**
-   * Clear cache entries
+   * Clear entire global cache
    *
-   * @param tokenId - Optional token ID to clear only that token's cache
+   * Note: Since cache is global (no token isolation), this clears all cached routing decisions
    */
-  async clear(tokenId?: string): Promise<void> {
+  async clear(): Promise<void> {
     try {
-      if (tokenId) {
-        // Clear cache for specific token
-        await this.client.deleteQuery({
-          attributes: {
-            token_id: tokenId,
-          },
-        });
-      } else {
-        // Clear entire cache
-        await this.client.flush();
-      }
+      await this.client.flush();
     } catch (error) {
-      // Log error but don't throw (graceful degradation)
+      // Log error and re-throw for admin endpoint to handle
       console.error('Cache clear failed:', {
         error: error instanceof Error ? error.message : String(error),
-        token_id: tokenId || 'all',
       });
-      throw error; // Re-throw for admin endpoint to handle
+      throw error;
     }
   }
 
@@ -189,24 +162,10 @@ export class SemanticCache {
 }
 
 /**
- * Create deterministic hash of eligible models list
- * Used to invalidate cache when policy changes eligible models
- *
- * @param models - Array of eligible model IDs
- * @returns SHA256 hash of sorted model IDs
- */
-export function hashEligibleModels(models: string[]): string {
-  // Sort models for deterministic hash (order shouldn't matter)
-  const sortedModels = [...models].sort();
-  const modelsString = sortedModels.join(',');
-  return createHash('sha256').update(modelsString).digest('hex').substring(0, 16);
-}
-
-/**
  * Create SHA256 hash of prompt for privacy-safe logging
  *
  * @param prompt - User's prompt
- * @returns SHA256 hash of prompt
+ * @returns SHA256 hash of prompt (truncated to 16 chars)
  */
 export function hashPrompt(prompt: string): string {
   return createHash('sha256').update(prompt).digest('hex').substring(0, 16);
