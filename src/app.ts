@@ -283,9 +283,20 @@ export function createApp(deps?: Partial<AppDependencies>): {
     adminRouter.post('/cache/clear', async (req: Request, res: Response) => {
       try {
         const { token_id } = req.body;
-        await cache.clear(token_id);
+
+        // Note: Cache is global (no token isolation), so this clears all cached routing decisions
+        if (token_id) {
+          logger.warn('Cache clear requested for specific token, but cache is global. Clearing entire cache.', {
+            token_id,
+          });
+        }
+
+        await cache.clear();
         res.json({
-          message: token_id ? `Cache cleared for token ${token_id}` : 'All cache cleared',
+          message: 'Global cache cleared',
+          note: token_id
+            ? 'Cache is global (no token isolation). All cached routing decisions have been cleared.'
+            : undefined,
           timestamp: new Date().toISOString(),
         });
       } catch (error) {
