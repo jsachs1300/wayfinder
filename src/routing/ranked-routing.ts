@@ -9,6 +9,12 @@
 import type { RouteDecision, RankedRouteDecision, RankedModel } from '../types/index';
 
 /**
+ * Score multiplier applied when only one model is available and we need to create
+ * a fallback alternate. The penalty reflects reduced confidence when no true alternative exists.
+ */
+const FALLBACK_SCORE_PENALTY = 0.8;
+
+/**
  * Convert ranked route decision to legacy primary/alternate format
  *
  * This enables backward compatibility while storing full ranked lists internally.
@@ -45,7 +51,7 @@ export function toLegacyRouteDecision(ranked: RankedRouteDecision): RouteDecisio
       : {
           // Fallback if only one model available
           model: first.model,
-          score: Math.max(0, first.score * 0.8), // Slight penalty for fallback
+          score: Math.max(0, first.score * FALLBACK_SCORE_PENALTY),
           reason: 'Fallback to primary (only available option)',
         },
   };

@@ -51,9 +51,28 @@ describe('Routing Integration', () => {
 
     if (overrides) {
       overrides.forEach((override) => {
-        const idx = ranking.findIndex((r) => r.rank === override.rank);
-        if (idx >= 0 && override) {
-          ranking[idx] = { ...ranking[idx], ...override };
+        const targetIdx = (override.rank || 1) - 1; // Convert rank to index
+
+        if (override.model && override.model !== ranking[targetIdx].model) {
+          // If changing the model, we need to swap to avoid duplicates
+          const sourceIdx = ranking.findIndex((r) => r.model === override.model);
+          if (sourceIdx >= 0) {
+            // Swap the models to avoid duplicates
+            const temp = ranking[targetIdx].model;
+            ranking[targetIdx].model = override.model;
+            ranking[sourceIdx].model = temp;
+          }
+        }
+
+        // Apply other overrides (score, reason)
+        if (override.rank) {
+          ranking[targetIdx].rank = override.rank;
+        }
+        if (override.score !== undefined) {
+          ranking[targetIdx].score = override.score;
+        }
+        if (override.reason) {
+          ranking[targetIdx].reason = override.reason;
         }
       });
     }
@@ -73,14 +92,12 @@ describe('Routing Integration', () => {
       // Create a router LLM that returns valid RankedRouteDecision
       const validRouterLLM: RouterLLM = {
         async invoke() {
-          const ranking = createCompleteRanking();
-          // Customize top 2 for this test
-          ranking[0] = { rank: 1, model: 'gpt-4-turbo', score: 8, reason: 'Best suited for code generation tasks' };
-          ranking[1] = { rank: 2, model: 'claude-3-5-sonnet', score: 6, reason: 'Viable alternative with good code understanding' };
-
           return {
             intent: 'code_change',
-            ranked_models: ranking,
+            ranked_models: createCompleteRanking([
+              { rank: 1, model: 'gpt-4-turbo', score: 8, reason: 'Best suited for code generation tasks' },
+              { rank: 2, model: 'claude-3-5-sonnet', score: 6, reason: 'Viable alternative with good code understanding' },
+            ]),
           };
         },
       };
@@ -115,14 +132,12 @@ describe('Routing Integration', () => {
     it('accepts free text intent from router LLM', async () => {
       const customIntentRouterLLM: RouterLLM = {
         async invoke() {
-          const ranking = createCompleteRanking();
-          // Customize top 2 for this test
-          ranking[0] = { rank: 1, model: 'claude-3-opus', score: 9, reason: 'Excellent for research tasks' };
-          ranking[1] = { rank: 2, model: 'gpt-4o', score: 7, reason: 'Good alternative' };
-
           return {
             intent: 'custom_research_analysis',
-            ranked_models: ranking,
+            ranked_models: createCompleteRanking([
+              { rank: 1, model: 'claude-3-opus', score: 9, reason: 'Excellent for research tasks' },
+              { rank: 2, model: 'gpt-4o', score: 7, reason: 'Good alternative' },
+            ]),
           };
         },
       };
@@ -184,8 +199,8 @@ describe('Routing Integration', () => {
       expect(response.body.error).toBe('InternalError');
     });
 
-    it('handles incomplete ranking with fallback to primary', async () => {
-      // When only one model is in ranking, toLegacyRouteDecision creates a fallback alternate
+    it('rejects incomplete ranking (missing models)', async () => {
+      // All eligible models must be ranked - incomplete rankings are rejected
       const invalidRouterLLM: RouterLLM = {
         async invoke() {
           return {
@@ -210,11 +225,9 @@ describe('Routing Integration', () => {
         .set('X-Wayfinder-Token', testToken)
         .send({ prompt: 'Write a function' });
 
-      // System handles this gracefully with fallback
-      expect(response.status).toBe(200);
-      expect(response.body.primary.model).toBe('gpt-4-turbo');
-      expect(response.body.alternate.model).toBe('gpt-4-turbo');
-      expect(response.body.alternate.reason).toContain('Fallback to primary');
+      // Incomplete rankings are rejected by validation
+      expect(response.status).toBe(500);
+      expect(response.body.error).toBe('InternalError');
     });
   });
 
@@ -222,14 +235,12 @@ describe('Routing Integration', () => {
     it('logs intent but does not expose it in response', async () => {
       const routerLLM: RouterLLM = {
         async invoke() {
-          const ranking = createCompleteRanking();
-          // Customize top 2 for this test
-          ranking[0] = { rank: 1, model: 'claude-3-opus', score: 9, reason: 'Superior debugging capabilities' };
-          ranking[1] = { rank: 2, model: 'gpt-4o', score: 7, reason: 'Alternative debugger' };
-
           return {
             intent: 'debugging',
-            ranked_models: ranking,
+            ranked_models: createCompleteRanking([
+              { rank: 1, model: 'claude-3-opus', score: 9, reason: 'Superior debugging capabilities' },
+              { rank: 2, model: 'gpt-4o', score: 7, reason: 'Alternative debugger' },
+            ]),
           };
         },
       };

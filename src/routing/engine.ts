@@ -12,7 +12,7 @@
  */
 
 import type { RouteRequest, TokenConfig, RouteDecision, RankedRouteDecision, RouteResult, PolicyEvaluationLogEvent } from '../types/index';
-import { toLegacyRouteDecision } from './ranked-routing';
+import { toLegacyRouteDecision, validateRankedRouteDecision } from './ranked-routing';
 import type { PolicyEngine } from '../policy/engine';
 import type { ModelRegistry } from '../models/registry';
 import type { Logger } from '../logging/logger';
@@ -214,13 +214,16 @@ export class DefaultRoutingEngine implements RoutingEngine {
     }
 
     // Cache miss - invoke router LLM with policy-filtered eligible models
-    const rankedDecision = await this.deps.routerLLM.invoke(request.prompt, eligibleModels, {
+    const rawDecision = await this.deps.routerLLM.invoke(request.prompt, eligibleModels, {
       tokenConfig,
       preferModel: request.prefer_model,
       requestMetadata: request.metadata,
-    }) as RankedRouteDecision;
+    });
 
-    // Router LLM returns RankedRouteDecision (already validated by validateRankedRouteDecision)
+    // Validate and type-check the router LLM response
+    // This provides a safety layer and ensures the response matches expected structure
+    const rankedDecision = validateRankedRouteDecision(rawDecision, eligibleModels);
+
     // Convert to legacy format for backward compatibility
     const decision = toLegacyRouteDecision(rankedDecision);
 
