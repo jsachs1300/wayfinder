@@ -18,7 +18,7 @@ import type { ProviderClient } from './providers/types';
 import { createProviderClient } from './providers/index';
 import { loadRouterLLMConfig, type RouterLLMConfig } from '../config';
 import { buildRoutingPrompt } from './prompt-builder';
-import { parseRouteDecisionLenient } from './response-parser';
+import { validateRankedRouteDecision } from '../ranked-routing';
 import {
   RouterLLMError,
   RouterLLMRetryExhaustedError,
@@ -139,19 +139,28 @@ export class DefaultRouterLLM implements RouterLLM {
           outputTokens: response.metadata.outputTokens,
         });
 
-        // Parse and validate response (includes security check for model eligibility)
-        const decision = parseRouteDecisionLenient(response.content, eligibleModels);
+        // Parse response as JSON
+        let parsed: any;
+        try {
+          parsed = JSON.parse(response.content);
+        } catch (error) {
+          throw new RouterLLMError(
+            `Failed to parse router LLM response as JSON: ${error instanceof Error ? error.message : String(error)}`
+          );
+        }
+
+        // Validate as ranked route decision (includes security check for model eligibility)
+        const rankedDecision = validateRankedRouteDecision(parsed, eligibleModels);
 
         // Log decision
-        this.logger?.log('[RouterLLM] Routing decision', {
-          intent: decision.intent,
-          primary: decision.primary.model,
-          primaryScore: decision.primary.score,
-          alternate: decision.alternate.model,
-          alternateScore: decision.alternate.score,
+        this.logger?.log('[RouterLLM] Ranked routing decision', {
+          intent: rankedDecision.intent,
+          ranked_models_count: rankedDecision.ranked_models.length,
+          top_model: rankedDecision.ranked_models[0]?.model,
+          top_score: rankedDecision.ranked_models[0]?.score,
         });
 
-        return decision;
+        return rankedDecision;
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
 

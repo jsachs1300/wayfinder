@@ -47,16 +47,12 @@ describe('Policy-Routing Integration', () => {
           receivedModels = eligibleModels;
           return {
             intent: 'coding',
-            primary: {
-              model: eligibleModels[0],
-              score: 8,
-              reason: 'Selected from eligible list',
-            },
-            alternate: {
-              model: eligibleModels[1] || eligibleModels[0],
-              score: 6,
-              reason: 'Alternative from eligible list',
-            },
+            ranked_models: eligibleModels.map((model, idx) => ({
+              rank: idx + 1,
+              model,
+              score: Math.max(3, 8 - idx),
+              reason: idx === 0 ? 'Selected from eligible list' : 'Alternative from eligible list',
+            })),
           };
         },
       };
@@ -94,16 +90,12 @@ describe('Policy-Routing Integration', () => {
           receivedModels = eligibleModels;
           return {
             intent: 'coding',
-            primary: {
-              model: eligibleModels[0],
-              score: 8,
-              reason: 'Selected from eligible list',
-            },
-            alternate: {
-              model: eligibleModels[1],
-              score: 6,
-              reason: 'Alternative from eligible list',
-            },
+            ranked_models: eligibleModels.map((model, idx) => ({
+              rank: idx + 1,
+              model,
+              score: Math.max(3, 8 - idx),
+              reason: idx === 0 ? 'Selected from eligible list' : 'Alternative from eligible list',
+            })),
           };
         },
       };
@@ -142,16 +134,12 @@ describe('Policy-Routing Integration', () => {
           receivedModels = eligibleModels;
           return {
             intent: 'coding',
-            primary: {
-              model: eligibleModels[0],
-              score: 8,
-              reason: 'Selected from eligible list',
-            },
-            alternate: {
-              model: eligibleModels[1],
-              score: 6,
-              reason: 'Alternative from eligible list',
-            },
+            ranked_models: eligibleModels.map((model, idx) => ({
+              rank: idx + 1,
+              model,
+              score: Math.max(3, 8 - idx),
+              reason: idx === 0 ? 'Selected from eligible list' : 'Alternative from eligible list',
+            })),
           };
         },
       };
@@ -249,16 +237,12 @@ describe('Policy-Routing Integration', () => {
           receivedModels = eligibleModels;
           return {
             intent: 'coding',
-            primary: {
-              model: eligibleModels[0],
-              score: 8,
-              reason: 'Selected from all models',
-            },
-            alternate: {
-              model: eligibleModels[1],
-              score: 6,
-              reason: 'Alternative from all models',
-            },
+            ranked_models: eligibleModels.map((model, idx) => ({
+              rank: idx + 1,
+              model,
+              score: Math.max(3, 8 - idx),
+              reason: idx === 0 ? 'Selected from all models' : 'Alternative from all models',
+            })),
           };
         },
       };
@@ -372,16 +356,12 @@ describe('Policy-Routing Integration', () => {
         async invoke(_prompt: string, eligibleModels: string[]) {
           return {
             intent: 'other',
-            primary: {
-              model: eligibleModels[0],
-              score: 8,
+            ranked_models: eligibleModels.map((model, idx) => ({
+              rank: idx + 1,
+              model,
+              score: Math.max(3, 8 - idx),
               reason: 'Test',
-            },
-            alternate: {
-              model: eligibleModels[1] || eligibleModels[0],
-              score: 6,
-              reason: 'Test alternate',
-            },
+            })),
           };
         },
       };

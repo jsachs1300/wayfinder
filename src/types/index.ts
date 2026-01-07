@@ -206,6 +206,32 @@ export interface RouteResponse {
 }
 
 /**
+ * Ranked model recommendation
+ * Used for full ranked routing where all eligible models are ranked
+ */
+export interface RankedModel {
+  /** Rank position (1-based: 1 = best, 2 = second best, etc.) */
+  rank: number;
+  /** Model identifier */
+  model: string;
+  /** Confidence score (0-10 scale) */
+  score: number;
+  /** Explanation for this ranking (should not mention other model names) */
+  reason: string;
+}
+
+/**
+ * Router LLM decision with full ranked list of all eligible models
+ * This is the internal representation used for caching and future multi-LLM aggregation
+ */
+export interface RankedRouteDecision {
+  /** Intent label (free text, advisory only, for internal analysis) */
+  intent: string;
+  /** All eligible models ranked from best to worst */
+  ranked_models: RankedModel[];
+}
+
+/**
  * Legacy RoutingDecision type - DEPRECATED
  * Kept for backward compatibility with logging infrastructure
  * Will be removed in a future version

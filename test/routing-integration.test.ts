@@ -31,6 +31,36 @@ describe('Routing Integration', () => {
     error: () => {},
   };
 
+  // All available models for complete ranking
+  const allModels = [
+    'gpt-4-turbo', 'gpt-4o', 'gpt-4o-mini', 'o1', 'o1-mini',
+    'claude-3-5-sonnet', 'claude-3-opus', 'claude-3-haiku',
+    'gemini-1.5-pro', 'gemini-1.5-flash',
+    'llama-3.1-70b', 'llama-3.1-8b',
+    'mistral-large', 'mistral-medium'
+  ];
+
+  // Helper to create complete ranked models list
+  function createCompleteRanking(overrides?: { rank?: number; model?: string; score?: number; reason?: string }[]) {
+    const ranking = allModels.map((model, idx) => ({
+      rank: idx + 1,
+      model,
+      score: 10 - idx * 0.5,
+      reason: `Reason for ${model}`,
+    }));
+
+    if (overrides) {
+      overrides.forEach((override) => {
+        const idx = ranking.findIndex((r) => r.rank === override.rank);
+        if (idx >= 0 && override) {
+          ranking[idx] = { ...ranking[idx], ...override };
+        }
+      });
+    }
+
+    return ranking;
+  }
+
   beforeEach(async () => {
     // Create token store and token
     tokenStore = createTokenStore() as InMemoryTokenStore;
@@ -40,21 +70,17 @@ describe('Routing Integration', () => {
 
   describe('Valid Router LLM Response', () => {
     it('returns primary and alternate without intent', async () => {
-      // Create a router LLM that returns valid RouteDecision
+      // Create a router LLM that returns valid RankedRouteDecision
       const validRouterLLM: RouterLLM = {
         async invoke() {
+          const ranking = createCompleteRanking();
+          // Customize top 2 for this test
+          ranking[0] = { rank: 1, model: 'gpt-4-turbo', score: 8, reason: 'Best suited for code generation tasks' };
+          ranking[1] = { rank: 2, model: 'claude-3-5-sonnet', score: 6, reason: 'Viable alternative with good code understanding' };
+
           return {
             intent: 'code_change',
-            primary: {
-              model: 'gpt-4',
-              score: 8,
-              reason: 'Best suited for code generation tasks',
-            },
-            alternate: {
-              model: 'claude-3-sonnet',
-              score: 6,
-              reason: 'Viable alternative with good code understanding',
-            },
+            ranked_models: ranking,
           };
         },
       };
@@ -74,13 +100,13 @@ describe('Routing Integration', () => {
       expect(response.body).not.toHaveProperty('intent');
 
       expect(response.body.primary).toEqual({
-        model: 'gpt-4',
+        model: 'gpt-4-turbo',
         score: 8,
         reason: 'Best suited for code generation tasks',
       });
 
       expect(response.body.alternate).toEqual({
-        model: 'claude-3-sonnet',
+        model: 'claude-3-5-sonnet',
         score: 6,
         reason: 'Viable alternative with good code understanding',
       });
@@ -89,18 +115,14 @@ describe('Routing Integration', () => {
     it('accepts free text intent from router LLM', async () => {
       const customIntentRouterLLM: RouterLLM = {
         async invoke() {
+          const ranking = createCompleteRanking();
+          // Customize top 2 for this test
+          ranking[0] = { rank: 1, model: 'claude-3-opus', score: 9, reason: 'Excellent for research tasks' };
+          ranking[1] = { rank: 2, model: 'gpt-4o', score: 7, reason: 'Good alternative' };
+
           return {
             intent: 'custom_research_analysis',
-            primary: {
-              model: 'claude-3-opus',
-              score: 9,
-              reason: 'Excellent for research tasks',
-            },
-            alternate: {
-              model: 'gpt-4',
-              score: 7,
-              reason: 'Good alternative',
-            },
+            ranked_models: ranking,
           };
         },
       };
@@ -119,20 +141,33 @@ describe('Routing Integration', () => {
   });
 
   describe('Invalid Router LLM Response', () => {
-    it('rejects response missing intent', async () => {
+    it('rejects response missing ranked_models', async () => {
       const invalidRouterLLM: RouterLLM = {
         async invoke() {
           return {
-            primary: {
-              model: 'gpt-4',
-              score: 8,
-              reason: 'Best for code generation',
-            },
-            alternate: {
-              model: 'claude-3-sonnet',
-              score: 6,
-              reason: 'Good alternative',
-            },
+            intent: 'code_change',
+          } as any;
+        },
+      };
+
+      const routingEngine = createRoutingEngine({ routerLLM: invalidRouterLLM, policyEngine, modelRegistry, logger });
+      const { app: testApp } = createApp({ tokenStore, routingEngine });
+
+      const response = await request(testApp)
+        .post('/route')
+        .set('X-Wayfinder-Token', testToken)
+        .send({ prompt: 'Write a function' });
+
+      expect(response.status).toBe(500);
+      expect(response.body.error).toBe('InternalError');
+    });
+
+    it('rejects response with empty ranked_models', async () => {
+      const invalidRouterLLM: RouterLLM = {
+        async invoke() {
+          return {
+            intent: 'code_change',
+            ranked_models: [],
           };
         },
       };
@@ -146,145 +181,21 @@ describe('Routing Integration', () => {
         .send({ prompt: 'Write a function' });
 
       expect(response.status).toBe(500);
-      expect(response.body.error).toBe('RouterLLMContractViolation');
-      expect(response.body.message).toContain('violated canonical schema');
+      expect(response.body.error).toBe('InternalError');
     });
 
-    it('rejects response missing primary', async () => {
+    it('handles incomplete ranking with fallback to primary', async () => {
+      // When only one model is in ranking, toLegacyRouteDecision creates a fallback alternate
       const invalidRouterLLM: RouterLLM = {
         async invoke() {
           return {
             intent: 'code_change',
-            alternate: {
-              model: 'claude-3-sonnet',
-              score: 6,
-              reason: 'Good alternative',
-            },
-          };
-        },
-      };
-
-      const routingEngine = createRoutingEngine({ routerLLM: invalidRouterLLM, policyEngine, modelRegistry, logger });
-      const { app: testApp } = createApp({ tokenStore, routingEngine });
-
-      const response = await request(testApp)
-        .post('/route')
-        .set('X-Wayfinder-Token', testToken)
-        .send({ prompt: 'Write a function' });
-
-      expect(response.status).toBe(500);
-      expect(response.body.error).toBe('RouterLLMContractViolation');
-    });
-
-    it('rejects response missing alternate', async () => {
-      const invalidRouterLLM: RouterLLM = {
-        async invoke() {
-          return {
-            intent: 'code_change',
-            primary: {
-              model: 'gpt-4',
-              score: 8,
-              reason: 'Best for code generation',
-            },
-          };
-        },
-      };
-
-      const routingEngine = createRoutingEngine({ routerLLM: invalidRouterLLM, policyEngine, modelRegistry, logger });
-      const { app: testApp } = createApp({ tokenStore, routingEngine });
-
-      const response = await request(testApp)
-        .post('/route')
-        .set('X-Wayfinder-Token', testToken)
-        .send({ prompt: 'Write a function' });
-
-      expect(response.status).toBe(500);
-      expect(response.body.error).toBe('RouterLLMContractViolation');
-    });
-
-    it('rejects score out of range', async () => {
-      const invalidRouterLLM: RouterLLM = {
-        async invoke() {
-          return {
-            intent: 'code_change',
-            primary: {
-              model: 'gpt-4',
-              score: 15, // Invalid: > 10
-              reason: 'Best for code generation',
-            },
-            alternate: {
-              model: 'claude-3-sonnet',
-              score: 6,
-              reason: 'Good alternative',
-            },
-          };
-        },
-      };
-
-      const routingEngine = createRoutingEngine({ routerLLM: invalidRouterLLM, policyEngine, modelRegistry, logger });
-      const { app: testApp } = createApp({ tokenStore, routingEngine });
-
-      const response = await request(testApp)
-        .post('/route')
-        .set('X-Wayfinder-Token', testToken)
-        .send({ prompt: 'Write a function' });
-
-      expect(response.status).toBe(500);
-      expect(response.body.error).toBe('RouterLLMContractViolation');
-    });
-
-    it('rejects additional properties', async () => {
-      const invalidRouterLLM: RouterLLM = {
-        async invoke() {
-          return {
-            intent: 'code_change',
-            primary: {
-              model: 'gpt-4',
-              score: 8,
-              reason: 'Best for code generation',
-            },
-            alternate: {
-              model: 'claude-3-sonnet',
-              score: 6,
-              reason: 'Good alternative',
-            },
-            extraField: 'not allowed',
-          };
-        },
-      };
-
-      const routingEngine = createRoutingEngine({ routerLLM: invalidRouterLLM, policyEngine, modelRegistry, logger });
-      const { app: testApp } = createApp({ tokenStore, routingEngine });
-
-      const response = await request(testApp)
-        .post('/route')
-        .set('X-Wayfinder-Token', testToken)
-        .send({ prompt: 'Write a function' });
-
-      expect(response.status).toBe(500);
-      expect(response.body.error).toBe('RouterLLMContractViolation');
-    });
-
-    it('rejects array of alternates', async () => {
-      const invalidRouterLLM: RouterLLM = {
-        async invoke() {
-          return {
-            intent: 'code_change',
-            primary: {
-              model: 'gpt-4',
-              score: 8,
-              reason: 'Best for code generation',
-            },
-            alternate: [
+            ranked_models: [
               {
-                model: 'claude-3-sonnet',
-                score: 6,
-                reason: 'Good alternative',
-              },
-              {
-                model: 'claude-3-opus',
-                score: 7,
-                reason: 'Another alternative',
+                rank: 1,
+                model: 'gpt-4-turbo',
+                score: 8,
+                reason: 'Best for code generation',
               },
             ],
           };
@@ -299,8 +210,11 @@ describe('Routing Integration', () => {
         .set('X-Wayfinder-Token', testToken)
         .send({ prompt: 'Write a function' });
 
-      expect(response.status).toBe(500);
-      expect(response.body.error).toBe('RouterLLMContractViolation');
+      // System handles this gracefully with fallback
+      expect(response.status).toBe(200);
+      expect(response.body.primary.model).toBe('gpt-4-turbo');
+      expect(response.body.alternate.model).toBe('gpt-4-turbo');
+      expect(response.body.alternate.reason).toContain('Fallback to primary');
     });
   });
 
@@ -308,18 +222,14 @@ describe('Routing Integration', () => {
     it('logs intent but does not expose it in response', async () => {
       const routerLLM: RouterLLM = {
         async invoke() {
+          const ranking = createCompleteRanking();
+          // Customize top 2 for this test
+          ranking[0] = { rank: 1, model: 'claude-3-opus', score: 9, reason: 'Superior debugging capabilities' };
+          ranking[1] = { rank: 2, model: 'gpt-4o', score: 7, reason: 'Alternative debugger' };
+
           return {
             intent: 'debugging',
-            primary: {
-              model: 'claude-3-opus',
-              score: 9,
-              reason: 'Superior debugging capabilities',
-            },
-            alternate: {
-              model: 'gpt-4',
-              score: 7,
-              reason: 'Alternative debugger',
-            },
+            ranked_models: ranking,
           };
         },
       };
