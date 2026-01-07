@@ -19,7 +19,7 @@
 import { LangCache } from '@redis-ai/langcache';
 import { createHash } from 'crypto';
 import type { CacheConfig, CacheStats } from './types';
-import type { RouteDecision } from '../types/index';
+import type { RankedRouteDecision } from '../types/index';
 
 /**
  * SemanticCache class
@@ -52,9 +52,9 @@ export class SemanticCache {
    * Get a cached routing decision using global semantic matching
    *
    * @param prompt - User's prompt
-   * @returns Cached RouteDecision or null if not found
+   * @returns Cached RankedRouteDecision or null if not found
    */
-  async get(prompt: string): Promise<RouteDecision | null> {
+  async get(prompt: string): Promise<RankedRouteDecision | null> {
     try {
       // Search for semantically similar cached entries globally
       // No token isolation - cache is shared across all tokens
@@ -72,7 +72,7 @@ export class SemanticCache {
       }
 
       // Parse cached response (stored as JSON string)
-      const cachedDecision = JSON.parse((result as any).response) as RouteDecision;
+      const cachedDecision = JSON.parse((result as any).response) as RankedRouteDecision;
       this.stats.hits++;
 
       return cachedDecision;
@@ -92,9 +92,9 @@ export class SemanticCache {
    * Store a routing decision in global cache
    *
    * @param prompt - User's prompt
-   * @param decision - RouteDecision to cache
+   * @param decision - RankedRouteDecision to cache (full ranked list)
    */
-  async set(prompt: string, decision: RouteDecision): Promise<void> {
+  async set(prompt: string, decision: RankedRouteDecision): Promise<void> {
     try {
       // Store decision as JSON string in global cache
       // No token scoping - any token can retrieve this cached decision

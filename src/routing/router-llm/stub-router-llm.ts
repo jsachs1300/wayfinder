@@ -1,18 +1,18 @@
 /**
  * Stub Router LLM Implementation
  *
- * A testing/fallback implementation that returns valid RouteDecisions
+ * A testing/fallback implementation that returns valid RankedRouteDecisions
  * without invoking any external LLM API.
  *
  * This is moved from engine.ts to keep it separate from the production implementation.
  */
 
 import type { RouterLLM } from '../engine';
-import type { TokenConfig } from '../../types/index';
+import type { TokenConfig, RankedRouteDecision, RankedModel } from '../../types/index';
 
 /**
  * Stub RouterLLM implementation for testing
- * Returns a valid RouteDecision with placeholder data
+ * Returns a valid RankedRouteDecision with placeholder data
  */
 export class StubRouterLLM implements RouterLLM {
   async invoke(
@@ -24,29 +24,44 @@ export class StubRouterLLM implements RouterLLM {
       requestMetadata?: Record<string, unknown>;
     }
   ): Promise<unknown> {
-    // If preferModel is specified and eligible, use it as primary
-    const primaryModel =
-      context.preferModel && eligibleModels.includes(context.preferModel)
-        ? context.preferModel
-        : eligibleModels[0] || 'gpt-4';
+    // If preferModel is specified and eligible, make it rank 1
+    let rankedModels: RankedModel[];
 
-    // Select alternate (different from primary)
-    const alternateModel =
-      eligibleModels.find((m) => m !== primaryModel) || eligibleModels[1] || 'claude-3-sonnet';
+    if (context.preferModel && eligibleModels.includes(context.preferModel)) {
+      // Put preferred model first
+      const otherModels = eligibleModels.filter(m => m !== context.preferModel);
+      rankedModels = [
+        {
+          rank: 1,
+          model: context.preferModel,
+          score: 9,
+          reason: 'Excellent match for this task based on capabilities',
+        },
+        ...otherModels.map((model, idx) => ({
+          rank: idx + 2,
+          model,
+          score: Math.max(3, 8 - idx),
+          reason: 'Capable alternative with solid performance characteristics',
+        })),
+      ];
+    } else {
+      // Rank all eligible models in order
+      rankedModels = eligibleModels.map((model, idx) => ({
+        rank: idx + 1,
+        model,
+        score: Math.max(3, 9 - idx),
+        reason: idx === 0
+          ? 'Best suited for this task based on prompt analysis'
+          : 'Viable alternative with different strengths',
+      }));
+    }
 
-    // Return a valid RouteDecision structure
-    return {
+    // Return a valid RankedRouteDecision structure
+    const decision: RankedRouteDecision = {
       intent: 'code_change',
-      primary: {
-        model: primaryModel,
-        score: 8,
-        reason: 'Best suited for this task based on prompt analysis',
-      },
-      alternate: {
-        model: alternateModel,
-        score: 6,
-        reason: 'Viable alternative with different strengths',
-      },
+      ranked_models: rankedModels,
     };
+
+    return decision;
   }
 }

@@ -11,8 +11,8 @@
  * It MUST NOT influence routing logic, scoring, or model eligibility.
  */
 
-import type { RouteRequest, TokenConfig, RouteDecision, RouteResult, PolicyEvaluationLogEvent } from '../types/index';
-import { validateRouteDecision } from './validation';
+import type { RouteRequest, TokenConfig, RouteDecision, RankedRouteDecision, RouteResult, PolicyEvaluationLogEvent } from '../types/index';
+import { toLegacyRouteDecision, validateRankedRouteDecision } from './ranked-routing';
 import type { PolicyEngine } from '../policy/engine';
 import type { ModelRegistry } from '../models/registry';
 import type { Logger } from '../logging/logger';
@@ -184,17 +184,20 @@ export class DefaultRoutingEngine implements RoutingEngine {
     // Check global cache AFTER policy evaluation, BEFORE router LLM invocation (REQUIREMENTS.md §8 step 8)
     // Note: Cache is global (no token isolation). App handles token-specific behavior via policies.
     if (this.deps.cache) {
-      const cached = await this.deps.cache.get(request.prompt);
+      const cachedRanked = await this.deps.cache.get(request.prompt);
 
-      if (cached) {
+      if (cachedRanked) {
         this.deps.logger.debug('Global cache hit', {
           token_id: tokenConfig.id,
           prompt_hash: hashPrompt(request.prompt),
           request_id: requestId,
         });
 
+        // Convert ranked decision to legacy format for backward compatibility
+        const decision = toLegacyRouteDecision(cachedRanked);
+
         return {
-          decision: cached,
+          decision,
           policyMetadata: {
             forcedModel: policyResult.forced_model,
             eligibleModelsCount: eligibleModels.length,
@@ -211,18 +214,22 @@ export class DefaultRoutingEngine implements RoutingEngine {
     }
 
     // Cache miss - invoke router LLM with policy-filtered eligible models
-    const rawResponse = await this.deps.routerLLM.invoke(request.prompt, eligibleModels, {
+    const rawDecision = await this.deps.routerLLM.invoke(request.prompt, eligibleModels, {
       tokenConfig,
       preferModel: request.prefer_model,
       requestMetadata: request.metadata,
     });
 
-    // Validate response against canonical schema (fail hard on invalid)
-    const decision = validateRouteDecision(rawResponse);
+    // Validate and type-check the router LLM response
+    // This provides a safety layer and ensures the response matches expected structure
+    const rankedDecision = validateRankedRouteDecision(rawDecision, eligibleModels);
 
-    // Store in global cache (fire-and-forget to avoid adding latency)
+    // Convert to legacy format for backward compatibility
+    const decision = toLegacyRouteDecision(rankedDecision);
+
+    // Store ranked decision in global cache (fire-and-forget to avoid adding latency)
     if (this.deps.cache) {
-      this.deps.cache.set(request.prompt, decision).catch((err) =>
+      this.deps.cache.set(request.prompt, rankedDecision).catch((err) =>
         this.deps.logger.warn('Cache store failed', {
           error: err instanceof Error ? err.message : String(err),
           token_id: tokenConfig.id,

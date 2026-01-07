@@ -47,32 +47,38 @@ export function buildRoutingPrompt(context: PromptContext): string {
   // Build the system instructions
   const systemInstructions = `You are a router that selects the best LLM model for a given user prompt.
 
-Your task is to analyze the user's prompt and select:
-1. A PRIMARY model - the best model for this specific task
-2. An ALTERNATE model - a viable alternative with different strengths
+Your task is to analyze the user's prompt and RANK ALL of the eligible models from best to worst for serving this specific request.
 
 IMPORTANT RULES:
-- You MUST select from the eligible models provided
-- You MUST provide a confidence score (0-10 scale) for each recommendation
-- You MUST provide a clear explanation for each selection
+- You MUST rank ALL eligible models provided (not just a few)
+- You MUST provide ranks from 1 (best) to N (worst), where N is the total number of eligible models
+- Ranks must be sequential integers: 1, 2, 3, ..., N
+- You MUST provide a confidence score (0-10 scale) for each model
+- You MUST provide a clear explanation for each ranking
+- DO NOT mention other model names in your reasons (e.g., don't say "not as good as X")
 - You MUST infer the user's intent (e.g., "coding", "creative writing", "data analysis")
-- Intent is advisory only - focus on selecting the best models
+- Intent is advisory only - focus on ranking the models accurately
 
 RESPONSE FORMAT:
 You MUST respond with valid JSON matching this exact schema:
 
 {
   "intent": "string describing the inferred intent",
-  "primary": {
-    "model": "model identifier from eligible models",
-    "score": number between 0-10,
-    "reason": "explanation for why this model is best"
-  },
-  "alternate": {
-    "model": "different model identifier from eligible models",
-    "score": number between 0-10,
-    "reason": "explanation for why this is a good alternative"
-  }
+  "ranked_models": [
+    {
+      "rank": 1,
+      "model": "model identifier from eligible models",
+      "score": number between 0-10,
+      "reason": "explanation for this ranking (without mentioning other models)"
+    },
+    {
+      "rank": 2,
+      "model": "different model identifier",
+      "score": number between 0-10,
+      "reason": "explanation for this ranking (without mentioning other models)"
+    },
+    ... (continue for ALL eligible models)
+  ]
 }
 
 SCORING GUIDANCE:
@@ -82,6 +88,7 @@ SCORING GUIDANCE:
 - 3-4: Marginal match, model may struggle
 - 0-2: Poor match, not recommended
 
+CRITICAL: Rank ALL ${eligibleModels.length} eligible models. Do not mention model names in reasons.
 NO ADDITIONAL PROPERTIES are allowed in the response.
 `;
 

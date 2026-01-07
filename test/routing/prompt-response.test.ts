@@ -36,8 +36,8 @@ describe('buildRoutingPrompt', () => {
     expect(prompt).toContain('claude-3-opus');
     expect(prompt).toContain('gpt-4o-mini');
     expect(prompt).toContain('intent');
-    expect(prompt).toContain('primary');
-    expect(prompt).toContain('alternate');
+    expect(prompt).toContain('ranked_models');
+    expect(prompt).toContain('rank');
     expect(prompt).toContain('score');
     expect(prompt).toContain('reason');
   });
@@ -75,8 +75,8 @@ describe('buildRoutingPrompt', () => {
     expect(prompt).toContain('JSON');
     expect(prompt).toContain('schema');
     expect(prompt).toContain('"intent"');
-    expect(prompt).toContain('"primary"');
-    expect(prompt).toContain('"alternate"');
+    expect(prompt).toContain('"ranked_models"');
+    expect(prompt).toContain('"rank"');
     expect(prompt).toContain('"model"');
     expect(prompt).toContain('"score"');
     expect(prompt).toContain('"reason"');
@@ -91,6 +91,17 @@ describe('buildRoutingPrompt', () => {
 
     expect(prompt).toContain('0-10');
     expect(prompt).toContain('SCORING');
+  });
+
+  it('should instruct not to mention model names in reasons', () => {
+    const prompt = buildRoutingPrompt({
+      prompt: 'Test prompt',
+      eligibleModels: ['gpt-4', 'claude-3-opus'],
+      tokenConfig: mockTokenConfig,
+    });
+
+    expect(prompt).toContain('DO NOT mention other model names');
+    expect(prompt).toContain('without mentioning other models');
   });
 });
 
