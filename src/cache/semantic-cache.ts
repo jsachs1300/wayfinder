@@ -56,7 +56,8 @@ export class SemanticCache {
    */
   async get(prompt: string): Promise<RankedRouteDecision | null> {
     try {
-      // Search for semantically similar cached entries globally
+      // Search for cached entries using semantic matching
+      // Semantic match finds similar prompts (e.g., "analyze csv" ≈ "process csv")
       // No token isolation - cache is shared across all tokens
       const result = await this.client.search({
         prompt,
@@ -64,9 +65,27 @@ export class SemanticCache {
         similarityThreshold: this.config.similarityThreshold,
       });
 
+      // Log full LangCache response to diagnose cache retrieval issues
+      console.log('LangCache search() full response:', JSON.stringify(result, null, 2));
+      console.log('LangCache search() input:', {
+        prompt_hash: this.hashPrompt(prompt),
+        prompt_length: prompt.length,
+        similarityThreshold: this.config.similarityThreshold,
+        config: {
+          serverURL: this.config.serverURL,
+          cacheId: this.config.cacheId,
+        },
+      });
+
       // LangCache returns null or undefined if no match found
       // The response field contains the cached data
       if (!result || !(result as any).response) {
+        console.log('LangCache search() returned no match:', {
+          result_is_null: result === null,
+          result_is_undefined: result === undefined,
+          result_has_response: result && !!(result as any).response,
+          prompt_hash: this.hashPrompt(prompt),
+        });
         this.stats.misses++;
         return null;
       }
@@ -98,10 +117,24 @@ export class SemanticCache {
     try {
       // Store decision as JSON string in global cache
       // No token scoping - any token can retrieve this cached decision
-      await this.client.set({
+      const setResult = await this.client.set({
         prompt,
         response: JSON.stringify(decision),
         ttl: this.config.ttl,
+      });
+
+      // Log full LangCache response to diagnose cache save issues
+      console.log('LangCache set() full response:', JSON.stringify(setResult, null, 2));
+      console.log('LangCache set() input:', {
+        prompt_hash: this.hashPrompt(prompt),
+        prompt_length: prompt.length,
+        response_length: JSON.stringify(decision).length,
+        ttl: this.config.ttl,
+        config: {
+          serverURL: this.config.serverURL,
+          cacheId: this.config.cacheId,
+          similarityThreshold: this.config.similarityThreshold,
+        },
       });
 
       this.stats.stores++;
