@@ -151,7 +151,7 @@ describe('Global Semantic Cache', () => {
       expect(callArgs).not.toHaveProperty('attributes');
     });
 
-    it('should not throw on cache store failure (graceful degradation)', async () => {
+    it('should reject promise on cache store failure (but caller handles gracefully)', async () => {
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       mockLangCacheClient.set.mockRejectedValue(new Error('Network error'));
 
@@ -163,7 +163,8 @@ describe('Global Semantic Cache', () => {
         ],
       };
 
-      await expect(cache.set('test', decision)).resolves.not.toThrow();
+      // set() should reject so routing engine can log the error
+      await expect(cache.set('test', decision)).rejects.toThrow('Network error');
 
       expect(consoleErrorSpy).toHaveBeenCalled();
       consoleErrorSpy.mockRestore();

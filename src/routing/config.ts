@@ -45,10 +45,10 @@ export interface RouterLLMConfig {
 const DEFAULTS = {
   provider: 'openai' as RouterLLMProvider,
   model: 'gpt-4o-mini',
-  timeout: 10000,
+  timeout: 30000, // Increased from 10s to 30s for ranked routing (14 models vs 2)
   maxRetries: 2,
   temperature: 0.0,
-  maxTokens: 500,
+  maxTokens: 2000, // Increased from 500 to 2000 for ranked routing (14 models with reasons)
 };
 
 /**

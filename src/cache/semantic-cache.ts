@@ -106,12 +106,14 @@ export class SemanticCache {
 
       this.stats.stores++;
     } catch (error) {
-      // Graceful degradation: log error but don't throw
-      // Cache store failures should never block routing
+      // Log error for debugging (appears in console.error)
       console.error('Cache set failed:', {
         error: error instanceof Error ? error.message : String(error),
         prompt_hash: this.hashPrompt(prompt),
       });
+      // Re-throw so routing engine can log via logger.warn
+      // The routing engine's .catch() handler prevents this from blocking routing
+      throw error;
     }
   }
 

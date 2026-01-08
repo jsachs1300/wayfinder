@@ -187,10 +187,11 @@ export class DefaultRoutingEngine implements RoutingEngine {
       const cachedRanked = await this.deps.cache.get(request.prompt);
 
       if (cachedRanked) {
-        this.deps.logger.debug('Global cache hit', {
+        this.deps.logger.info('Global cache hit - returning cached decision', {
           token_id: tokenConfig.id,
           prompt_hash: hashPrompt(request.prompt),
           request_id: requestId,
+          top_model: cachedRanked.ranked_models[0]?.model,
         });
 
         // Convert ranked decision to legacy format for backward compatibility
@@ -206,7 +207,7 @@ export class DefaultRoutingEngine implements RoutingEngine {
         };
       }
 
-      this.deps.logger.debug('Cache miss', {
+      this.deps.logger.info('Cache miss - invoking router LLM', {
         token_id: tokenConfig.id,
         prompt_hash: hashPrompt(request.prompt),
         request_id: requestId,
@@ -229,14 +230,23 @@ export class DefaultRoutingEngine implements RoutingEngine {
 
     // Store ranked decision in global cache (fire-and-forget to avoid adding latency)
     if (this.deps.cache) {
-      this.deps.cache.set(request.prompt, rankedDecision).catch((err) =>
-        this.deps.logger.warn('Cache store failed', {
-          error: err instanceof Error ? err.message : String(err),
-          token_id: tokenConfig.id,
-          prompt_hash: hashPrompt(request.prompt),
-          request_id: requestId,
+      this.deps.cache.set(request.prompt, rankedDecision)
+        .then(() => {
+          this.deps.logger.info('Cached routing decision for future requests', {
+            token_id: tokenConfig.id,
+            prompt_hash: hashPrompt(request.prompt),
+            request_id: requestId,
+            top_model: rankedDecision.ranked_models[0]?.model,
+          });
         })
-      );
+        .catch((err) => {
+          this.deps.logger.warn('Cache store failed', {
+            error: err instanceof Error ? err.message : String(err),
+            token_id: tokenConfig.id,
+            prompt_hash: hashPrompt(request.prompt),
+            request_id: requestId,
+          });
+        });
     }
 
     // Intent is now captured but not used for routing logic
