@@ -27,10 +27,10 @@ describe('loadRouterLLMConfig', () => {
       provider: 'openai',
       apiKey: 'test-api-key',
       model: 'gpt-4o-mini',
-      timeout: 10000,
+      timeout: 30000,
       maxRetries: 2,
       temperature: 0.0,
-      maxTokens: 500,
+      maxTokens: 2000,
     });
   });
 
