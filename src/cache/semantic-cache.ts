@@ -77,21 +77,31 @@ export class SemanticCache {
         },
       });
 
-      // LangCache returns null or undefined if no match found
-      // The response field contains the cached data
-      if (!result || !(result as any).response) {
+      // LangCache returns { data: [{ response, similarity, ... }] } structure
+      // Check if we have data array with at least one result
+      const data = (result as any)?.data;
+      if (!result || !data || !Array.isArray(data) || data.length === 0 || !data[0]?.response) {
         console.log('LangCache search() returned no match:', {
           result_is_null: result === null,
           result_is_undefined: result === undefined,
-          result_has_response: result && !!(result as any).response,
+          has_data: !!data,
+          is_array: Array.isArray(data),
+          data_length: data?.length || 0,
+          has_response: data?.[0]?.response ? true : false,
           prompt_hash: this.hashPrompt(prompt),
         });
         this.stats.misses++;
         return null;
       }
 
-      // Parse cached response (stored as JSON string)
-      const cachedDecision = JSON.parse((result as any).response) as RankedRouteDecision;
+      // Parse cached response from first result (stored as JSON string)
+      const cachedDecision = JSON.parse(data[0].response) as RankedRouteDecision;
+      console.log('LangCache cache hit!', {
+        prompt_hash: this.hashPrompt(prompt),
+        similarity: data[0].similarity,
+        searchStrategy: data[0].searchStrategy,
+        top_model: cachedDecision.ranked_models[0]?.model,
+      });
       this.stats.hits++;
 
       return cachedDecision;

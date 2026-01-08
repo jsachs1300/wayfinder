@@ -80,8 +80,18 @@ describe('Global Semantic Cache', () => {
         ],
       };
 
+      // LangCache returns { data: [{ response, similarity, ... }] } structure
       mockLangCacheClient.search.mockResolvedValue({
-        response: JSON.stringify(cachedDecision),
+        data: [
+          {
+            id: 'test-id',
+            prompt: 'test prompt',
+            response: JSON.stringify(cachedDecision),
+            attributes: {},
+            similarity: 1,
+            searchStrategy: 'semantic',
+          },
+        ],
       });
 
       const result = await cache.get('test prompt');
@@ -175,7 +185,16 @@ describe('Global Semantic Cache', () => {
     it('should return cache statistics with correct hit rate', async () => {
       // Simulate 3 cache hits
       mockLangCacheClient.search.mockResolvedValue({
-        response: JSON.stringify({ intent: 'test', ranked_models: [{ rank: 1, model: 'gpt-4', score: 8, reason: 'test' }] }),
+        data: [
+          {
+            id: 'test-id',
+            prompt: 'test',
+            response: JSON.stringify({ intent: 'test', ranked_models: [{ rank: 1, model: 'gpt-4', score: 8, reason: 'test' }] }),
+            attributes: {},
+            similarity: 1,
+            searchStrategy: 'semantic',
+          },
+        ],
       });
       await cache.get('p1');
       await cache.get('p2');
@@ -227,7 +246,16 @@ describe('Global Semantic Cache', () => {
 
       // First request: "process a csv file"
       mockLangCacheClient.search.mockResolvedValue({
-        response: JSON.stringify(decision),
+        data: [
+          {
+            id: 'test-id-1',
+            prompt: 'process a csv file',
+            response: JSON.stringify(decision),
+            attributes: {},
+            similarity: 1,
+            searchStrategy: 'semantic',
+          },
+        ],
       });
 
       const result1 = await cache.get('process a csv file');
@@ -236,7 +264,16 @@ describe('Global Semantic Cache', () => {
       // Second request: "analyze a csv file" (semantically similar)
       // LangCache would return the same cached decision due to semantic similarity
       mockLangCacheClient.search.mockResolvedValue({
-        response: JSON.stringify(decision),
+        data: [
+          {
+            id: 'test-id-1',
+            prompt: 'process a csv file',
+            response: JSON.stringify(decision),
+            attributes: {},
+            similarity: 0.95,
+            searchStrategy: 'semantic',
+          },
+        ],
       });
 
       const result2 = await cache.get('analyze a csv file');
@@ -268,7 +305,16 @@ describe('Global Semantic Cache', () => {
       };
 
       mockLangCacheClient.search.mockResolvedValue({
-        response: JSON.stringify(decision),
+        data: [
+          {
+            id: 'test-id',
+            prompt: 'same prompt',
+            response: JSON.stringify(decision),
+            attributes: {},
+            similarity: 1,
+            searchStrategy: 'semantic',
+          },
+        ],
       });
 
       // Any token can retrieve it (no token_id in cache key)
