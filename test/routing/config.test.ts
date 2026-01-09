@@ -26,10 +26,12 @@ describe('loadRouterLLMConfig', () => {
 
     expect(config).toEqual({
       openai: {
+        enabled: true,
         apiKey: 'test-openai-key',
         model: 'gpt-4o-mini',
       },
       gemini: {
+        enabled: true,
         apiKey: 'test-gemini-key',
         model: 'gemini-1.5-flash',
       },
@@ -174,5 +176,100 @@ describe('loadRouterLLMConfig', () => {
     const config = loadRouterLLMConfig();
 
     expect(config.temperature).toBe(2.0);
+  });
+
+  describe('Provider enable/disable functionality', () => {
+    it('should allow only OpenAI enabled', () => {
+      process.env.ROUTER_LLM_OPENAI_API_KEY = 'test-openai-key';
+      process.env.ROUTER_LLM_OPENAI_ENABLED = 'true';
+      process.env.ROUTER_LLM_GEMINI_ENABLED = 'false';
+
+      const config = loadRouterLLMConfig();
+
+      expect(config.openai.enabled).toBe(true);
+      expect(config.openai.apiKey).toBe('test-openai-key');
+      expect(config.gemini.enabled).toBe(false);
+    });
+
+    it('should allow only Gemini enabled', () => {
+      process.env.ROUTER_LLM_GEMINI_API_KEY = 'test-gemini-key';
+      process.env.ROUTER_LLM_OPENAI_ENABLED = 'false';
+      process.env.ROUTER_LLM_GEMINI_ENABLED = 'true';
+
+      const config = loadRouterLLMConfig();
+
+      expect(config.openai.enabled).toBe(false);
+      expect(config.gemini.enabled).toBe(true);
+      expect(config.gemini.apiKey).toBe('test-gemini-key');
+    });
+
+    it('should allow both providers enabled', () => {
+      process.env.ROUTER_LLM_OPENAI_API_KEY = 'test-openai-key';
+      process.env.ROUTER_LLM_GEMINI_API_KEY = 'test-gemini-key';
+      process.env.ROUTER_LLM_OPENAI_ENABLED = 'true';
+      process.env.ROUTER_LLM_GEMINI_ENABLED = 'true';
+
+      const config = loadRouterLLMConfig();
+
+      expect(config.openai.enabled).toBe(true);
+      expect(config.gemini.enabled).toBe(true);
+    });
+
+    it('should throw error when both providers disabled', () => {
+      process.env.ROUTER_LLM_OPENAI_ENABLED = 'false';
+      process.env.ROUTER_LLM_GEMINI_ENABLED = 'false';
+
+      expect(() => loadRouterLLMConfig()).toThrow(
+        'At least one router LLM provider must be enabled'
+      );
+    });
+
+    it('should throw error when OpenAI enabled but API key missing', () => {
+      process.env.ROUTER_LLM_GEMINI_API_KEY = 'test-gemini-key';
+      process.env.ROUTER_LLM_OPENAI_ENABLED = 'true';
+      process.env.ROUTER_LLM_GEMINI_ENABLED = 'true';
+      delete process.env.ROUTER_LLM_OPENAI_API_KEY;
+
+      expect(() => loadRouterLLMConfig()).toThrow(
+        'ROUTER_LLM_OPENAI_API_KEY environment variable is required when OpenAI is enabled'
+      );
+    });
+
+    it('should throw error when Gemini enabled but API key missing', () => {
+      process.env.ROUTER_LLM_OPENAI_API_KEY = 'test-openai-key';
+      process.env.ROUTER_LLM_OPENAI_ENABLED = 'true';
+      process.env.ROUTER_LLM_GEMINI_ENABLED = 'true';
+      delete process.env.ROUTER_LLM_GEMINI_API_KEY;
+
+      expect(() => loadRouterLLMConfig()).toThrow(
+        'ROUTER_LLM_GEMINI_API_KEY environment variable is required when Gemini is enabled'
+      );
+    });
+
+    it('should not require OpenAI API key when OpenAI is disabled', () => {
+      process.env.ROUTER_LLM_GEMINI_API_KEY = 'test-gemini-key';
+      process.env.ROUTER_LLM_OPENAI_ENABLED = 'false';
+      process.env.ROUTER_LLM_GEMINI_ENABLED = 'true';
+      delete process.env.ROUTER_LLM_OPENAI_API_KEY;
+
+      const config = loadRouterLLMConfig();
+
+      expect(config.openai.enabled).toBe(false);
+      expect(config.openai.apiKey).toBeUndefined();
+      expect(config.gemini.enabled).toBe(true);
+    });
+
+    it('should not require Gemini API key when Gemini is disabled', () => {
+      process.env.ROUTER_LLM_OPENAI_API_KEY = 'test-openai-key';
+      process.env.ROUTER_LLM_OPENAI_ENABLED = 'true';
+      process.env.ROUTER_LLM_GEMINI_ENABLED = 'false';
+      delete process.env.ROUTER_LLM_GEMINI_API_KEY;
+
+      const config = loadRouterLLMConfig();
+
+      expect(config.openai.enabled).toBe(true);
+      expect(config.gemini.enabled).toBe(false);
+      expect(config.gemini.apiKey).toBeUndefined();
+    });
   });
 });

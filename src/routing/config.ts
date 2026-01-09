@@ -14,8 +14,11 @@ export type RouterLLMProvider = 'openai' | 'anthropic' | 'gemini';
  * Configuration for a single router LLM provider
  */
 export interface ProviderConfig {
-  /** Provider API key */
-  apiKey: string;
+  /** Whether this provider is enabled */
+  enabled: boolean;
+
+  /** Provider API key (required only if enabled) */
+  apiKey?: string;
 
   /** Model identifier */
   model: string;
@@ -25,13 +28,14 @@ export interface ProviderConfig {
  * Router LLM configuration
  *
  * All values are loaded from environment variables with defaults.
- * By default, queries both OpenAI and Gemini in parallel and aggregates results.
+ * At least one provider must be enabled.
+ * If multiple providers are enabled, their rankings are aggregated.
  */
 export interface RouterLLMConfig {
-  /** OpenAI configuration (required) */
+  /** OpenAI configuration */
   openai: ProviderConfig;
 
-  /** Gemini configuration (required) */
+  /** Gemini configuration */
   gemini: ProviderConfig;
 
   /** Request timeout in milliseconds */
@@ -63,36 +67,50 @@ const DEFAULTS = {
  * Loads router LLM configuration from environment variables
  *
  * Environment variables:
- * - ROUTER_LLM_OPENAI_API_KEY: OpenAI API key (REQUIRED)
+ * - ROUTER_LLM_OPENAI_ENABLED: Enable OpenAI provider (default: true)
+ * - ROUTER_LLM_OPENAI_API_KEY: OpenAI API key (required if OpenAI enabled)
  * - ROUTER_LLM_OPENAI_MODEL: OpenAI model identifier (default: 'gpt-4o-mini')
- * - ROUTER_LLM_GEMINI_API_KEY: Gemini API key (REQUIRED)
+ * - ROUTER_LLM_GEMINI_ENABLED: Enable Gemini provider (default: true)
+ * - ROUTER_LLM_GEMINI_API_KEY: Gemini API key (required if Gemini enabled)
  * - ROUTER_LLM_GEMINI_MODEL: Gemini model identifier (default: 'gemini-1.5-flash')
  * - ROUTER_LLM_TIMEOUT: Request timeout in ms (default: 30000)
  * - ROUTER_LLM_MAX_RETRIES: Max retry attempts (default: 2)
  * - ROUTER_LLM_TEMPERATURE: Sampling temperature (default: 0.0)
  * - ROUTER_LLM_MAX_TOKENS: Max response tokens (default: 2000)
  *
- * @throws Error if required configuration is missing
+ * @throws Error if required configuration is missing or invalid
  * @returns Validated RouterLLMConfig
  */
 export function loadRouterLLMConfig(): RouterLLMConfig {
-  // OpenAI configuration (REQUIRED)
+  // OpenAI configuration
+  const openaiEnabled = process.env.ROUTER_LLM_OPENAI_ENABLED !== 'false'; // Default: true
   const openaiApiKey = process.env.ROUTER_LLM_OPENAI_API_KEY;
-  if (!openaiApiKey) {
-    throw new Error(
-      'ROUTER_LLM_OPENAI_API_KEY environment variable is required'
-    );
-  }
   const openaiModel = process.env.ROUTER_LLM_OPENAI_MODEL || DEFAULTS.openaiModel;
 
-  // Gemini configuration (REQUIRED)
-  const geminiApiKey = process.env.ROUTER_LLM_GEMINI_API_KEY;
-  if (!geminiApiKey) {
+  if (openaiEnabled && !openaiApiKey) {
     throw new Error(
-      'ROUTER_LLM_GEMINI_API_KEY environment variable is required'
+      'ROUTER_LLM_OPENAI_API_KEY environment variable is required when OpenAI is enabled'
     );
   }
+
+  // Gemini configuration
+  const geminiEnabled = process.env.ROUTER_LLM_GEMINI_ENABLED !== 'false'; // Default: true
+  const geminiApiKey = process.env.ROUTER_LLM_GEMINI_API_KEY;
   const geminiModel = process.env.ROUTER_LLM_GEMINI_MODEL || DEFAULTS.geminiModel;
+
+  if (geminiEnabled && !geminiApiKey) {
+    throw new Error(
+      'ROUTER_LLM_GEMINI_API_KEY environment variable is required when Gemini is enabled'
+    );
+  }
+
+  // Validate that at least one provider is enabled
+  if (!openaiEnabled && !geminiEnabled) {
+    throw new Error(
+      'At least one router LLM provider must be enabled. ' +
+      'Set ROUTER_LLM_OPENAI_ENABLED=true or ROUTER_LLM_GEMINI_ENABLED=true'
+    );
+  }
 
   // Load shared configuration with defaults
   const timeout = parseInt(process.env.ROUTER_LLM_TIMEOUT || String(DEFAULTS.timeout), 10);
@@ -116,10 +134,12 @@ export function loadRouterLLMConfig(): RouterLLMConfig {
 
   return {
     openai: {
+      enabled: openaiEnabled,
       apiKey: openaiApiKey,
       model: openaiModel,
     },
     gemini: {
+      enabled: geminiEnabled,
       apiKey: geminiApiKey,
       model: geminiModel,
     },

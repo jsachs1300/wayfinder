@@ -137,20 +137,16 @@ export function createApp(deps?: Partial<AppDependencies>): {
 
   // Initialize router LLM (use MultiProviderRouterLLM if configured, otherwise StubRouterLLM)
   let routerLLM;
-  if (process.env.ROUTER_LLM_OPENAI_API_KEY && process.env.ROUTER_LLM_GEMINI_API_KEY) {
-    try {
-      routerLLM = new MultiProviderRouterLLM(undefined, console);
-      logger.info('Router LLM initialized with multi-provider (OpenAI + Gemini)');
-    } catch (error) {
-      logger.warn('Failed to initialize Router LLM, falling back to stub', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      routerLLM = new StubRouterLLM();
-    }
-  } else {
-    logger.info('Router LLM API keys not configured, using stub implementation', {
-      hasOpenAI: !!process.env.ROUTER_LLM_OPENAI_API_KEY,
-      hasGemini: !!process.env.ROUTER_LLM_GEMINI_API_KEY,
+  try {
+    routerLLM = new MultiProviderRouterLLM(undefined, console);
+    const config = routerLLM.getConfig();
+    const enabledProviders = [];
+    if (config.openai.enabled) enabledProviders.push('OpenAI');
+    if (config.gemini.enabled) enabledProviders.push('Gemini');
+    logger.info(`Router LLM initialized with providers: ${enabledProviders.join(' + ')}`);
+  } catch (error) {
+    logger.warn('Failed to initialize Router LLM, falling back to stub', {
+      error: error instanceof Error ? error.message : String(error),
     });
     routerLLM = new StubRouterLLM();
   }

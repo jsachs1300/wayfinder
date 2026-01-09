@@ -34,8 +34,8 @@ import {
  */
 export class MultiProviderRouterLLM implements RouterLLM {
   private readonly config: RouterLLMConfig;
-  private readonly openaiClient: ProviderClient;
-  private readonly geminiClient: ProviderClient;
+  private readonly openaiClient?: ProviderClient;
+  private readonly geminiClient?: ProviderClient;
   private readonly logger?: Console;
 
   /**
@@ -46,8 +46,15 @@ export class MultiProviderRouterLLM implements RouterLLM {
    */
   constructor(config?: RouterLLMConfig, logger?: Console) {
     this.config = config ?? loadRouterLLMConfig();
-    this.openaiClient = new OpenAIClient(this.config.openai.apiKey);
-    this.geminiClient = new GeminiClient(this.config.gemini.apiKey);
+
+    // Only initialize clients for enabled providers
+    if (this.config.openai.enabled && this.config.openai.apiKey) {
+      this.openaiClient = new OpenAIClient(this.config.openai.apiKey);
+    }
+    if (this.config.gemini.enabled && this.config.gemini.apiKey) {
+      this.geminiClient = new GeminiClient(this.config.gemini.apiKey);
+    }
+
     this.logger = logger;
   }
 
@@ -104,38 +111,80 @@ export class MultiProviderRouterLLM implements RouterLLM {
       requestMetadata: context.requestMetadata,
     });
 
+    // Determine which providers are enabled
+    const enabledProviders: Array<{ client: ProviderClient; model: string; name: string }> = [];
+
+    if (this.config.openai.enabled && this.openaiClient) {
+      enabledProviders.push({
+        client: this.openaiClient,
+        model: this.config.openai.model,
+        name: 'openai',
+      });
+    }
+
+    if (this.config.gemini.enabled && this.geminiClient) {
+      enabledProviders.push({
+        client: this.geminiClient,
+        model: this.config.gemini.model,
+        name: 'gemini',
+      });
+    }
+
     // Log invocation
-    this.logger?.log('[MultiProviderRouterLLM] Invoking OpenAI and Gemini in parallel', {
-      openaiModel: this.config.openai.model,
-      geminiModel: this.config.gemini.model,
+    const providerNames = enabledProviders.map(p => p.name).join(' + ');
+    this.logger?.log(`[MultiProviderRouterLLM] Invoking ${providerNames}`, {
+      providers: enabledProviders.map(p => ({ name: p.name, model: p.model })),
       eligibleModels,
       preferModel: context.preferModel,
     });
 
-    // Invoke both providers in parallel
+    // Invoke all enabled providers in parallel
     const startTime = Date.now();
-    const [openaiDecision, geminiDecision] = await Promise.all([
-      this.invokeProvider(this.openaiClient, this.config.openai.model, 'openai', routingPrompt, eligibleModels),
-      this.invokeProvider(this.geminiClient, this.config.gemini.model, 'gemini', routingPrompt, eligibleModels),
-    ]);
+    const decisions = await Promise.all(
+      enabledProviders.map(provider =>
+        this.invokeProvider(provider.client, provider.model, provider.name, routingPrompt, eligibleModels)
+      )
+    );
     const totalLatencyMs = Date.now() - startTime;
 
-    this.logger?.log('[MultiProviderRouterLLM] Both providers responded', {
+    // If only one provider enabled, return its decision directly (no aggregation needed)
+    if (decisions.length === 1) {
+      this.logger?.log(`[MultiProviderRouterLLM] Single provider response`, {
+        provider: enabledProviders[0].name,
+        latencyMs: totalLatencyMs,
+        top_model: decisions[0].ranked_models[0]?.model,
+        top_score: decisions[0].ranked_models[0]?.score,
+      });
+      return decisions[0];
+    }
+
+    // Multiple providers - aggregate rankings
+    this.logger?.log(`[MultiProviderRouterLLM] ${decisions.length} providers responded`, {
       totalLatencyMs,
-      openai_top_model: openaiDecision.ranked_models[0]?.model,
-      gemini_top_model: geminiDecision.ranked_models[0]?.model,
+      providers: enabledProviders.map((p, i) => ({
+        name: p.name,
+        top_model: decisions[i].ranked_models[0]?.model,
+      })),
     });
 
+    // Pair decisions with provider names for aggregation
+    const decisionsWithProviders = decisions.map((decision, i) => ({
+      decision,
+      providerName: enabledProviders[i].name,
+    }));
+
     // Aggregate rankings by averaging scores
-    const aggregatedDecision = this.aggregateRankings(openaiDecision, geminiDecision, eligibleModels);
+    const aggregatedDecision = this.aggregateRankings(decisionsWithProviders, eligibleModels);
 
     this.logger?.log('[MultiProviderRouterLLM] Aggregated ranking decision', {
       intent: aggregatedDecision.intent,
       ranked_models_count: aggregatedDecision.ranked_models.length,
       top_model: aggregatedDecision.ranked_models[0]?.model,
       top_score: aggregatedDecision.ranked_models[0]?.score,
-      openai_agreement: openaiDecision.ranked_models[0]?.model === aggregatedDecision.ranked_models[0]?.model,
-      gemini_agreement: geminiDecision.ranked_models[0]?.model === aggregatedDecision.ranked_models[0]?.model,
+      provider_agreements: enabledProviders.map((p, i) => ({
+        provider: p.name,
+        agrees_with_aggregated: decisions[i].ranked_models[0]?.model === aggregatedDecision.ranked_models[0]?.model,
+      })),
     });
 
     return aggregatedDecision;
@@ -243,19 +292,17 @@ export class MultiProviderRouterLLM implements RouterLLM {
    * 2. Calculate average score
    * 3. Sort models by average score (descending)
    * 4. Assign new ranks based on sorted order
-   * 5. Use combined reasons from both providers
+   * 5. Use combined reasons from all providers
    *
-   * @param decision1 - First provider's decision
-   * @param decision2 - Second provider's decision
+   * @param decisionsWithProviders - Array of decisions paired with provider names
    * @param eligibleModels - All eligible models
    * @returns Aggregated RankedRouteDecision
    */
   private aggregateRankings(
-    decision1: RankedRouteDecision,
-    decision2: RankedRouteDecision,
+    decisionsWithProviders: Array<{ decision: RankedRouteDecision; providerName: string }>,
     eligibleModels: string[]
   ): RankedRouteDecision {
-    // Build a map of model -> scores from both providers
+    // Build a map of model -> scores from all providers
     const modelScores = new Map<string, { scores: number[]; reasons: string[] }>();
 
     // Initialize all eligible models
@@ -263,21 +310,14 @@ export class MultiProviderRouterLLM implements RouterLLM {
       modelScores.set(model, { scores: [], reasons: [] });
     }
 
-    // Collect scores from decision1
-    for (const rankedModel of decision1.ranked_models) {
-      const entry = modelScores.get(rankedModel.model);
-      if (entry) {
-        entry.scores.push(rankedModel.score);
-        entry.reasons.push(`OpenAI: ${rankedModel.reason}`);
-      }
-    }
-
-    // Collect scores from decision2
-    for (const rankedModel of decision2.ranked_models) {
-      const entry = modelScores.get(rankedModel.model);
-      if (entry) {
-        entry.scores.push(rankedModel.score);
-        entry.reasons.push(`Gemini: ${rankedModel.reason}`);
+    // Collect scores from all providers
+    for (const { decision, providerName } of decisionsWithProviders) {
+      for (const rankedModel of decision.ranked_models) {
+        const entry = modelScores.get(rankedModel.model);
+        if (entry) {
+          entry.scores.push(rankedModel.score);
+          entry.reasons.push(`${providerName}: ${rankedModel.reason}`);
+        }
       }
     }
 
@@ -307,8 +347,8 @@ export class MultiProviderRouterLLM implements RouterLLM {
       rankedModels[i].rank = i + 1;
     }
 
-    // Use consensus intent (prefer decision1 if different)
-    const intent = decision1.intent;
+    // Use consensus intent (prefer first provider if different)
+    const intent = decisionsWithProviders[0].decision.intent;
 
     return {
       intent,
