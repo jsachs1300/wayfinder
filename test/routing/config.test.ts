@@ -18,15 +18,21 @@ describe('loadRouterLLMConfig', () => {
     process.env = originalEnv;
   });
 
-  it('should load default configuration when only API key is provided', () => {
-    process.env.ROUTER_LLM_API_KEY = 'test-api-key';
+  it('should load default configuration when only API keys are provided', () => {
+    process.env.ROUTER_LLM_OPENAI_API_KEY = 'test-openai-key';
+    process.env.ROUTER_LLM_GEMINI_API_KEY = 'test-gemini-key';
 
     const config = loadRouterLLMConfig();
 
     expect(config).toEqual({
-      provider: 'openai',
-      apiKey: 'test-api-key',
-      model: 'gpt-4o-mini',
+      openai: {
+        apiKey: 'test-openai-key',
+        model: 'gpt-4o-mini',
+      },
+      gemini: {
+        apiKey: 'test-gemini-key',
+        model: 'gemini-1.5-flash',
+      },
       timeout: 30000,
       maxRetries: 2,
       temperature: 0.0,
@@ -34,19 +40,21 @@ describe('loadRouterLLMConfig', () => {
     });
   });
 
-  it('should load custom provider configuration', () => {
-    process.env.ROUTER_LLM_API_KEY = 'test-api-key';
-    process.env.ROUTER_LLM_PROVIDER = 'anthropic';
-    process.env.ROUTER_LLM_MODEL = 'claude-3-opus-20240229';
+  it('should load custom model configuration', () => {
+    process.env.ROUTER_LLM_OPENAI_API_KEY = 'test-openai-key';
+    process.env.ROUTER_LLM_GEMINI_API_KEY = 'test-gemini-key';
+    process.env.ROUTER_LLM_OPENAI_MODEL = 'gpt-4';
+    process.env.ROUTER_LLM_GEMINI_MODEL = 'gemini-1.5-pro';
 
     const config = loadRouterLLMConfig();
 
-    expect(config.provider).toBe('anthropic');
-    expect(config.model).toBe('claude-3-opus-20240229');
+    expect(config.openai.model).toBe('gpt-4');
+    expect(config.gemini.model).toBe('gemini-1.5-pro');
   });
 
   it('should load custom numeric configuration', () => {
-    process.env.ROUTER_LLM_API_KEY = 'test-api-key';
+    process.env.ROUTER_LLM_OPENAI_API_KEY = 'test-openai-key';
+    process.env.ROUTER_LLM_GEMINI_API_KEY = 'test-gemini-key';
     process.env.ROUTER_LLM_TIMEOUT = '5000';
     process.env.ROUTER_LLM_MAX_RETRIES = '3';
     process.env.ROUTER_LLM_TEMPERATURE = '0.5';
@@ -60,25 +68,27 @@ describe('loadRouterLLMConfig', () => {
     expect(config.maxTokens).toBe(1000);
   });
 
-  it('should throw error when API key is missing', () => {
-    delete process.env.ROUTER_LLM_API_KEY;
+  it('should throw error when OpenAI API key is missing', () => {
+    process.env.ROUTER_LLM_GEMINI_API_KEY = 'test-gemini-key';
+    delete process.env.ROUTER_LLM_OPENAI_API_KEY;
 
     expect(() => loadRouterLLMConfig()).toThrow(
-      'ROUTER_LLM_API_KEY environment variable is required'
+      'ROUTER_LLM_OPENAI_API_KEY environment variable is required'
     );
   });
 
-  it('should throw error for invalid provider', () => {
-    process.env.ROUTER_LLM_API_KEY = 'test-api-key';
-    process.env.ROUTER_LLM_PROVIDER = 'invalid-provider';
+  it('should throw error when Gemini API key is missing', () => {
+    process.env.ROUTER_LLM_OPENAI_API_KEY = 'test-openai-key';
+    delete process.env.ROUTER_LLM_GEMINI_API_KEY;
 
     expect(() => loadRouterLLMConfig()).toThrow(
-      "Invalid ROUTER_LLM_PROVIDER: invalid-provider. Must be 'openai' or 'anthropic'"
+      'ROUTER_LLM_GEMINI_API_KEY environment variable is required'
     );
   });
 
   it('should throw error for invalid timeout', () => {
-    process.env.ROUTER_LLM_API_KEY = 'test-api-key';
+    process.env.ROUTER_LLM_OPENAI_API_KEY = 'test-openai-key';
+    process.env.ROUTER_LLM_GEMINI_API_KEY = 'test-gemini-key';
     process.env.ROUTER_LLM_TIMEOUT = 'invalid';
 
     expect(() => loadRouterLLMConfig()).toThrow(
@@ -87,7 +97,8 @@ describe('loadRouterLLMConfig', () => {
   });
 
   it('should throw error for negative timeout', () => {
-    process.env.ROUTER_LLM_API_KEY = 'test-api-key';
+    process.env.ROUTER_LLM_OPENAI_API_KEY = 'test-openai-key';
+    process.env.ROUTER_LLM_GEMINI_API_KEY = 'test-gemini-key';
     process.env.ROUTER_LLM_TIMEOUT = '-1000';
 
     expect(() => loadRouterLLMConfig()).toThrow(
@@ -96,7 +107,8 @@ describe('loadRouterLLMConfig', () => {
   });
 
   it('should throw error for invalid maxRetries', () => {
-    process.env.ROUTER_LLM_API_KEY = 'test-api-key';
+    process.env.ROUTER_LLM_OPENAI_API_KEY = 'test-openai-key';
+    process.env.ROUTER_LLM_GEMINI_API_KEY = 'test-gemini-key';
     process.env.ROUTER_LLM_MAX_RETRIES = 'invalid';
 
     expect(() => loadRouterLLMConfig()).toThrow(
@@ -105,7 +117,8 @@ describe('loadRouterLLMConfig', () => {
   });
 
   it('should throw error for negative maxRetries', () => {
-    process.env.ROUTER_LLM_API_KEY = 'test-api-key';
+    process.env.ROUTER_LLM_OPENAI_API_KEY = 'test-openai-key';
+    process.env.ROUTER_LLM_GEMINI_API_KEY = 'test-gemini-key';
     process.env.ROUTER_LLM_MAX_RETRIES = '-1';
 
     expect(() => loadRouterLLMConfig()).toThrow(
@@ -114,7 +127,8 @@ describe('loadRouterLLMConfig', () => {
   });
 
   it('should throw error for invalid temperature', () => {
-    process.env.ROUTER_LLM_API_KEY = 'test-api-key';
+    process.env.ROUTER_LLM_OPENAI_API_KEY = 'test-openai-key';
+    process.env.ROUTER_LLM_GEMINI_API_KEY = 'test-gemini-key';
     process.env.ROUTER_LLM_TEMPERATURE = 'invalid';
 
     expect(() => loadRouterLLMConfig()).toThrow(
@@ -123,7 +137,8 @@ describe('loadRouterLLMConfig', () => {
   });
 
   it('should throw error for temperature outside valid range', () => {
-    process.env.ROUTER_LLM_API_KEY = 'test-api-key';
+    process.env.ROUTER_LLM_OPENAI_API_KEY = 'test-openai-key';
+    process.env.ROUTER_LLM_GEMINI_API_KEY = 'test-gemini-key';
     process.env.ROUTER_LLM_TEMPERATURE = '3.0';
 
     expect(() => loadRouterLLMConfig()).toThrow(
@@ -132,7 +147,8 @@ describe('loadRouterLLMConfig', () => {
   });
 
   it('should throw error for invalid maxTokens', () => {
-    process.env.ROUTER_LLM_API_KEY = 'test-api-key';
+    process.env.ROUTER_LLM_OPENAI_API_KEY = 'test-openai-key';
+    process.env.ROUTER_LLM_GEMINI_API_KEY = 'test-gemini-key';
     process.env.ROUTER_LLM_MAX_TOKENS = 'invalid';
 
     expect(() => loadRouterLLMConfig()).toThrow(
@@ -141,7 +157,8 @@ describe('loadRouterLLMConfig', () => {
   });
 
   it('should allow zero maxRetries', () => {
-    process.env.ROUTER_LLM_API_KEY = 'test-api-key';
+    process.env.ROUTER_LLM_OPENAI_API_KEY = 'test-openai-key';
+    process.env.ROUTER_LLM_GEMINI_API_KEY = 'test-gemini-key';
     process.env.ROUTER_LLM_MAX_RETRIES = '0';
 
     const config = loadRouterLLMConfig();
@@ -150,7 +167,8 @@ describe('loadRouterLLMConfig', () => {
   });
 
   it('should handle temperature at boundaries', () => {
-    process.env.ROUTER_LLM_API_KEY = 'test-api-key';
+    process.env.ROUTER_LLM_OPENAI_API_KEY = 'test-openai-key';
+    process.env.ROUTER_LLM_GEMINI_API_KEY = 'test-gemini-key';
     process.env.ROUTER_LLM_TEMPERATURE = '2.0';
 
     const config = loadRouterLLMConfig();

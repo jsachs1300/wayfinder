@@ -6,18 +6,20 @@
 
 export { OpenAIClient } from './openai-client';
 export { AnthropicClient } from './anthropic-client';
+export { GeminiClient } from './gemini-client';
 export type { ProviderClient, ProviderRequest, ProviderResponse } from './types';
 
 import type { RouterLLMProvider } from '../../config';
 import type { ProviderClient } from './types';
 import { OpenAIClient } from './openai-client';
 import { AnthropicClient } from './anthropic-client';
+import { GeminiClient } from './gemini-client';
 import { RouterLLMConfigError } from '../errors';
 
 /**
  * Creates a provider client based on the provider type
  *
- * @param provider - Provider type ('openai' or 'anthropic')
+ * @param provider - Provider type ('openai', 'anthropic', or 'gemini')
  * @param apiKey - API key for the provider
  * @returns ProviderClient implementation
  * @throws RouterLLMConfigError if provider is unsupported
@@ -31,9 +33,11 @@ export function createProviderClient(
       return new OpenAIClient(apiKey);
     case 'anthropic':
       return new AnthropicClient(apiKey);
+    case 'gemini':
+      return new GeminiClient(apiKey);
     default:
       throw new RouterLLMConfigError(
-        `Unsupported provider: ${provider}. Must be 'openai' or 'anthropic'`
+        `Unsupported provider: ${provider}. Must be 'openai', 'anthropic', or 'gemini'`
       );
   }
 }

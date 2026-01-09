@@ -20,6 +20,7 @@ export {
 // Router LLM implementations and utilities
 export {
   DefaultRouterLLM,
+  MultiProviderRouterLLM,
   StubRouterLLM,
   buildRoutingPrompt,
   parseRouteDecision,
