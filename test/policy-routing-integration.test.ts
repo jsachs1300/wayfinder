@@ -13,7 +13,8 @@ import { DefaultRoutingEngine } from '../src/routing/engine';
 import type { RouterLLM } from '../src/routing/engine';
 import { createPolicyEngine } from '../src/policy';
 import { createModelRegistry } from '../src/models';
-import type { TokenConfig, RouteRequest } from '../src/types';
+import type { TokenConfig, RouteRequest, RankedRouteDecision } from '../src/types';
+import type { MultiProviderResult } from '../src/routing/router-llm';
 import type { Logger } from '../src/logging/logger';
 
 describe('Policy-Routing Integration', () => {
@@ -27,6 +28,26 @@ describe('Policy-Routing Integration', () => {
     warn: () => {},
     error: () => {},
   };
+
+  // Helper to build MultiProviderResult from RankedRouteDecision
+  function buildMultiProviderResult(decision: RankedRouteDecision): MultiProviderResult {
+    const now = new Date().toISOString();
+    return {
+      provider_rankings: {
+        openai: {
+          provider: 'openai',
+          decision,
+          generated_at: now,
+        },
+        gemini: {
+          provider: 'gemini',
+          decision,
+          generated_at: now,
+        },
+      },
+      consensus: decision,
+    };
+  }
 
   function createTokenConfig(overrides: Partial<TokenConfig> = {}): TokenConfig {
     return {
@@ -45,7 +66,7 @@ describe('Policy-Routing Integration', () => {
       const testRouterLLM: RouterLLM = {
         async invoke(_prompt: string, eligibleModels: string[]) {
           receivedModels = eligibleModels;
-          return {
+          const decision: RankedRouteDecision = {
             intent: 'coding',
             ranked_models: eligibleModels.map((model, idx) => ({
               rank: idx + 1,
@@ -54,6 +75,7 @@ describe('Policy-Routing Integration', () => {
               reason: idx === 0 ? 'Selected from eligible list' : 'Alternative from eligible list',
             })),
           };
+          return buildMultiProviderResult(decision);
         },
       };
 
@@ -88,7 +110,7 @@ describe('Policy-Routing Integration', () => {
       const testRouterLLM: RouterLLM = {
         async invoke(_prompt: string, eligibleModels: string[]) {
           receivedModels = eligibleModels;
-          return {
+          const decision: RankedRouteDecision = {
             intent: 'coding',
             ranked_models: eligibleModels.map((model, idx) => ({
               rank: idx + 1,
@@ -97,6 +119,7 @@ describe('Policy-Routing Integration', () => {
               reason: idx === 0 ? 'Selected from eligible list' : 'Alternative from eligible list',
             })),
           };
+          return buildMultiProviderResult(decision);
         },
       };
 
@@ -132,7 +155,7 @@ describe('Policy-Routing Integration', () => {
       const testRouterLLM: RouterLLM = {
         async invoke(_prompt: string, eligibleModels: string[]) {
           receivedModels = eligibleModels;
-          return {
+          const decision: RankedRouteDecision = {
             intent: 'coding',
             ranked_models: eligibleModels.map((model, idx) => ({
               rank: idx + 1,
@@ -141,6 +164,7 @@ describe('Policy-Routing Integration', () => {
               reason: idx === 0 ? 'Selected from eligible list' : 'Alternative from eligible list',
             })),
           };
+          return buildMultiProviderResult(decision);
         },
       };
 
@@ -235,7 +259,7 @@ describe('Policy-Routing Integration', () => {
       const testRouterLLM: RouterLLM = {
         async invoke(_prompt: string, eligibleModels: string[]) {
           receivedModels = eligibleModels;
-          return {
+          const decision: RankedRouteDecision = {
             intent: 'coding',
             ranked_models: eligibleModels.map((model, idx) => ({
               rank: idx + 1,
@@ -244,6 +268,7 @@ describe('Policy-Routing Integration', () => {
               reason: idx === 0 ? 'Selected from all models' : 'Alternative from all models',
             })),
           };
+          return buildMultiProviderResult(decision);
         },
       };
 
@@ -354,7 +379,7 @@ describe('Policy-Routing Integration', () => {
 
       const testRouterLLM: RouterLLM = {
         async invoke(_prompt: string, eligibleModels: string[]) {
-          return {
+          const decision: RankedRouteDecision = {
             intent: 'other',
             ranked_models: eligibleModels.map((model, idx) => ({
               rank: idx + 1,
@@ -363,6 +388,7 @@ describe('Policy-Routing Integration', () => {
               reason: 'Test',
             })),
           };
+          return buildMultiProviderResult(decision);
         },
       };
 

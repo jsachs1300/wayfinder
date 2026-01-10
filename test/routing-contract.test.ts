@@ -296,6 +296,8 @@ describe('Router LLM Contract', () => {
           reason: 'Good alternative',
         },
         request_id: 'test-request-id',
+        router_model_used: 'consensus',
+        from_cache: false,
       });
     });
 
