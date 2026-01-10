@@ -130,6 +130,14 @@ export class MultiProviderRouterLLM implements RouterLLM {
       });
     }
 
+    // Validate at least one provider is enabled at runtime
+    if (enabledProviders.length === 0) {
+      throw new RouterLLMError(
+        'No router LLM providers are enabled. ' +
+        'Enable at least one provider via ROUTER_LLM_OPENAI_ENABLED or ROUTER_LLM_GEMINI_ENABLED.'
+      );
+    }
+
     // Log invocation
     const providerNames = enabledProviders.map(p => p.name).join(' + ');
     this.logger?.log(`[MultiProviderRouterLLM] Invoking ${providerNames}`, {
@@ -138,14 +146,46 @@ export class MultiProviderRouterLLM implements RouterLLM {
       preferModel: context.preferModel,
     });
 
-    // Invoke all enabled providers in parallel
+    // Invoke all enabled providers in parallel using Promise.allSettled for resilience
     const startTime = Date.now();
-    const decisions = await Promise.all(
+    const results = await Promise.allSettled(
       enabledProviders.map(provider =>
         this.invokeProvider(provider.client, provider.model, provider.name, routingPrompt, eligibleModels)
       )
     );
     const totalLatencyMs = Date.now() - startTime;
+
+    // Separate successful and failed results
+    const decisions: RankedRouteDecision[] = [];
+    const failedProviders: Array<{ name: string; error: Error }> = [];
+
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        decisions.push(result.value);
+      } else {
+        failedProviders.push({
+          name: enabledProviders[index].name,
+          error: result.reason instanceof Error ? result.reason : new Error(String(result.reason)),
+        });
+      }
+    });
+
+    // If all providers failed, throw the first error
+    if (decisions.length === 0) {
+      const errorMessages = failedProviders.map(f => `${f.name}: ${f.error.message}`).join('; ');
+      throw new RouterLLMError(
+        `All router LLM providers failed: ${errorMessages}`,
+        failedProviders[0].error
+      );
+    }
+
+    // If some providers failed, log warnings but continue with successful ones
+    if (failedProviders.length > 0) {
+      this.logger?.warn('[MultiProviderRouterLLM] Some providers failed, using successful providers only', {
+        failed: failedProviders.map(f => ({ name: f.name, error: f.error.message })),
+        successful: decisions.length,
+      });
+    }
 
     // If only one provider enabled, return its decision directly (no aggregation needed)
     if (decisions.length === 1) {
@@ -159,9 +199,14 @@ export class MultiProviderRouterLLM implements RouterLLM {
     }
 
     // Multiple providers - aggregate rankings
+    // Build provider names from successful decisions
+    const successfulProviders = results
+      .map((result, index) => result.status === 'fulfilled' ? enabledProviders[index] : null)
+      .filter((p): p is { client: ProviderClient; model: string; name: string } => p !== null);
+
     this.logger?.log(`[MultiProviderRouterLLM] ${decisions.length} providers responded`, {
       totalLatencyMs,
-      providers: enabledProviders.map((p, i) => ({
+      providers: successfulProviders.map((p, i) => ({
         name: p.name,
         top_model: decisions[i].ranked_models[0]?.model,
       })),
@@ -170,7 +215,7 @@ export class MultiProviderRouterLLM implements RouterLLM {
     // Pair decisions with provider names for aggregation
     const decisionsWithProviders = decisions.map((decision, i) => ({
       decision,
-      providerName: enabledProviders[i].name,
+      providerName: successfulProviders[i].name,
     }));
 
     // Aggregate rankings by averaging scores
@@ -181,7 +226,7 @@ export class MultiProviderRouterLLM implements RouterLLM {
       ranked_models_count: aggregatedDecision.ranked_models.length,
       top_model: aggregatedDecision.ranked_models[0]?.model,
       top_score: aggregatedDecision.ranked_models[0]?.score,
-      provider_agreements: enabledProviders.map((p, i) => ({
+      provider_agreements: successfulProviders.map((p, i) => ({
         provider: p.name,
         agrees_with_aggregated: decisions[i].ranked_models[0]?.model === aggregatedDecision.ranked_models[0]?.model,
       })),

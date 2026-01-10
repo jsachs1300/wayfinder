@@ -101,13 +101,15 @@ export class GeminiClient implements ProviderClient {
       };
 
       // Make API request
-      // Gemini API uses query parameter for API key
-      const url = `${this.baseUrl}/models/${request.model}:generateContent?key=${this.apiKey}`;
+      // Use header-based authentication (x-goog-api-key) instead of query parameter
+      // to avoid exposing API key in URLs, server logs, and browser history
+      const url = `${this.baseUrl}/models/${request.model}:generateContent`;
 
       const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'x-goog-api-key': this.apiKey,
         },
         body: JSON.stringify(body),
         signal: controller.signal,
