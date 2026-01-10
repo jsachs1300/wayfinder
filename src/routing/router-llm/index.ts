@@ -5,6 +5,7 @@
  */
 
 export { DefaultRouterLLM } from './default-router-llm';
+export { MultiProviderRouterLLM } from './multi-provider-router-llm';
 export { StubRouterLLM } from './stub-router-llm';
 export { buildRoutingPrompt } from './prompt-builder';
 export { parseRouteDecision, parseRouteDecisionLenient, extractJSON } from './response-parser';

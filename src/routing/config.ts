@@ -8,23 +8,35 @@
 /**
  * Supported router LLM providers
  */
-export type RouterLLMProvider = 'openai' | 'anthropic';
+export type RouterLLMProvider = 'openai' | 'anthropic' | 'gemini';
+
+/**
+ * Configuration for a single router LLM provider
+ */
+export interface ProviderConfig {
+  /** Whether this provider is enabled */
+  enabled: boolean;
+
+  /** Provider API key (required only if enabled) */
+  apiKey?: string;
+
+  /** Model identifier */
+  model: string;
+}
 
 /**
  * Router LLM configuration
  *
  * All values are loaded from environment variables with defaults.
- * Required values (API keys) MUST be validated at load time.
+ * At least one provider must be enabled.
+ * If multiple providers are enabled, their rankings are aggregated.
  */
 export interface RouterLLMConfig {
-  /** Provider to use (openai or anthropic) */
-  provider: RouterLLMProvider;
+  /** OpenAI configuration */
+  openai: ProviderConfig;
 
-  /** Provider API key (from environment) */
-  apiKey: string;
-
-  /** Model identifier to use for routing decisions */
-  model: string;
+  /** Gemini configuration */
+  gemini: ProviderConfig;
 
   /** Request timeout in milliseconds */
   timeout: number;
@@ -43,8 +55,8 @@ export interface RouterLLMConfig {
  * Default configuration values
  */
 const DEFAULTS = {
-  provider: 'openai' as RouterLLMProvider,
-  model: 'gpt-4o-mini',
+  openaiModel: 'gpt-4o-mini',
+  geminiModel: 'gemini-1.5-flash',
   timeout: 30000, // Increased from 10s to 30s for ranked routing (14 models vs 2)
   maxRetries: 2,
   temperature: 0.0,
@@ -55,37 +67,52 @@ const DEFAULTS = {
  * Loads router LLM configuration from environment variables
  *
  * Environment variables:
- * - ROUTER_LLM_PROVIDER: 'openai' | 'anthropic' (default: 'openai')
- * - ROUTER_LLM_API_KEY: API key for the provider (REQUIRED)
- * - ROUTER_LLM_MODEL: Model identifier (default: 'gpt-4o-mini')
- * - ROUTER_LLM_TIMEOUT: Request timeout in ms (default: 10000)
+ * - ROUTER_LLM_OPENAI_ENABLED: Enable OpenAI provider (default: true)
+ * - ROUTER_LLM_OPENAI_API_KEY: OpenAI API key (required if OpenAI enabled)
+ * - ROUTER_LLM_OPENAI_MODEL: OpenAI model identifier (default: 'gpt-4o-mini')
+ * - ROUTER_LLM_GEMINI_ENABLED: Enable Gemini provider (default: true)
+ * - ROUTER_LLM_GEMINI_API_KEY: Gemini API key (required if Gemini enabled)
+ * - ROUTER_LLM_GEMINI_MODEL: Gemini model identifier (default: 'gemini-1.5-flash')
+ * - ROUTER_LLM_TIMEOUT: Request timeout in ms (default: 30000)
  * - ROUTER_LLM_MAX_RETRIES: Max retry attempts (default: 2)
  * - ROUTER_LLM_TEMPERATURE: Sampling temperature (default: 0.0)
- * - ROUTER_LLM_MAX_TOKENS: Max response tokens (default: 500)
+ * - ROUTER_LLM_MAX_TOKENS: Max response tokens (default: 2000)
  *
- * @throws Error if required configuration is missing
+ * @throws Error if required configuration is missing or invalid
  * @returns Validated RouterLLMConfig
  */
 export function loadRouterLLMConfig(): RouterLLMConfig {
-  const provider = (process.env.ROUTER_LLM_PROVIDER || DEFAULTS.provider) as RouterLLMProvider;
+  // OpenAI configuration
+  const openaiEnabled = process.env.ROUTER_LLM_OPENAI_ENABLED !== 'false'; // Default: true
+  const openaiApiKey = process.env.ROUTER_LLM_OPENAI_API_KEY;
+  const openaiModel = process.env.ROUTER_LLM_OPENAI_MODEL || DEFAULTS.openaiModel;
 
-  // Validate provider
-  if (provider !== 'openai' && provider !== 'anthropic') {
+  if (openaiEnabled && !openaiApiKey) {
     throw new Error(
-      `Invalid ROUTER_LLM_PROVIDER: ${provider}. Must be 'openai' or 'anthropic'`
+      'ROUTER_LLM_OPENAI_API_KEY environment variable is required when OpenAI is enabled'
     );
   }
 
-  // API key is REQUIRED
-  const apiKey = process.env.ROUTER_LLM_API_KEY;
-  if (!apiKey) {
+  // Gemini configuration
+  const geminiEnabled = process.env.ROUTER_LLM_GEMINI_ENABLED !== 'false'; // Default: true
+  const geminiApiKey = process.env.ROUTER_LLM_GEMINI_API_KEY;
+  const geminiModel = process.env.ROUTER_LLM_GEMINI_MODEL || DEFAULTS.geminiModel;
+
+  if (geminiEnabled && !geminiApiKey) {
     throw new Error(
-      'ROUTER_LLM_API_KEY environment variable is required'
+      'ROUTER_LLM_GEMINI_API_KEY environment variable is required when Gemini is enabled'
     );
   }
 
-  // Load other configuration with defaults
-  const model = process.env.ROUTER_LLM_MODEL || DEFAULTS.model;
+  // Validate that at least one provider is enabled
+  if (!openaiEnabled && !geminiEnabled) {
+    throw new Error(
+      'At least one router LLM provider must be enabled. ' +
+      'Set ROUTER_LLM_OPENAI_ENABLED=true or ROUTER_LLM_GEMINI_ENABLED=true'
+    );
+  }
+
+  // Load shared configuration with defaults
   const timeout = parseInt(process.env.ROUTER_LLM_TIMEOUT || String(DEFAULTS.timeout), 10);
   const maxRetries = parseInt(process.env.ROUTER_LLM_MAX_RETRIES || String(DEFAULTS.maxRetries), 10);
   const temperature = parseFloat(process.env.ROUTER_LLM_TEMPERATURE || String(DEFAULTS.temperature));
@@ -106,9 +133,16 @@ export function loadRouterLLMConfig(): RouterLLMConfig {
   }
 
   return {
-    provider,
-    apiKey,
-    model,
+    openai: {
+      enabled: openaiEnabled,
+      apiKey: openaiApiKey,
+      model: openaiModel,
+    },
+    gemini: {
+      enabled: geminiEnabled,
+      apiKey: geminiApiKey,
+      model: geminiModel,
+    },
     timeout,
     maxRetries,
     temperature,
