@@ -11,7 +11,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { SemanticCache, hashPrompt } from '../../src/cache';
-import type { RankedRouteDecision } from '../../src/types';
+import type { CachedRouterResponse, RankedRouteDecision } from '../../src/types';
 
 // Create mock LangCache client
 const mockLangCacheClient = {
@@ -30,6 +30,28 @@ vi.mock('@redis-ai/langcache', () => {
     },
   };
 });
+
+// Helper to build CachedRouterResponse from RankedRouteDecision
+function buildCachedResponse(decision: RankedRouteDecision, prompt: string = 'test'): CachedRouterResponse {
+  return {
+    prompt,
+    provider_rankings: {
+      openai: {
+        provider: 'openai',
+        decision,
+        generated_at: new Date().toISOString(),
+      },
+      gemini: {
+        provider: 'gemini',
+        decision,
+        generated_at: new Date().toISOString(),
+      },
+    },
+    consensus: decision,
+    cached_at: new Date().toISOString(),
+    ttl: 3600,
+  };
+}
 
 describe('Global Semantic Cache', () => {
   let cache: SemanticCache;
@@ -62,7 +84,7 @@ describe('Global Semantic Cache', () => {
     });
 
     it('should return cached decision on cache hit', async () => {
-      const cachedDecision: RankedRouteDecision = {
+      const rankedDecision: RankedRouteDecision = {
         intent: 'coding',
         ranked_models: [
           {
@@ -80,13 +102,15 @@ describe('Global Semantic Cache', () => {
         ],
       };
 
+      const cachedResponse = buildCachedResponse(rankedDecision, 'test prompt');
+
       // LangCache returns { data: [{ response, similarity, ... }] } structure
       mockLangCacheClient.search.mockResolvedValue({
         data: [
           {
             id: 'test-id',
             prompt: 'test prompt',
-            response: JSON.stringify(cachedDecision),
+            response: JSON.stringify(cachedResponse),
             attributes: {},
             similarity: 1,
             searchStrategy: 'semantic',
@@ -96,7 +120,7 @@ describe('Global Semantic Cache', () => {
 
       const result = await cache.get('test prompt');
 
-      expect(result).toEqual(cachedDecision);
+      expect(result).toEqual(cachedResponse);
     });
 
     it('should return null and log error on cache failure', async () => {
@@ -148,11 +172,13 @@ describe('Global Semantic Cache', () => {
         ],
       };
 
-      await cache.set('test prompt', decision);
+      const cachedResponse = buildCachedResponse(decision, 'test prompt');
+
+      await cache.set('test prompt', cachedResponse);
 
       expect(mockLangCacheClient.set).toHaveBeenCalledWith({
         prompt: 'test prompt',
-        response: JSON.stringify(decision),
+        response: JSON.stringify(cachedResponse),
         ttl: 3600,
       });
 
@@ -173,8 +199,10 @@ describe('Global Semantic Cache', () => {
         ],
       };
 
+      const cachedResponse = buildCachedResponse(decision, 'test');
+
       // set() should reject so routing engine can log the error
-      await expect(cache.set('test', decision)).rejects.toThrow('Network error');
+      await expect(cache.set('test', cachedResponse)).rejects.toThrow('Network error');
 
       expect(consoleErrorSpy).toHaveBeenCalled();
       consoleErrorSpy.mockRestore();
@@ -184,12 +212,18 @@ describe('Global Semantic Cache', () => {
   describe('getStats()', () => {
     it('should return cache statistics with correct hit rate', async () => {
       // Simulate 3 cache hits
+      const decision: RankedRouteDecision = {
+        intent: 'test',
+        ranked_models: [{ rank: 1, model: 'gpt-4', score: 8, reason: 'test' }]
+      };
+      const cachedResponse = buildCachedResponse(decision, 'test');
+
       mockLangCacheClient.search.mockResolvedValue({
         data: [
           {
             id: 'test-id',
             prompt: 'test',
-            response: JSON.stringify({ intent: 'test', ranked_models: [{ rank: 1, model: 'gpt-4', score: 8, reason: 'test' }] }),
+            response: JSON.stringify(cachedResponse),
             attributes: {},
             similarity: 1,
             searchStrategy: 'semantic',
@@ -244,13 +278,15 @@ describe('Global Semantic Cache', () => {
         ],
       };
 
+      const cachedResponse = buildCachedResponse(decision, 'process a csv file');
+
       // First request: "process a csv file"
       mockLangCacheClient.search.mockResolvedValue({
         data: [
           {
             id: 'test-id-1',
             prompt: 'process a csv file',
-            response: JSON.stringify(decision),
+            response: JSON.stringify(cachedResponse),
             attributes: {},
             similarity: 1,
             searchStrategy: 'semantic',
@@ -259,7 +295,7 @@ describe('Global Semantic Cache', () => {
       });
 
       const result1 = await cache.get('process a csv file');
-      expect(result1).toEqual(decision);
+      expect(result1).toEqual(cachedResponse);
 
       // Second request: "analyze a csv file" (semantically similar)
       // LangCache would return the same cached decision due to semantic similarity
@@ -268,7 +304,7 @@ describe('Global Semantic Cache', () => {
           {
             id: 'test-id-1',
             prompt: 'process a csv file',
-            response: JSON.stringify(decision),
+            response: JSON.stringify(cachedResponse),
             attributes: {},
             similarity: 0.95,
             searchStrategy: 'semantic',
@@ -277,7 +313,7 @@ describe('Global Semantic Cache', () => {
       });
 
       const result2 = await cache.get('analyze a csv file');
-      expect(result2).toEqual(decision);
+      expect(result2).toEqual(cachedResponse);
 
       // Verify both queries used pure prompts (no scoping)
       expect(mockLangCacheClient.search).toHaveBeenCalledTimes(2);
@@ -304,12 +340,14 @@ describe('Global Semantic Cache', () => {
         ],
       };
 
+      const cachedResponse = buildCachedResponse(decision, 'same prompt');
+
       mockLangCacheClient.search.mockResolvedValue({
         data: [
           {
             id: 'test-id',
             prompt: 'same prompt',
-            response: JSON.stringify(decision),
+            response: JSON.stringify(cachedResponse),
             attributes: {},
             similarity: 1,
             searchStrategy: 'semantic',
@@ -319,7 +357,7 @@ describe('Global Semantic Cache', () => {
 
       // Any token can retrieve it (no token_id in cache key)
       const result = await cache.get('same prompt');
-      expect(result).toEqual(decision);
+      expect(result).toEqual(cachedResponse);
 
       // Verify no token scoping in search
       expect(mockLangCacheClient.search).toHaveBeenCalledWith({

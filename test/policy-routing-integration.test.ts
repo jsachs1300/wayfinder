@@ -13,7 +13,8 @@ import { DefaultRoutingEngine } from '../src/routing/engine';
 import type { RouterLLM } from '../src/routing/engine';
 import { createPolicyEngine } from '../src/policy';
 import { createModelRegistry } from '../src/models';
-import type { TokenConfig, RouteRequest } from '../src/types';
+import type { TokenConfig, RouteRequest, RankedRouteDecision } from '../src/types';
+import type { MultiProviderResult } from '../src/routing/router-llm';
 import type { Logger } from '../src/logging/logger';
 
 describe('Policy-Routing Integration', () => {
@@ -27,6 +28,26 @@ describe('Policy-Routing Integration', () => {
     warn: () => {},
     error: () => {},
   };
+
+  // Helper to build MultiProviderResult from RankedRouteDecision
+  function buildMultiProviderResult(decision: RankedRouteDecision): MultiProviderResult {
+    const now = new Date().toISOString();
+    return {
+      provider_rankings: {
+        openai: {
+          provider: 'openai',
+          decision,
+          generated_at: now,
+        },
+        gemini: {
+          provider: 'gemini',
+          decision,
+          generated_at: now,
+        },
+      },
+      consensus: decision,
+    };
+  }
 
   function createTokenConfig(overrides: Partial<TokenConfig> = {}): TokenConfig {
     return {
@@ -45,7 +66,7 @@ describe('Policy-Routing Integration', () => {
       const testRouterLLM: RouterLLM = {
         async invoke(_prompt: string, eligibleModels: string[]) {
           receivedModels = eligibleModels;
-          return {
+          const decision: RankedRouteDecision = {
             intent: 'coding',
             ranked_models: eligibleModels.map((model, idx) => ({
               rank: idx + 1,
@@ -54,6 +75,7 @@ describe('Policy-Routing Integration', () => {
               reason: idx === 0 ? 'Selected from eligible list' : 'Alternative from eligible list',
             })),
           };
+          return buildMultiProviderResult(decision);
         },
       };
 
@@ -88,7 +110,7 @@ describe('Policy-Routing Integration', () => {
       const testRouterLLM: RouterLLM = {
         async invoke(_prompt: string, eligibleModels: string[]) {
           receivedModels = eligibleModels;
-          return {
+          const decision: RankedRouteDecision = {
             intent: 'coding',
             ranked_models: eligibleModels.map((model, idx) => ({
               rank: idx + 1,
@@ -97,6 +119,7 @@ describe('Policy-Routing Integration', () => {
               reason: idx === 0 ? 'Selected from eligible list' : 'Alternative from eligible list',
             })),
           };
+          return buildMultiProviderResult(decision);
         },
       };
 
@@ -132,7 +155,7 @@ describe('Policy-Routing Integration', () => {
       const testRouterLLM: RouterLLM = {
         async invoke(_prompt: string, eligibleModels: string[]) {
           receivedModels = eligibleModels;
-          return {
+          const decision: RankedRouteDecision = {
             intent: 'coding',
             ranked_models: eligibleModels.map((model, idx) => ({
               rank: idx + 1,
@@ -141,6 +164,7 @@ describe('Policy-Routing Integration', () => {
               reason: idx === 0 ? 'Selected from eligible list' : 'Alternative from eligible list',
             })),
           };
+          return buildMultiProviderResult(decision);
         },
       };
 
@@ -235,7 +259,7 @@ describe('Policy-Routing Integration', () => {
       const testRouterLLM: RouterLLM = {
         async invoke(_prompt: string, eligibleModels: string[]) {
           receivedModels = eligibleModels;
-          return {
+          const decision: RankedRouteDecision = {
             intent: 'coding',
             ranked_models: eligibleModels.map((model, idx) => ({
               rank: idx + 1,
@@ -244,6 +268,7 @@ describe('Policy-Routing Integration', () => {
               reason: idx === 0 ? 'Selected from all models' : 'Alternative from all models',
             })),
           };
+          return buildMultiProviderResult(decision);
         },
       };
 
@@ -354,7 +379,7 @@ describe('Policy-Routing Integration', () => {
 
       const testRouterLLM: RouterLLM = {
         async invoke(_prompt: string, eligibleModels: string[]) {
-          return {
+          const decision: RankedRouteDecision = {
             intent: 'other',
             ranked_models: eligibleModels.map((model, idx) => ({
               rank: idx + 1,
@@ -363,6 +388,7 @@ describe('Policy-Routing Integration', () => {
               reason: 'Test',
             })),
           };
+          return buildMultiProviderResult(decision);
         },
       };
 
@@ -394,6 +420,78 @@ describe('Policy-Routing Integration', () => {
 
       // Should only warn once despite 3 requests
       expect(warnCount).toBe(1);
+    });
+  });
+
+  describe('Legacy RouterLLM Format Support', () => {
+    it('should handle legacy RankedRouteDecision format (e.g., StubRouterLLM)', async () => {
+      // Create a router LLM that returns legacy format (like StubRouterLLM does)
+      const legacyRouterLLM: RouterLLM = {
+        async invoke(_prompt: string, eligibleModels: string[]) {
+          // Return RankedRouteDecision directly (not wrapped in MultiProviderResult)
+          const decision: RankedRouteDecision = {
+            intent: 'coding',
+            ranked_models: eligibleModels.map((model, idx) => ({
+              rank: idx + 1,
+              model,
+              score: Math.max(3, 8 - idx),
+              reason: idx === 0 ? 'Best for task' : 'Alternative',
+            })),
+          };
+          return decision; // Legacy format
+        },
+      };
+
+      const engine = new DefaultRoutingEngine({
+        routerLLM: legacyRouterLLM,
+        policyEngine,
+        modelRegistry,
+        logger: mockLogger,
+      });
+
+      const tokenConfig = createTokenConfig({
+        allowed_models: ['gpt-4-turbo', 'claude-3-5-sonnet'],
+      });
+
+      const request: RouteRequest = {
+        prompt: 'Write a function',
+      };
+
+      // Should not throw - legacy format should be wrapped and handled
+      const result = await engine.route(request, tokenConfig);
+
+      // Verify result is valid
+      expect(result.decision).toBeDefined();
+      expect(result.decision.primary).toBeDefined();
+      expect(result.decision.alternate).toBeDefined();
+      expect(result.decision.primary.model).toBe('gpt-4-turbo');
+      expect(result.decision.alternate.model).toBe('claude-3-5-sonnet');
+    });
+
+    it('should throw error for invalid RouterLLM response format', async () => {
+      // Create a router LLM that returns invalid format
+      const invalidRouterLLM: RouterLLM = {
+        async invoke() {
+          return { invalid: 'format' }; // Neither MultiProviderResult nor RankedRouteDecision
+        },
+      };
+
+      const engine = new DefaultRoutingEngine({
+        routerLLM: invalidRouterLLM,
+        policyEngine,
+        modelRegistry,
+        logger: mockLogger,
+      });
+
+      const tokenConfig = createTokenConfig();
+      const request: RouteRequest = {
+        prompt: 'Write a function',
+      };
+
+      // Should throw error about invalid format
+      await expect(engine.route(request, tokenConfig)).rejects.toThrow(
+        /Router LLM must return either MultiProviderResult or RankedRouteDecision format/
+      );
     });
   });
 });

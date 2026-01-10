@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { TokenStore } from './store';
-import { TokenCreateRequest, TokenUpdateRequest } from '../types';
+import { TokenCreateRequest, TokenUpdateRequest, VALID_ROUTER_MODEL_PREFERENCES } from '../types';
 import { ModelRegistry, ModelValidationError } from '../models';
 import { z } from 'zod';
 
@@ -25,6 +25,7 @@ const TokenCreateSchema = z.object({
   default_model: z.string().optional(),
   environment: z.enum(['prod', 'dev']).optional(),
   knowledge_scope: z.enum(['global', 'token', 'org', 'hybrid']).optional(),
+  router_model_preference: z.enum(VALID_ROUTER_MODEL_PREFERENCES).optional(),
 });
 
 const TokenUpdateSchema = TokenCreateSchema.partial();

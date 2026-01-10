@@ -13,7 +13,7 @@
  */
 
 import type { RouterLLM } from '../engine';
-import type { TokenConfig, RankedRouteDecision, RankedModel } from '../../types/index';
+import type { TokenConfig, RankedRouteDecision, RankedModel, ProviderRanking } from '../../types/index';
 import type { ProviderClient } from './providers/types';
 import { OpenAIClient, GeminiClient } from './providers/index';
 import { loadRouterLLMConfig, type RouterLLMConfig } from '../config';
@@ -25,6 +25,20 @@ import {
   RouterLLMPolicyBypassError,
   RouterLLMProviderError,
 } from './errors';
+
+/**
+ * Result from querying all router LLM providers
+ * Contains individual provider results plus aggregated consensus
+ */
+export interface MultiProviderResult {
+  /** Individual provider rankings (undefined if provider failed/disabled) */
+  provider_rankings: {
+    openai?: ProviderRanking;
+    gemini?: ProviderRanking;
+  };
+  /** Aggregated consensus from all available providers */
+  consensus: RankedRouteDecision;
+}
 
 /**
  * Multi-Provider Router LLM implementation
@@ -187,23 +201,43 @@ export class MultiProviderRouterLLM implements RouterLLM {
       });
     }
 
-    // If only one provider enabled, return its decision directly (no aggregation needed)
-    if (decisions.length === 1) {
-      this.logger?.log(`[MultiProviderRouterLLM] Single provider response`, {
-        provider: enabledProviders[0].name,
-        latencyMs: totalLatencyMs,
-        top_model: decisions[0].ranked_models[0]?.model,
-        top_score: decisions[0].ranked_models[0]?.score,
-      });
-      return decisions[0];
-    }
+    // Build provider rankings from successful decisions
+    const now = new Date().toISOString();
+    const providerRankings: MultiProviderResult['provider_rankings'] = {};
 
-    // Multiple providers - aggregate rankings
-    // Build provider names from successful decisions
+    // Map decisions to their provider names
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        const providerName = enabledProviders[index].name as 'openai' | 'gemini';
+        providerRankings[providerName] = {
+          provider: providerName,
+          decision: result.value,
+          generated_at: now,
+        };
+      }
+    });
+
+    // Get list of successful providers for logging
     const successfulProviders = results
       .map((result, index) => result.status === 'fulfilled' ? enabledProviders[index] : null)
       .filter((p): p is { client: ProviderClient; model: string; name: string } => p !== null);
 
+    // If only one provider succeeded, use its decision as consensus
+    if (decisions.length === 1) {
+      this.logger?.log(`[MultiProviderRouterLLM] Single provider response`, {
+        provider: successfulProviders[0].name,
+        latencyMs: totalLatencyMs,
+        top_model: decisions[0].ranked_models[0]?.model,
+        top_score: decisions[0].ranked_models[0]?.score,
+      });
+
+      return {
+        provider_rankings: providerRankings,
+        consensus: decisions[0],
+      };
+    }
+
+    // Multiple providers - aggregate rankings
     this.logger?.log(`[MultiProviderRouterLLM] ${decisions.length} providers responded`, {
       totalLatencyMs,
       providers: successfulProviders.map((p, i) => ({
@@ -232,7 +266,10 @@ export class MultiProviderRouterLLM implements RouterLLM {
       })),
     });
 
-    return aggregatedDecision;
+    return {
+      provider_rankings: providerRankings,
+      consensus: aggregatedDecision,
+    };
   }
 
   /**

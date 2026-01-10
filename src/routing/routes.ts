@@ -14,7 +14,8 @@ import { Router, Request, Response } from 'express';
 import { createHash } from 'crypto';
 import { RoutingEngine } from './engine';
 import { projectRouteResponse } from './projection';
-import type { RouteRequest, RoutingDecisionLogEvent, RoutingErrorLogEvent } from '../types/index';
+import type { RouteRequest, RoutingDecisionLogEvent, RoutingErrorLogEvent, RouterModelPreference } from '../types/index';
+import { VALID_ROUTER_MODEL_PREFERENCES } from '../types/index';
 import type { Logger } from '../logging/logger';
 import { z, ZodError } from 'zod';
 
@@ -30,6 +31,7 @@ const RouteRequestSchema = z.object({
   context: z.record(z.unknown()).optional(),
   prefer_model: z.string().optional(),
   metadata: z.record(z.unknown()).optional(),
+  router_model: z.enum(VALID_ROUTER_MODEL_PREFERENCES).optional(),
 });
 
 /**
@@ -103,10 +105,23 @@ export function createRoutingRoutes(
 
       logger.info('Routing decision completed', logEvent);
 
-      // Project to user-facing response (drops intent)
-      const response = projectRouteResponse(result.decision, req.requestId || 'unknown');
+      // Determine if we fell back to a different router
+      const requestedRouter = routeRequest.router_model || req.tokenConfig.router_model_preference || 'consensus';
+      const usedRouter = result.router_model_used || 'consensus';
+      const didFallback = requestedRouter !== usedRouter;
 
-      res.json(response);
+      // HTTP status: 200 for success, 203 for fallback to different provider
+      const statusCode = didFallback ? 203 : 200;
+
+      // Project to user-facing response (drops intent)
+      const response = projectRouteResponse(
+        result.decision,
+        req.requestId || 'unknown',
+        usedRouter,
+        result.cache_hit || false
+      );
+
+      res.status(statusCode).json(response);
     } catch (error) {
       const routeRequest = RouteRequestSchema.safeParse(req.body);
       const prompt = routeRequest.success ? routeRequest.data.prompt : '';
