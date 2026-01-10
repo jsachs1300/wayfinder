@@ -21,6 +21,45 @@ import { hashPrompt } from '../cache';
 import type { MultiProviderResult } from './router-llm';
 
 /**
+ * Type guard to check if a value is a MultiProviderResult
+ */
+function isMultiProviderResult(obj: unknown): obj is MultiProviderResult {
+  return (
+    typeof obj === 'object' &&
+    obj !== null &&
+    'provider_rankings' in obj &&
+    'consensus' in obj &&
+    typeof (obj as any).consensus === 'object' &&
+    (obj as any).consensus !== null &&
+    'ranked_models' in (obj as any).consensus
+  );
+}
+
+/**
+ * Type guard to check if a value is a legacy RankedRouteDecision
+ */
+function isRankedRouteDecision(obj: unknown): obj is RankedRouteDecision {
+  return (
+    typeof obj === 'object' &&
+    obj !== null &&
+    'intent' in obj &&
+    'ranked_models' in obj &&
+    Array.isArray((obj as any).ranked_models)
+  );
+}
+
+/**
+ * Wraps a legacy RankedRouteDecision into MultiProviderResult format
+ * Used when router LLM returns legacy format (e.g., StubRouterLLM)
+ */
+function wrapLegacyDecision(decision: RankedRouteDecision): MultiProviderResult {
+  return {
+    provider_rankings: {},
+    consensus: decision,
+  };
+}
+
+/**
  * Router LLM interface
  * Implementations must invoke an LLM and return a response conforming to RouteDecision schema
  *
@@ -239,15 +278,33 @@ export class DefaultRoutingEngine implements RoutingEngine {
     }
 
     // Cache miss - invoke router LLM with policy-filtered eligible models
-    // Router LLM now returns MultiProviderResult (all providers + consensus)
+    // Router LLM may return MultiProviderResult or legacy RankedRouteDecision (e.g., from StubRouterLLM)
     const rawDecision = await this.deps.routerLLM.invoke(request.prompt, eligibleModels, {
       tokenConfig,
       preferModel: request.prefer_model,
       requestMetadata: request.metadata,
     });
 
-    // Cast to MultiProviderResult (validated inside MultiProviderRouterLLM)
-    const multiProviderResult = rawDecision as MultiProviderResult;
+    // Handle both MultiProviderResult and legacy RankedRouteDecision formats
+    let multiProviderResult: MultiProviderResult;
+
+    if (isMultiProviderResult(rawDecision)) {
+      // Modern multi-provider format
+      multiProviderResult = rawDecision;
+    } else if (isRankedRouteDecision(rawDecision)) {
+      // Legacy format (e.g., StubRouterLLM) - wrap it for consistency
+      this.deps.logger.warn('Router LLM returned legacy RankedRouteDecision format, wrapping in MultiProviderResult', {
+        token_id: tokenConfig.id,
+        request_id: requestId,
+      });
+      multiProviderResult = wrapLegacyDecision(rawDecision);
+    } else {
+      // Invalid format
+      throw new Error(
+        'Router LLM must return either MultiProviderResult or RankedRouteDecision format. ' +
+        `Got: ${typeof rawDecision}`
+      );
+    }
 
     // Build CachedRouterResponse for storage
     const cachedResponse = this.buildCachedResponse(
