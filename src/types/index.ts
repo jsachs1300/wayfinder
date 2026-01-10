@@ -54,6 +54,22 @@ export interface PolicyAuditEntry {
 // Hybrid: combination of global + scoped knowledge (future - not yet implemented)
 export type KnowledgeScope = 'global' | 'token' | 'org' | 'hybrid';
 
+// Router Model Preference
+// Specifies which router LLM provider should provide the routing decision
+// - openai: Use OpenAI's routing recommendation
+// - gemini: Use Gemini's routing recommendation
+// - consensus: Use aggregated consensus from all providers (default)
+export type RouterModelPreference = 'openai' | 'gemini' | 'consensus';
+
+/**
+ * Valid router model preference values for validation
+ */
+export const VALID_ROUTER_MODEL_PREFERENCES: readonly RouterModelPreference[] = [
+  'openai',
+  'gemini',
+  'consensus',
+] as const;
+
 // Token Configuration
 export type LoggingLevel = 'normal' | 'verbose';
 export type Environment = 'prod' | 'dev';
@@ -70,6 +86,7 @@ export interface TokenConfig {
   default_model?: string;
   environment?: Environment;
   knowledge_scope?: KnowledgeScope; // Default: 'global'
+  router_model_preference?: RouterModelPreference; // Default: 'consensus'
   created_at: string;
   updated_at: string;
   rotated_at?: string;
@@ -85,6 +102,7 @@ export interface TokenCreateRequest {
   default_model?: string;
   environment?: Environment;
   knowledge_scope?: KnowledgeScope;
+  router_model_preference?: RouterModelPreference;
 }
 
 export interface TokenCreateResponse {
@@ -103,6 +121,7 @@ export interface TokenUpdateRequest {
   default_model?: string;
   environment?: Environment;
   knowledge_scope?: KnowledgeScope;
+  router_model_preference?: RouterModelPreference;
 }
 
 // Knowledge Store
@@ -143,6 +162,7 @@ export interface RouteRequest {
   context?: Record<string, unknown>;
   prefer_model?: string;
   metadata?: Record<string, unknown>;
+  router_model?: RouterModelPreference; // Override token's router_model_preference
 }
 
 /**
@@ -203,6 +223,8 @@ export interface RouteResponse {
   primary: ModelRecommendation;
   alternate: ModelRecommendation;
   request_id: string;
+  router_model_used: RouterModelPreference; // Which router provider was used
+  from_cache: boolean; // Whether response came from cache
 }
 
 /**
@@ -229,6 +251,39 @@ export interface RankedRouteDecision {
   intent: string;
   /** All eligible models ranked from best to worst */
   ranked_models: RankedModel[];
+}
+
+/**
+ * Ranking result from a single router LLM provider
+ * Used for caching per-provider results
+ */
+export interface ProviderRanking {
+  /** Provider identifier */
+  provider: 'openai' | 'gemini';
+  /** Ranked route decision from this provider */
+  decision: RankedRouteDecision;
+  /** Timestamp when generated (ISO 8601 UTC) */
+  generated_at: string;
+}
+
+/**
+ * Cached response containing all provider rankings
+ * Stored in SemanticCache, keyed by prompt
+ */
+export interface CachedRouterResponse {
+  /** The prompt this response is for */
+  prompt: string;
+  /** Per-provider rankings (contains all enabled providers) */
+  provider_rankings: {
+    openai?: ProviderRanking;
+    gemini?: ProviderRanking;
+  };
+  /** Aggregated consensus ranking from all providers */
+  consensus: RankedRouteDecision;
+  /** Timestamp when cached (ISO 8601 UTC) */
+  cached_at: string;
+  /** TTL in seconds */
+  ttl: number;
 }
 
 /**

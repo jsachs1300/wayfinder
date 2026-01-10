@@ -19,7 +19,7 @@
 import { LangCache } from '@redis-ai/langcache';
 import { createHash } from 'crypto';
 import type { CacheConfig, CacheStats } from './types';
-import type { RankedRouteDecision } from '../types/index';
+import type { CachedRouterResponse } from '../types/index';
 
 /**
  * SemanticCache class
@@ -52,9 +52,9 @@ export class SemanticCache {
    * Get a cached routing decision using global semantic matching
    *
    * @param prompt - User's prompt
-   * @returns Cached RankedRouteDecision or null if not found
+   * @returns Cached CachedRouterResponse or null if not found
    */
-  async get(prompt: string): Promise<RankedRouteDecision | null> {
+  async get(prompt: string): Promise<CachedRouterResponse | null> {
     try {
       // Search for cached entries using semantic matching
       // Semantic match finds similar prompts (e.g., "analyze csv" ≈ "process csv")
@@ -95,16 +95,18 @@ export class SemanticCache {
       }
 
       // Parse cached response from first result (stored as JSON string)
-      const cachedDecision = JSON.parse(data[0].response) as RankedRouteDecision;
+      const cachedResponse = JSON.parse(data[0].response) as CachedRouterResponse;
       console.log('LangCache cache hit!', {
         prompt_hash: this.hashPrompt(prompt),
         similarity: data[0].similarity,
         searchStrategy: data[0].searchStrategy,
-        top_model: cachedDecision.ranked_models[0]?.model,
+        consensus_top_model: cachedResponse.consensus.ranked_models[0]?.model,
+        has_openai: !!cachedResponse.provider_rankings.openai,
+        has_gemini: !!cachedResponse.provider_rankings.gemini,
       });
       this.stats.hits++;
 
-      return cachedDecision;
+      return cachedResponse;
     } catch (error) {
       // Graceful degradation: log error and return null
       // Cache failures should never block routing
@@ -121,15 +123,15 @@ export class SemanticCache {
    * Store a routing decision in global cache
    *
    * @param prompt - User's prompt
-   * @param decision - RankedRouteDecision to cache (full ranked list)
+   * @param response - CachedRouterResponse to cache (all provider rankings + consensus)
    */
-  async set(prompt: string, decision: RankedRouteDecision): Promise<void> {
+  async set(prompt: string, response: CachedRouterResponse): Promise<void> {
     try {
-      // Store decision as JSON string in global cache
-      // No token scoping - any token can retrieve this cached decision
+      // Store response as JSON string in global cache
+      // No token scoping - any token can retrieve this cached response
       const setResult = await this.client.set({
         prompt,
-        response: JSON.stringify(decision),
+        response: JSON.stringify(response),
         ttl: this.config.ttl,
       });
 
@@ -138,8 +140,10 @@ export class SemanticCache {
       console.log('LangCache set() input:', {
         prompt_hash: this.hashPrompt(prompt),
         prompt_length: prompt.length,
-        response_length: JSON.stringify(decision).length,
+        response_length: JSON.stringify(response).length,
         ttl: this.config.ttl,
+        has_openai: !!response.provider_rankings.openai,
+        has_gemini: !!response.provider_rankings.gemini,
         config: {
           serverURL: this.config.serverURL,
           cacheId: this.config.cacheId,
