@@ -200,6 +200,15 @@ export class SemanticCache {
   }
 
   /**
+   * Get the configured TTL (time-to-live) for cache entries
+   *
+   * @returns TTL in seconds
+   */
+  getTTL(): number {
+    return this.config.ttl;
+  }
+
+  /**
    * Create SHA256 hash of prompt for privacy-safe logging
    *
    * @param prompt - User's prompt

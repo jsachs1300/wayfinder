@@ -31,7 +31,7 @@ const RouteRequestSchema = z.object({
   context: z.record(z.unknown()).optional(),
   prefer_model: z.string().optional(),
   metadata: z.record(z.unknown()).optional(),
-  router_model: z.enum(['openai', 'gemini', 'consensus']).optional(),
+  router_model: z.enum(VALID_ROUTER_MODEL_PREFERENCES).optional(),
 });
 
 /**

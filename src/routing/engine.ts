@@ -44,17 +44,40 @@ function isRankedRouteDecision(obj: unknown): obj is RankedRouteDecision {
     obj !== null &&
     'intent' in obj &&
     'ranked_models' in obj &&
-    Array.isArray((obj as any).ranked_models)
+    Array.isArray((obj as any).ranked_models) &&
+    (obj as any).ranked_models.length > 0
   );
 }
 
 /**
  * Wraps a legacy RankedRouteDecision into MultiProviderResult format
- * Used when router LLM returns legacy format (e.g., StubRouterLLM)
+ *
+ * For backward compatibility with routers that return the old format (e.g., StubRouterLLM).
+ * Populates the requested provider's ranking to avoid unnecessary fallback to consensus.
+ *
+ * @param decision - Legacy RankedRouteDecision
+ * @param requestedProvider - Which provider the user requested
+ * @returns MultiProviderResult with consensus and optionally requested provider populated
  */
-function wrapLegacyDecision(decision: RankedRouteDecision): MultiProviderResult {
+function wrapLegacyDecision(
+  decision: RankedRouteDecision,
+  requestedProvider: RouterModelPreference
+): MultiProviderResult {
+  const now = new Date().toISOString();
+  const providerRankings: MultiProviderResult['provider_rankings'] = {};
+
+  // If a specific provider was requested (not consensus), populate it
+  // This prevents unnecessary fallback when using legacy routers like StubRouterLLM
+  if (requestedProvider !== 'consensus') {
+    providerRankings[requestedProvider] = {
+      provider: requestedProvider,
+      decision,
+      generated_at: now,
+    };
+  }
+
   return {
-    provider_rankings: {},
+    provider_rankings: providerRankings,
     consensus: decision,
   };
 }
@@ -297,7 +320,7 @@ export class DefaultRoutingEngine implements RoutingEngine {
         token_id: tokenConfig.id,
         request_id: requestId,
       });
-      multiProviderResult = wrapLegacyDecision(rawDecision);
+      multiProviderResult = wrapLegacyDecision(rawDecision, effectiveRouter);
     } else {
       // Invalid format
       throw new Error(
@@ -310,7 +333,7 @@ export class DefaultRoutingEngine implements RoutingEngine {
     const cachedResponse = this.buildCachedResponse(
       request.prompt,
       multiProviderResult,
-      this.deps.cache?.['config']?.ttl ?? 3600 // Default 1 hour if not configured
+      this.deps.cache?.getTTL() ?? 3600 // Default 1 hour if not configured
     );
 
     // Extract the requested provider's ranking
@@ -421,6 +444,14 @@ export class DefaultRoutingEngine implements RoutingEngine {
 
   /**
    * Builds a CachedRouterResponse from MultiProviderResult
+   *
+   * Constructs a complete cache entry containing all provider rankings and consensus.
+   * This allows future requests to retrieve rankings from any provider without re-invoking router LLMs.
+   *
+   * @param prompt - Original user prompt used as cache key
+   * @param multiProviderResult - Router LLM response with all provider rankings and consensus
+   * @param ttl - Time-to-live in seconds for this cache entry
+   * @returns Complete CachedRouterResponse ready for storage
    */
   private buildCachedResponse(
     prompt: string,
