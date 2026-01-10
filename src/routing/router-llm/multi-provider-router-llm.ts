@@ -205,19 +205,22 @@ export class MultiProviderRouterLLM implements RouterLLM {
     const now = new Date().toISOString();
     const providerRankings: MultiProviderResult['provider_rankings'] = {};
 
-    // Map decisions back to their provider names
+    // Map decisions to their provider names
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        const providerName = enabledProviders[index].name as 'openai' | 'gemini';
+        providerRankings[providerName] = {
+          provider: providerName,
+          decision: result.value,
+          generated_at: now,
+        };
+      }
+    });
+
+    // Get list of successful providers for logging
     const successfulProviders = results
       .map((result, index) => result.status === 'fulfilled' ? enabledProviders[index] : null)
       .filter((p): p is { client: ProviderClient; model: string; name: string } => p !== null);
-
-    successfulProviders.forEach((provider, index) => {
-      const providerName = provider.name as 'openai' | 'gemini';
-      providerRankings[providerName] = {
-        provider: providerName,
-        decision: decisions[index],
-        generated_at: now,
-      };
-    });
 
     // If only one provider succeeded, use its decision as consensus
     if (decisions.length === 1) {

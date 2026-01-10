@@ -213,6 +213,8 @@ export interface RouteResult {
   };
   /** Whether this decision came from cache (optional) */
   cache_hit?: boolean;
+  /** Which router provider was actually used */
+  router_model_used?: RouterModelPreference;
 }
 
 /**

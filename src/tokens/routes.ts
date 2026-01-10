@@ -25,6 +25,7 @@ const TokenCreateSchema = z.object({
   default_model: z.string().optional(),
   environment: z.enum(['prod', 'dev']).optional(),
   knowledge_scope: z.enum(['global', 'token', 'org', 'hybrid']).optional(),
+  router_model_preference: z.enum(['openai', 'gemini', 'consensus']).optional(),
 });
 
 const TokenUpdateSchema = TokenCreateSchema.partial();
