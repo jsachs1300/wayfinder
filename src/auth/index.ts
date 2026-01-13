@@ -1,1 +1,7 @@
-export { tokenAuthMiddleware, adminAuthMiddleware, requestIdMiddleware, hashToken } from './middleware';
+export {
+  tokenAuthMiddleware,
+  adminAuthMiddleware,
+  requestIdMiddleware,
+  requireUserAuthMiddleware,
+  hashToken
+} from './middleware';

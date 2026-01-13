@@ -69,12 +69,19 @@ export function createRoutingRoutes(
 
       const routeRequest: RouteRequest = parsed.data;
 
+      // Prepare user context for routing engine (if user is authenticated)
+      const userContext = req.user ? {
+        user: req.user,
+        userTier: req.userTier,
+      } : undefined;
+
       // Get routing decision from engine (includes intent and policy metadata)
       // The engine handles policy evaluation and logging internally
       const result = await routingEngine.route(
         routeRequest,
         req.tokenConfig,
         req.requestId,
+        userContext,
       );
 
       // Structured logging for routing decision per REQUIREMENTS.md §12

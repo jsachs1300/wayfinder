@@ -1,0 +1,290 @@
+import { Router, Request, Response } from 'express';
+import { TokenStore } from './store';
+import { TokenConfigExtended } from './types';
+import { TokenConfig, TokenCreateRequest, TokenUpdateRequest, VALID_ROUTER_MODEL_PREFERENCES } from '../types';
+import { ModelRegistry, ModelValidationError } from '../models';
+import { User } from '../users/types';
+import { z } from 'zod';
+
+interface IdParams {
+  id: string;
+}
+
+const PolicyRuleSchema = z.object({
+  type: z.enum(['ForceModelByIntent', 'RestrictModelsByIntent', 'AllowModelsGlobal', 'DenyModelsGlobal']),
+  intent: z.enum(['code_review', 'coding', 'legal', 'summarization', 'reasoning', 'creative', 'support', 'other']).optional(),
+  models: z.array(z.string()),
+  priority: z.number().optional(),
+});
+
+const UserTokenCreateSchema = z.object({
+  name: z.string().optional(),
+  trusted_anchor_model: z.string().optional(),
+  allowed_models: z.array(z.string()).optional(),
+  denied_models: z.array(z.string()).optional(),
+  policy_rules: z.array(PolicyRuleSchema).optional(),
+  confidence_threshold: z.number().min(0).max(1).optional(),
+  logging_level: z.enum(['normal', 'verbose']).optional(),
+  default_model: z.string().optional(),
+  environment: z.enum(['prod', 'dev']).optional(),
+  knowledge_scope: z.enum(['global', 'token', 'org', 'hybrid']).optional(),
+  router_model_preference: z.enum(VALID_ROUTER_MODEL_PREFERENCES as [string, ...string[]]).optional(),
+});
+
+const MAX_TOKENS_PER_USER = parseInt(process.env.MAX_TOKENS_PER_USER || '10', 10);
+
+/**
+ * Extended request with user context
+ */
+interface AuthenticatedRequest extends Request {
+  user?: User;
+  tokenConfig?: TokenConfig;
+}
+
+/**
+ * Create user-facing routes for token management
+ */
+export function createUserTokenRoutes(
+  tokenStore: TokenStore,
+  modelRegistry: ModelRegistry
+): Router {
+  const router = Router();
+
+  // List user's tokens
+  router.get('/tokens', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      if (!req.user) {
+        res.status(401).json({
+          error: 'Unauthorized',
+          code: 'AUTH_003',
+          message: 'Authentication required',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      const tokens = await tokenStore.listByUser(req.user.id);
+
+      res.json({
+        tokens: tokens.map((t) => ({
+          id: t.id,
+          name: t.name,
+          is_primary: t.is_primary,
+          environment: t.environment,
+          created_at: t.created_at,
+          updated_at: t.updated_at,
+          rotated_at: t.rotated_at,
+        })),
+        count: tokens.length,
+      });
+    } catch (error) {
+      res.status(500).json({
+        error: 'InternalError',
+        message: 'Failed to list tokens',
+        timestamp: new Date().toISOString(),
+      });
+    }
+  });
+
+  // Create new token for user
+  router.post('/tokens', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      if (!req.user) {
+        res.status(401).json({
+          error: 'Unauthorized',
+          code: 'AUTH_003',
+          message: 'Authentication required',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      const parsed = UserTokenCreateSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          error: 'ValidationError',
+          code: 'VAL_003',
+          message: 'Invalid request body',
+          details: parsed.error.errors,
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      // Check token limit
+      const existingTokens = await tokenStore.listByUser(req.user.id);
+      if (existingTokens.length >= MAX_TOKENS_PER_USER) {
+        res.status(400).json({
+          error: 'TokenLimitExceeded',
+          code: 'TOKEN_004',
+          message: `Token limit exceeded. Maximum ${MAX_TOKENS_PER_USER} tokens per user allowed.`,
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      const request: TokenCreateRequest = {
+        ...parsed.data,
+        router_model_preference: parsed.data.router_model_preference as any,
+      };
+
+      // Validate all model identifiers against the registry
+      try {
+        modelRegistry.validateTokenConfig(request);
+      } catch (error) {
+        if (error instanceof ModelValidationError) {
+          res.status(400).json({
+            error: error.name,
+            message: error.message,
+            timestamp: new Date().toISOString(),
+          });
+          return;
+        }
+        throw error;
+      }
+
+      // Create token with user_id
+      const result = await tokenStore.createForUser(req.user.id, parsed.data.name ?? null, request);
+
+      res.status(201).json({
+        id: result.id,
+        token: result.token,
+        name: result.config.name,
+        config: {
+          ...result.config,
+          token_hash: undefined, // Never expose hash
+          user_id: undefined, // Don't expose user_id in response
+        },
+      });
+    } catch (error) {
+      res.status(500).json({
+        error: 'InternalError',
+        message: 'Failed to create token',
+        timestamp: new Date().toISOString(),
+      });
+    }
+  });
+
+  // Delete user's token
+  router.delete('/tokens/:id', async (req: Request<IdParams> & AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      if (!req.user) {
+        res.status(401).json({
+          error: 'Unauthorized',
+          code: 'AUTH_003',
+          message: 'Authentication required',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      const { id } = req.params;
+      const token = await tokenStore.getById(id) as TokenConfigExtended | null;
+
+      if (!token) {
+        res.status(404).json({
+          error: 'NotFound',
+          code: 'TOKEN_001',
+          message: 'Token not found',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      // Verify user owns the token
+      if (token.user_id !== req.user.id) {
+        res.status(403).json({
+          error: 'Forbidden',
+          code: 'TOKEN_003',
+          message: 'Token does not belong to user',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      // Cannot delete primary token
+      if (token.is_primary) {
+        res.status(403).json({
+          error: 'Forbidden',
+          code: 'TOKEN_002',
+          message: 'Cannot delete primary token',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      await tokenStore.delete(id);
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({
+        error: 'InternalError',
+        message: 'Failed to delete token',
+        timestamp: new Date().toISOString(),
+      });
+    }
+  });
+
+  // Rotate token
+  router.post('/tokens/:id/rotate', async (req: Request<IdParams> & AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      if (!req.user) {
+        res.status(401).json({
+          error: 'Unauthorized',
+          code: 'AUTH_003',
+          message: 'Authentication required',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      const { id } = req.params;
+      const token = await tokenStore.getById(id) as TokenConfigExtended | null;
+
+      if (!token) {
+        res.status(404).json({
+          error: 'NotFound',
+          code: 'TOKEN_001',
+          message: 'Token not found',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      // Verify user owns the token
+      if (token.user_id !== req.user.id) {
+        res.status(403).json({
+          error: 'Forbidden',
+          code: 'TOKEN_003',
+          message: 'Token does not belong to user',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      const result = await tokenStore.rotate(id);
+
+      if (!result) {
+        res.status(404).json({
+          error: 'NotFound',
+          code: 'TOKEN_001',
+          message: 'Token not found',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      res.json({
+        token: result.token,
+        rotated_at: result.config.rotated_at,
+      });
+    } catch (error) {
+      res.status(500).json({
+        error: 'InternalError',
+        message: 'Failed to rotate token',
+        timestamp: new Date().toISOString(),
+      });
+    }
+  });
+
+  return router;
+}

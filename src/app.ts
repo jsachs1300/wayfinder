@@ -12,8 +12,12 @@ import { createRoutingEngine, createRoutingRoutes, RoutingEngine, StubRouterLLM,
 import { createFeedbackHandler, createFeedbackRoutes, FeedbackHandler } from './feedback';
 import { createOpinionPoller, OpinionPoller } from './polling';
 import { createLogger, Logger } from './logging';
-import { createRateLimiters } from './middleware';
+import { createRateLimiters, createTierRateLimiter } from './middleware';
 import { SemanticCache, loadCacheConfig } from './cache';
+import { FEATURE_FLAGS } from './config';
+import { createUserStore, type UserStore } from './users';
+import { createAnonymousSessionStore, type AnonymousSessionStore } from './users/anonymous';
+import { createUserLLMKeyStore, type UserLLMKeyStore } from './users/llm-keys';
 
 /**
  * Application dependencies container
@@ -21,6 +25,9 @@ import { SemanticCache, loadCacheConfig } from './cache';
 export interface AppDependencies {
   redis?: Redis;
   tokenStore: TokenStore;
+  userStore?: UserStore;
+  userLLMKeyStore?: UserLLMKeyStore;
+  anonymousSessionStore?: AnonymousSessionStore;
   policyEngine: PolicyEngine;
   knowledgeStore: KnowledgeStore;
   modelRegistry: DefaultModelRegistry;
@@ -129,6 +136,24 @@ export function createApp(deps?: Partial<AppDependencies>): {
     }
   }
   const tokenStore = deps?.tokenStore ?? createTokenStore(redis);
+
+  // Initialize user-related stores if user self-service feature is enabled
+  let userStore: UserStore | undefined;
+  let userLLMKeyStore: UserLLMKeyStore | undefined;
+  let anonymousSessionStore: AnonymousSessionStore | undefined;
+
+  if (FEATURE_FLAGS.USER_SELF_SERVICE) {
+    userStore = deps?.userStore ?? createUserStore(redis);
+    userLLMKeyStore = deps?.userLLMKeyStore ?? createUserLLMKeyStore(redis);
+    anonymousSessionStore = deps?.anonymousSessionStore ?? createAnonymousSessionStore(tokenStore, redis);
+
+    logger.info('User self-service features enabled', {
+      userStore: userStore ? 'initialized' : 'not available',
+      userLLMKeyStore: userLLMKeyStore ? 'initialized' : 'not available',
+      anonymousSessionStore: anonymousSessionStore ? 'initialized' : 'not available',
+    });
+  }
+
   const policyEngine = deps?.policyEngine ?? createPolicyEngine();
   const modelRegistry = deps?.modelRegistry ?? createModelRegistry();
   const knowledgeStore = deps?.knowledgeStore ?? createKnowledgeStore(redis, modelRegistry);
@@ -159,11 +184,15 @@ export function createApp(deps?: Partial<AppDependencies>): {
       modelRegistry,
       logger,
       cache,
+      userLLMKeyStore, // Pass UserLLMKeyStore for BYOLLM support
     });
 
   const dependencies: AppDependencies = {
     redis,
     tokenStore,
+    userStore,
+    userLLMKeyStore,
+    anonymousSessionStore,
     policyEngine,
     knowledgeStore,
     modelRegistry,
@@ -262,6 +291,52 @@ export function createApp(deps?: Partial<AppDependencies>): {
     });
   });
 
+  // Update user tier (admin only) - for testing/support purposes
+  if (userStore) {
+    adminRouter.patch('/users/:userId/tier', async (req: Request, res: Response) => {
+      try {
+        const { userId } = req.params;
+        const { tier } = req.body;
+
+        if (!tier || !['free', 'paid_system', 'paid_byollm', 'admin'].includes(tier)) {
+          res.status(400).json({
+            error: 'ValidationError',
+            message: 'Invalid tier. Must be one of: free, paid_system, paid_byollm, admin',
+            timestamp: new Date().toISOString(),
+          });
+          return;
+        }
+
+        const user = await userStore.getById(userId);
+        if (!user) {
+          res.status(404).json({
+            error: 'NotFound',
+            message: 'User not found',
+            timestamp: new Date().toISOString(),
+          });
+          return;
+        }
+
+        const updated = await userStore.update(userId, { tier });
+        res.json({
+          id: updated.id,
+          email: updated.email,
+          tier: updated.tier,
+          status: updated.status,
+          updated_at: updated.updated_at,
+        });
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        res.status(500).json({
+          error: 'InternalError',
+          message: 'Failed to update user tier',
+          details: { error: errorMessage },
+          timestamp: new Date().toISOString(),
+        });
+      }
+    });
+  }
+
   // Cache management endpoints (admin only)
   if (cache) {
     adminRouter.get('/cache/stats', async (_req: Request, res: Response) => {
@@ -314,8 +389,59 @@ export function createApp(deps?: Partial<AppDependencies>): {
 
   // Protected routes (require token auth + rate limiting)
   // Mount routers at their specific paths
-  app.use('/route', rateLimiters.routing, tokenAuthMiddleware(tokenStore), createRoutingRoutes(routingEngine, logger));
-  app.use('/feedback', rateLimiters.feedback, tokenAuthMiddleware(tokenStore), createFeedbackRoutes(feedbackHandler, modelRegistry));
+
+  // Create tier-aware rate limiter for routing endpoint (if user self-service enabled)
+  const tierRateLimiter = FEATURE_FLAGS.USER_SELF_SERVICE
+    ? createTierRateLimiter(redis)
+    : (_req: Request, _res: Response, next: NextFunction) => next(); // No-op if feature disabled
+
+  // Routing endpoint: Apply both standard rate limiter and tier-aware limiter
+  app.use('/route',
+    rateLimiters.routing,
+    tokenAuthMiddleware(tokenStore, userStore),
+    tierRateLimiter,
+    createRoutingRoutes(routingEngine, logger)
+  );
+
+  app.use('/feedback',
+    rateLimiters.feedback,
+    tokenAuthMiddleware(tokenStore, userStore),
+    createFeedbackRoutes(feedbackHandler, modelRegistry)
+  );
+
+  // User self-service routes (feature-flagged)
+  if (FEATURE_FLAGS.USER_SELF_SERVICE && userStore && userLLMKeyStore && anonymousSessionStore) {
+    logger.info('Mounting user self-service routes');
+
+    // Import route creators dynamically to avoid errors if modules don't exist
+    try {
+      const { createUserRoutes } = require('./users/routes');
+      const { createAnonymousRoutes } = require('./users/anonymous/routes');
+      const { createUserTokenRoutes } = require('./tokens/user-routes');
+      const { createLLMKeyRoutes } = require('./users/llm-keys/routes');
+
+      // Public routes (no auth required)
+      app.use('/api/users', createUserRoutes(userStore, tokenStore, logger));
+      app.use('/api/anonymous', createAnonymousRoutes(anonymousSessionStore, tokenStore, userStore, logger));
+
+      // Protected routes (require user auth)
+      app.use('/api/tokens',
+        tokenAuthMiddleware(tokenStore, userStore),
+        createUserTokenRoutes(tokenStore, modelRegistry)
+      );
+
+      app.use('/api/llm-keys',
+        tokenAuthMiddleware(tokenStore, userStore),
+        createLLMKeyRoutes(userLLMKeyStore)
+      );
+
+      logger.info('User self-service routes mounted successfully');
+    } catch (error) {
+      logger.error('Failed to mount user self-service routes', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
 
   // 404 handler
   app.use((_req: Request, res: Response) => {

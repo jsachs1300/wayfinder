@@ -112,7 +112,7 @@ export interface RouterLLM {
    *
    * @param prompt - User's prompt
    * @param eligibleModels - Models eligible for selection (after policy constraints)
-   * @param context - Additional context (token config, preferences, etc.)
+   * @param context - Additional context (token config, preferences, user keys, etc.)
    * @returns Raw LLM response (will be validated against RouteDecision schema)
    */
   invoke(
@@ -122,6 +122,7 @@ export interface RouterLLM {
       tokenConfig: TokenConfig;
       preferModel?: string;
       requestMetadata?: Record<string, unknown>;
+      userLLMKeys?: any[]; // Optional: DecryptedLLMKey[] for BYOLLM users
     },
   ): Promise<unknown>;
 }
@@ -131,6 +132,10 @@ export interface RoutingEngine {
     request: RouteRequest,
     tokenConfig: TokenConfig,
     requestId?: string,
+    userContext?: {
+      user?: any; // User object from users/types (if authenticated)
+      userTier?: any; // UserTier from users/types
+    },
   ): Promise<RouteResult>;
 }
 
@@ -140,6 +145,7 @@ export interface RoutingEngineDependencies {
   modelRegistry: ModelRegistry;
   logger: Logger;
   cache?: SemanticCache;
+  userLLMKeyStore?: any; // Optional: UserLLMKeyStore from users/llm-keys (if BYOLLM enabled)
 }
 
 export class DefaultRoutingEngine implements RoutingEngine {
@@ -151,6 +157,10 @@ export class DefaultRoutingEngine implements RoutingEngine {
     request: RouteRequest,
     tokenConfig: TokenConfig,
     requestId?: string,
+    userContext?: {
+      user?: any;
+      userTier?: any;
+    },
   ): Promise<RouteResult> {
     // Get all available models from registry
     const availableModels = this.deps.modelRegistry.getAvailableModels();
@@ -300,12 +310,34 @@ export class DefaultRoutingEngine implements RoutingEngine {
       });
     }
 
+    // Load user LLM keys if BYOLLM tier (for BYOLLM feature)
+    let userLLMKeys: any[] | undefined;
+    if (userContext?.userTier === 'paid_byollm' && userContext?.user?.id && this.deps.userLLMKeyStore) {
+      try {
+        userLLMKeys = await this.deps.userLLMKeyStore.getDecryptedKeys(userContext.user.id);
+
+        if (!userLLMKeys || userLLMKeys.length === 0) {
+          this.deps.logger.warn('BYOLLM user has no configured LLM keys, falling back to system', {
+            user_id: userContext.user.id,
+            request_id: requestId,
+          });
+        }
+      } catch (error) {
+        this.deps.logger.error('Failed to load user LLM keys, falling back to system', {
+          user_id: userContext.user.id,
+          request_id: requestId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
     // Cache miss - invoke router LLM with policy-filtered eligible models
     // Router LLM may return MultiProviderResult or legacy RankedRouteDecision (e.g., from StubRouterLLM)
     const rawDecision = await this.deps.routerLLM.invoke(request.prompt, eligibleModels, {
       tokenConfig,
       preferModel: request.prefer_model,
       requestMetadata: request.metadata,
+      userLLMKeys, // Pass user's LLM keys if BYOLLM tier
     });
 
     // Handle both MultiProviderResult and legacy RankedRouteDecision formats

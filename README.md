@@ -13,6 +13,19 @@ Wayfinder is a **routing control plane** that:
 
 Unlike a load balancer, Wayfinder's router LLM understands prompt semantics and makes informed decisions. Policy constraints ensure all routing respects security and compliance requirements.
 
+### User Self-Service & BYOLLM (Optional Features)
+
+When enabled via `FEATURE_USER_SELF_SERVICE=true`, Wayfinder supports:
+
+- **User Registration** - Self-service account creation with email/password
+- **Three-Tier System** - Free, Paid (System), and Paid (BYOLLM) tiers with different rate limits
+- **Anonymous Sessions** - Try Wayfinder without registration, upgrade later
+- **Bring Your Own LLM (BYOLLM)** - Configure your own OpenAI/Gemini API keys for routing
+- **Encrypted Key Storage** - User LLM keys encrypted at rest with AES-256-GCM
+- **Token Management** - Users can create, rotate, and delete their own API tokens
+
+These features are **optional and backward compatible**. Existing admin token workflows continue working unchanged.
+
 ## Quick Start
 
 Get Wayfinder running in 4 steps:
@@ -33,7 +46,9 @@ npm run dev
 
 The system requires a router LLM API key to function. Without it, you'll get an error. See [Router LLM Setup](#router-llm-setup-required) below.
 
-Then create your first token and make a routing request:
+### Option A: Admin Token Flow (Traditional)
+
+Create a token via admin API and use it for routing:
 
 ```bash
 # Create a token (save the returned token value)
@@ -43,6 +58,27 @@ curl -X POST http://localhost:3000/admin/tokens \
   -d '{"default_model": "gpt-4o"}'
 
 # Use the token to route a request
+curl -X POST http://localhost:3000/route \
+  -H "X-Wayfinder-Token: wf_xxxxx" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Write a function to reverse a string"}'
+```
+
+### Option B: User Self-Service Flow (New)
+
+If user self-service features are enabled (`FEATURE_USER_SELF_SERVICE=true`), users can register and manage their own tokens:
+
+```bash
+# Register a new user account
+curl -X POST http://localhost:3000/api/users/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "user@example.com",
+    "password": "SecurePass123!"
+  }'
+
+# The response includes a token you can use immediately
+# Use the token to route requests
 curl -X POST http://localhost:3000/route \
   -H "X-Wayfinder-Token: wf_xxxxx" \
   -H "Content-Type: application/json" \
@@ -442,6 +478,32 @@ Every routing request follows this deterministic flow:
 - `POST /route` - Route a request to the appropriate model
 - `POST /feedback` - Submit feedback on a routing decision
 
+### User Self-Service Endpoints (Optional Feature)
+
+When `FEATURE_USER_SELF_SERVICE=true`:
+
+**Authentication (No Auth Required)**
+- `POST /api/users/register` - Create a new user account
+- `POST /api/users/login` - Authenticate and get user data
+- `POST /api/anonymous/session` - Create anonymous session
+- `POST /api/anonymous/convert` - Convert anonymous to registered user
+
+**User Profile (Token Auth Required)**
+- `GET /api/users/me` - Get current user profile
+- `PATCH /api/users/me` - Update user profile
+
+**User Token Management (Token Auth Required)**
+- `GET /api/tokens` - List user's tokens
+- `POST /api/tokens` - Create new token
+- `DELETE /api/tokens/:id` - Delete token
+- `POST /api/tokens/:id/rotate` - Rotate token
+
+**BYOLLM Key Management (Token Auth Required, paid_byollm tier only)**
+- `GET /api/llm-keys` - List configured LLM provider keys
+- `POST /api/llm-keys` - Add/update LLM provider key
+- `DELETE /api/llm-keys/:provider` - Remove LLM provider key
+- `POST /api/llm-keys/:provider/validate` - Validate LLM key
+
 ### Admin Endpoints (Admin Auth Required)
 
 **Token Management**
@@ -463,9 +525,48 @@ Every routing request follows this deterministic flow:
 
 ### Authentication
 
-All requests require authentication:
-- **User requests**: `X-Wayfinder-Token` header (format: `wf_xxxxx`)
-- **Admin requests**: `X-Admin-Api-Key` header
+Wayfinder supports two authentication models:
+
+#### Admin Authentication (Traditional)
+
+Admin operations require the `X-Admin-Api-Key` header:
+
+```bash
+curl http://localhost:3000/admin/tokens \
+  -H "X-Admin-Api-Key: your-admin-key"
+```
+
+Used for:
+- Creating/managing tokens via admin API
+- Viewing knowledge store statistics
+- Managing models
+
+#### Token Authentication
+
+All routing and feedback requests require a Wayfinder token via the `X-Wayfinder-Token` header:
+
+```bash
+curl http://localhost:3000/route \
+  -H "X-Wayfinder-Token: wf_xxxxx" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Your prompt here"}'
+```
+
+**Token Sources:**
+- **Admin-created tokens**: Created via `/admin/tokens` endpoint (legacy)
+- **User-created tokens**: Created via user registration or `/api/tokens` endpoint (when self-service enabled)
+- **Anonymous tokens**: Temporary tokens from anonymous sessions
+
+All tokens work identically for routing requests, regardless of how they were created.
+
+#### Backward Compatibility
+
+The new user self-service features are **fully backward compatible**:
+
+- Existing admin-created tokens continue working without changes
+- Admin tokens are treated as "admin tier" with unlimited rate limits
+- System gracefully degrades if user features are disabled (`FEATURE_USER_SELF_SERVICE=false`)
+- No database migration required - new fields are optional
 
 ### Endpoints
 
@@ -635,6 +736,355 @@ Response:
 }
 ```
 
+### User Self-Service API Reference
+
+The following endpoints are available when `FEATURE_USER_SELF_SERVICE=true`.
+
+#### User Registration
+
+```http
+POST /api/users/register
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "password": "SecurePass123!"
+}
+```
+
+**Response (201):**
+```json
+{
+  "user": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "email": "user@example.com",
+    "tier": "free",
+    "status": "active",
+    "created_at": "2026-01-12T10:00:00Z"
+  },
+  "token": {
+    "id": "660e8400-e29b-41d4-a716-446655440001",
+    "token": "wf_aBcDeFgHiJkLmNoPqRsTuVwXyZ123456",
+    "name": "Default Token",
+    "is_primary": true
+  }
+}
+```
+
+**Password Requirements:**
+- Minimum 8 characters
+- At least one uppercase letter
+- At least one lowercase letter
+- At least one digit
+
+#### User Login
+
+```http
+POST /api/users/login
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "password": "SecurePass123!"
+}
+```
+
+**Response (200):**
+```json
+{
+  "user": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "email": "user@example.com",
+    "tier": "paid_system",
+    "status": "active"
+  },
+  "tokens": [
+    {
+      "id": "660e8400-e29b-41d4-a716-446655440001",
+      "name": "Default Token",
+      "is_primary": true,
+      "created_at": "2026-01-12T10:00:00Z"
+    }
+  ]
+}
+```
+
+#### Anonymous Session
+
+Create a temporary session without registration:
+
+```http
+POST /api/anonymous/session
+```
+
+**Response (201):**
+```json
+{
+  "session_id": "880e8400-e29b-41d4-a716-446655440003",
+  "token": "wf_AnOnYmOuSsEsSiOnToKeN12345678",
+  "expires_at": "2026-01-19T10:00:00Z",
+  "rate_limits": {
+    "requests_per_hour": 10,
+    "requests_per_day": 50,
+    "remaining_today": 50
+  }
+}
+```
+
+#### Convert Anonymous to Registered
+
+```http
+POST /api/anonymous/convert
+X-Wayfinder-Token: wf_AnOnYmOuSsEsSiOnToKeN12345678
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "password": "SecurePass123!"
+}
+```
+
+**Response (200):**
+```json
+{
+  "user": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "email": "user@example.com",
+    "tier": "free",
+    "status": "active"
+  },
+  "token": {
+    "id": "660e8400-e29b-41d4-a716-446655440001",
+    "name": "Converted from anonymous",
+    "is_primary": true
+  },
+  "message": "Account created. Your existing token has been linked to your account."
+}
+```
+
+#### Get User Profile
+
+```http
+GET /api/users/me
+X-Wayfinder-Token: wf_xxxxx
+```
+
+**Response (200):**
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "email": "user@example.com",
+  "tier": "paid_byollm",
+  "status": "active",
+  "created_at": "2026-01-12T10:00:00Z",
+  "updated_at": "2026-01-12T10:00:00Z"
+}
+```
+
+#### Update User Profile
+
+```http
+PATCH /api/users/me
+X-Wayfinder-Token: wf_xxxxx
+Content-Type: application/json
+
+{
+  "email": "newemail@example.com",
+  "password": "NewSecurePass456!"
+}
+```
+
+**Response (200):**
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "email": "newemail@example.com",
+  "updated_at": "2026-01-12T16:00:00Z"
+}
+```
+
+#### List User Tokens
+
+```http
+GET /api/tokens
+X-Wayfinder-Token: wf_xxxxx
+```
+
+**Response (200):**
+```json
+{
+  "tokens": [
+    {
+      "id": "660e8400-e29b-41d4-a716-446655440001",
+      "name": "Default Token",
+      "is_primary": true,
+      "environment": "dev",
+      "created_at": "2026-01-12T10:00:00Z"
+    }
+  ],
+  "count": 1
+}
+```
+
+#### Create User Token
+
+```http
+POST /api/tokens
+X-Wayfinder-Token: wf_xxxxx
+Content-Type: application/json
+
+{
+  "name": "Production API",
+  "environment": "prod",
+  "allowed_models": ["gpt-4o", "claude-3-5-sonnet"],
+  "confidence_threshold": 0.8
+}
+```
+
+**Response (201):**
+```json
+{
+  "id": "770e8400-e29b-41d4-a716-446655440002",
+  "token": "wf_NeWtOkEnVaLuE123456789012345678",
+  "name": "Production API",
+  "config": {
+    "environment": "prod",
+    "allowed_models": ["gpt-4o", "claude-3-5-sonnet"],
+    "confidence_threshold": 0.8
+  }
+}
+```
+
+**Note:** Maximum 10 tokens per user (configurable via `MAX_TOKENS_PER_USER`).
+
+#### Delete User Token
+
+```http
+DELETE /api/tokens/:id
+X-Wayfinder-Token: wf_xxxxx
+```
+
+**Response (204):** No content
+
+**Note:** Cannot delete primary token.
+
+#### Rotate User Token
+
+```http
+POST /api/tokens/:id/rotate
+X-Wayfinder-Token: wf_xxxxx
+```
+
+**Response (200):**
+```json
+{
+  "token": "wf_RoTaTeD_ToKeN_VaLuE_987654321",
+  "rotated_at": "2026-01-12T15:00:00Z"
+}
+```
+
+#### List BYOLLM Keys (paid_byollm tier only)
+
+```http
+GET /api/llm-keys
+X-Wayfinder-Token: wf_xxxxx
+```
+
+**Response (200):**
+```json
+{
+  "keys": [
+    {
+      "id": "990e8400-e29b-41d4-a716-446655440004",
+      "provider": "openai",
+      "is_active": true,
+      "validation_status": "valid",
+      "created_at": "2026-01-12T10:00:00Z",
+      "last_used_at": "2026-01-12T14:30:00Z"
+    },
+    {
+      "id": "aa0e8400-e29b-41d4-a716-446655440005",
+      "provider": "gemini",
+      "is_active": true,
+      "validation_status": "valid",
+      "created_at": "2026-01-12T10:00:00Z",
+      "last_used_at": null
+    }
+  ],
+  "consensus_routing_enabled": true
+}
+```
+
+**Note:** API key values are never returned. Only metadata.
+
+#### Add/Update BYOLLM Key (paid_byollm tier only)
+
+```http
+POST /api/llm-keys
+X-Wayfinder-Token: wf_xxxxx
+Content-Type: application/json
+
+{
+  "provider": "openai",
+  "api_key": "sk-..."
+}
+```
+
+**Response (201):**
+```json
+{
+  "id": "990e8400-e29b-41d4-a716-446655440004",
+  "provider": "openai",
+  "is_active": true,
+  "validation_status": "unknown",
+  "message": "Key stored. Validation will occur on first use."
+}
+```
+
+**Supported Providers:** `openai`, `gemini`
+
+**Note:** If a key already exists for the provider, it will be updated (not duplicated).
+
+#### Delete BYOLLM Key (paid_byollm tier only)
+
+```http
+DELETE /api/llm-keys/:provider
+X-Wayfinder-Token: wf_xxxxx
+```
+
+**Response (204):** No content
+
+**Note:** After deletion, routing falls back to system keys (if user tier allows).
+
+#### Validate BYOLLM Key (paid_byollm tier only)
+
+```http
+POST /api/llm-keys/:provider/validate
+X-Wayfinder-Token: wf_xxxxx
+```
+
+**Response (200):**
+```json
+{
+  "provider": "openai",
+  "validation_status": "valid",
+  "validation_error": null,
+  "validated_at": "2026-01-12T15:00:00Z"
+}
+```
+
+**Error Response (200 with invalid status):**
+```json
+{
+  "provider": "openai",
+  "validation_status": "invalid",
+  "validation_error": "Invalid API key",
+  "validated_at": "2026-01-12T15:00:00Z"
+}
+```
+
+**Rate Limit:** 1 validation per key per minute.
+
 ## Local Development
 
 ### Prerequisites
@@ -788,6 +1238,178 @@ curl -X DELETE http://localhost:3000/admin/tokens/token_abc123 \
   -H "X-Admin-Api-Key: your-admin-key"
 ```
 
+### User Self-Service Examples
+
+When user self-service is enabled (`FEATURE_USER_SELF_SERVICE=true`):
+
+#### Register a New User
+
+```bash
+curl -X POST http://localhost:3000/api/users/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "user@example.com",
+    "password": "SecurePass123!"
+  }'
+```
+
+#### Login
+
+```bash
+curl -X POST http://localhost:3000/api/users/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "user@example.com",
+    "password": "SecurePass123!"
+  }'
+```
+
+#### Create Anonymous Session
+
+```bash
+curl -X POST http://localhost:3000/api/anonymous/session
+```
+
+#### Convert Anonymous to Registered
+
+```bash
+curl -X POST http://localhost:3000/api/anonymous/convert \
+  -H "X-Wayfinder-Token: wf_AnOnYmOuS_ToKeN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "user@example.com",
+    "password": "SecurePass123!"
+  }'
+```
+
+#### Get User Profile
+
+```bash
+curl http://localhost:3000/api/users/me \
+  -H "X-Wayfinder-Token: wf_your_token_here"
+```
+
+#### Update User Profile
+
+```bash
+curl -X PATCH http://localhost:3000/api/users/me \
+  -H "X-Wayfinder-Token: wf_your_token_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "newemail@example.com"
+  }'
+```
+
+#### List User Tokens
+
+```bash
+curl http://localhost:3000/api/tokens \
+  -H "X-Wayfinder-Token: wf_your_token_here"
+```
+
+#### Create User Token
+
+```bash
+curl -X POST http://localhost:3000/api/tokens \
+  -H "X-Wayfinder-Token: wf_your_token_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Production API",
+    "environment": "prod",
+    "allowed_models": ["gpt-4o", "claude-3-5-sonnet"]
+  }'
+```
+
+#### Delete User Token
+
+```bash
+curl -X DELETE http://localhost:3000/api/tokens/token_xyz789 \
+  -H "X-Wayfinder-Token: wf_your_token_here"
+```
+
+#### Rotate User Token
+
+```bash
+curl -X POST http://localhost:3000/api/tokens/token_xyz789/rotate \
+  -H "X-Wayfinder-Token: wf_your_token_here"
+```
+
+#### Add BYOLLM API Key (paid_byollm tier only)
+
+```bash
+curl -X POST http://localhost:3000/api/llm-keys \
+  -H "X-Wayfinder-Token: wf_your_token_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "provider": "openai",
+    "api_key": "sk-..."
+  }'
+```
+
+#### List BYOLLM Keys
+
+```bash
+curl http://localhost:3000/api/llm-keys \
+  -H "X-Wayfinder-Token: wf_your_token_here"
+```
+
+#### Validate BYOLLM Key
+
+```bash
+curl -X POST http://localhost:3000/api/llm-keys/openai/validate \
+  -H "X-Wayfinder-Token: wf_your_token_here"
+```
+
+#### Delete BYOLLM Key
+
+```bash
+curl -X DELETE http://localhost:3000/api/llm-keys/openai \
+  -H "X-Wayfinder-Token: wf_your_token_here"
+```
+
+## User Tiers and Rate Limits
+
+Wayfinder supports a three-tier user system when user self-service features are enabled:
+
+### Free Tier
+
+- **Rate Limits:** 10 requests/hour, 50 requests/day
+- **Cost:** System pays LLM costs
+- **Use Case:** Trial users, hobby projects
+
+### Paid System Tier
+
+- **Rate Limits:** 100 requests/hour, 1,000 requests/day
+- **Cost:** System pays LLM costs
+- **Use Case:** Production applications with moderate traffic
+
+### Paid BYOLLM Tier
+
+- **Rate Limits:** 1,000 requests/hour, unlimited requests/day
+- **Cost:** User pays LLM costs via own OpenAI/Gemini API keys
+- **Use Case:** High-volume applications, users who want full cost control
+- **Features:** Can configure own OpenAI and Gemini API keys for routing
+
+Rate limits can be customized via environment variables (see [Configuration](#configuration)).
+
+### Anonymous Sessions
+
+Users can try Wayfinder without registering by creating an anonymous session. Anonymous sessions:
+- Apply free tier rate limits
+- Expire after 7 days
+- Can be converted to registered accounts while preserving the token
+
+### Bring Your Own LLM (BYOLLM)
+
+Users on the paid BYOLLM tier can configure their own LLM API keys instead of using the system's keys. Benefits:
+
+- **Cost Control:** Pay for LLM calls directly through your own accounts
+- **Higher Limits:** 1,000 req/hr and unlimited daily requests
+- **Key Isolation:** Your keys are encrypted and never shared
+- **Multi-provider:** Configure both OpenAI and Gemini keys
+
+Configured keys are encrypted at rest using AES-256-GCM and only decrypted when needed for routing.
+
 ## Configuration
 
 ### Environment Variables
@@ -837,6 +1459,36 @@ curl -X DELETE http://localhost:3000/admin/tokens/token_abc123 \
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `LOG_LEVEL` | Logging level (debug, info, warn, error) | `info` |
+
+#### User Authentication & BYOLLM (Optional)
+
+Enable user self-service features with `FEATURE_USER_SELF_SERVICE=true`.
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `FEATURE_USER_SELF_SERVICE` | Enable user registration and BYOLLM features | `false` |
+| `LLM_KEY_ENCRYPTION_KEY` | **REQUIRED for BYOLLM**: 64 hex character encryption key (generate: `openssl rand -hex 32`) | - |
+| `MAX_TOKENS_PER_USER` | Maximum tokens a user can create | `10` |
+| `ANONYMOUS_SESSION_TTL_DAYS` | Anonymous session expiration in days | `7` |
+
+**Rate Limit Configuration (Per Tier)**
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `RATE_LIMIT_FREE_HOUR` | Free tier requests per hour | `10` |
+| `RATE_LIMIT_FREE_DAY` | Free tier requests per day | `50` |
+| `RATE_LIMIT_PAID_SYSTEM_HOUR` | Paid system tier requests per hour | `100` |
+| `RATE_LIMIT_PAID_SYSTEM_DAY` | Paid system tier requests per day | `1000` |
+| `RATE_LIMIT_BYOLLM_HOUR` | BYOLLM tier requests per hour | `1000` |
+| `RATE_LIMIT_BYOLLM_DAY` | BYOLLM tier requests per day (`-1` = unlimited) | `-1` |
+
+**Important:** The `LLM_KEY_ENCRYPTION_KEY` is required if BYOLLM features are enabled. Generate a secure key with:
+
+```bash
+openssl rand -hex 32
+```
+
+This produces a 64-character hexadecimal string suitable for AES-256 encryption.
 
 ### Token Configuration Options
 
@@ -1344,6 +1996,123 @@ curl "http://localhost:3000/admin/knowledge/stats?scope=token&token_id=$TOKEN_ID
 - Custom model preferences that shouldn't affect global knowledge
 - Testing new routing strategies without polluting global data
 
+### Example 6: User Self-Service Workflow
+
+Register a user, create tokens, and manage LLM keys:
+
+```bash
+# Register a new user
+REGISTER_RESPONSE=$(curl -s -X POST http://localhost:3000/api/users/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "developer@example.com",
+    "password": "SecurePass123!"
+  }')
+
+# Extract the token from registration response
+TOKEN=$(echo $REGISTER_RESPONSE | jq -r '.token.token')
+
+# Use the token to route a request
+curl -X POST http://localhost:3000/route \
+  -H "X-Wayfinder-Token: $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Explain quantum computing"}'
+
+# Create additional tokens for different environments
+curl -X POST http://localhost:3000/api/tokens \
+  -H "X-Wayfinder-Token: $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Production",
+    "environment": "prod",
+    "allowed_models": ["gpt-4o", "claude-3-5-sonnet"]
+  }'
+```
+
+### Example 7: BYOLLM Configuration
+
+For paid BYOLLM tier users to configure their own LLM keys:
+
+```bash
+# User must be on paid_byollm tier
+# Configure OpenAI key
+curl -X POST http://localhost:3000/api/llm-keys \
+  -H "X-Wayfinder-Token: $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "provider": "openai",
+    "api_key": "sk-..."
+  }'
+
+# Configure Gemini key
+curl -X POST http://localhost:3000/api/llm-keys \
+  -H "X-Wayfinder-Token: $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "provider": "gemini",
+    "api_key": "AIza..."
+  }'
+
+# Validate keys against provider APIs
+curl -X POST http://localhost:3000/api/llm-keys/openai/validate \
+  -H "X-Wayfinder-Token: $TOKEN"
+
+curl -X POST http://localhost:3000/api/llm-keys/gemini/validate \
+  -H "X-Wayfinder-Token: $TOKEN"
+
+# List configured keys (keys are encrypted, only metadata shown)
+curl http://localhost:3000/api/llm-keys \
+  -H "X-Wayfinder-Token: $TOKEN"
+
+# Now routing requests will use YOUR keys instead of system keys
+curl -X POST http://localhost:3000/route \
+  -H "X-Wayfinder-Token: $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Compare machine learning frameworks"}'
+```
+
+**BYOLLM Behavior:**
+- If you have configured keys, Wayfinder uses YOUR keys for routing LLM calls
+- You pay for LLM costs directly through your provider accounts
+- Keys are encrypted at rest with AES-256-GCM
+- Each user's keys are completely isolated
+- If your keys fail, requests return errors (no fallback to system keys)
+
+### Example 8: Progressive Registration (Anonymous to Registered)
+
+Start using Wayfinder without registration, then register when needed:
+
+```bash
+# Create an anonymous session
+ANON_RESPONSE=$(curl -s -X POST http://localhost:3000/api/anonymous/session)
+ANON_TOKEN=$(echo $ANON_RESPONSE | jq -r '.token')
+
+echo "Anonymous token: $ANON_TOKEN"
+
+# Use the token immediately (free tier rate limits apply)
+curl -X POST http://localhost:3000/route \
+  -H "X-Wayfinder-Token: $ANON_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "What is Docker?"}'
+
+# Later, convert anonymous session to registered account
+# Your existing token will be preserved and linked to your account
+curl -X POST http://localhost:3000/api/anonymous/convert \
+  -H "X-Wayfinder-Token: $ANON_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "user@example.com",
+    "password": "SecurePass123!"
+  }'
+
+# Same token now works as a registered user token
+# Rate limits upgrade to registered free tier
+curl -X POST http://localhost:3000/route \
+  -H "X-Wayfinder-Token: $ANON_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Explain Kubernetes"}'
+```
+
 ## Troubleshooting
 
 ### Router LLM Configuration
@@ -1536,7 +2305,115 @@ curl -X PATCH http://localhost:3000/admin/tokens/TOKEN_ID \
 
 See [Policy Rule Types](#policy-rule-types) for detailed explanation and migration guidance.
 
+### User Self-Service Issues
+
+**Problem:** User registration fails with "FEATURE_USER_SELF_SERVICE is disabled"
+
+**Cause:** User self-service features are disabled by default.
+
+**Solution:**
+```bash
+# In .env:
+FEATURE_USER_SELF_SERVICE=true
+
+# Restart the server
+npm run dev
+```
+
+---
+
+**Problem:** BYOLLM key management fails with "BYOLLM_001: BYOLLM requires paid_byollm tier"
+
+**Cause:** User is not on the paid_byollm tier.
+
+**Solution:**
+BYOLLM key management is only available to users with `tier: 'paid_byollm'`. User tier must be upgraded by an admin (payment/billing integration is not yet implemented):
+
+```bash
+# Admin must update user tier directly in the user store
+# This will be exposed via admin API in future versions
+```
+
+---
+
+**Problem:** "LLM_KEY_ENCRYPTION_KEY environment variable is required"
+
+**Cause:** BYOLLM features require an encryption key to secure user API keys.
+
+**Solution:**
+```bash
+# Generate a secure 256-bit encryption key
+openssl rand -hex 32
+
+# Add to .env:
+LLM_KEY_ENCRYPTION_KEY=<64 hex characters from above>
+
+# Restart the server
+```
+
+---
+
+**Problem:** Rate limit exceeded errors for registered users
+
+**Cause:** User is hitting tier-specific rate limits.
+
+**Solution:**
+```bash
+# Check current rate limits via profile endpoint
+curl http://localhost:3000/api/users/me \
+  -H "X-Wayfinder-Token: wf_xxxxx"
+
+# To increase limits, upgrade user tier (admin operation)
+# Or adjust rate limit configuration in .env:
+RATE_LIMIT_FREE_DAY=100
+RATE_LIMIT_PAID_SYSTEM_DAY=5000
+```
+
+---
+
+**Problem:** "Cannot delete primary token"
+
+**Cause:** Users cannot delete their primary token to prevent account lockout.
+
+**Solution:**
+Create another token and set it as primary first, or simply rotate the primary token:
+
+```bash
+# Rotate the primary token (generates new value)
+curl -X POST http://localhost:3000/api/tokens/TOKEN_ID/rotate \
+  -H "X-Wayfinder-Token: wf_xxxxx"
+```
+
+---
+
+**Problem:** BYOLLM routing still uses system keys instead of user keys
+
+**Cause:** User keys may not be properly configured or may have failed validation.
+
+**Solution:**
+```bash
+# Check configured keys
+curl http://localhost:3000/api/llm-keys \
+  -H "X-Wayfinder-Token: wf_xxxxx"
+
+# Validate keys
+curl -X POST http://localhost:3000/api/llm-keys/openai/validate \
+  -H "X-Wayfinder-Token: wf_xxxxx"
+
+# Check logs for BYOLLM routing behavior
+# Should see: "Using user LLM keys for routing"
+```
+
 ## Future Roadmap
+
+### Recently Completed (v1.x)
+
+- **User Authentication & Self-Service** - User registration, login, and token management
+- **Bring Your Own LLM (BYOLLM)** - Users can configure their own OpenAI/Gemini API keys
+- **Three-Tier User System** - Free, Paid (System), and Paid (BYOLLM) tiers
+- **Anonymous Sessions** - Progressive registration flow
+- **Tier-Based Rate Limiting** - Different rate limits per user tier
+- **Encrypted Key Storage** - AES-256-GCM encryption for user LLM keys
 
 ### Short-term (v1.x)
 
@@ -1545,20 +2422,23 @@ See [Policy Rule Types](#policy-rule-types) for detailed explanation and migrati
 - **Org-Scoped Knowledge** - Shared learning within organizations (in addition to global and token scopes)
 - **Hybrid Knowledge Scope** - Combination of global and token-scoped learning
 - **Advanced Observability** - Enhanced logging and metrics
+- **Billing Integration** - Stripe integration for automatic tier upgrades
 
 ### Medium-term (v2.x)
 
 - **Knowledge-Guided Routing** - Use knowledge store to optimize router LLM decisions
 - **Model Metadata in Decisions** - Return expanded model information in routing responses
 - **Compliance & Audit** - Detailed audit trails and compliance reporting
-- **Rate Limiting** - Per-token rate limits and quota management
+- **Admin User Management UI** - Web interface for managing users and tiers
+- **Email Verification** - Optional email verification for user registration
 
-### Longer-term
+### Longer-term (v3.x)
 
-- **BYOM (Bring Your Own Model)** - Support for custom/internal LLM models
+- **Custom Model Registry** - Support for custom/internal LLM models beyond OpenAI and Gemini
 - **Multi-Modal Routing** - Route based on content type (text, image, etc.)
 - **Cost Optimization** - Automatic model selection based on cost targets
 - **Advanced Prompt Optimization** - Rewrite prompts for specific models
+- **Organization Management** - Multi-user organizations with shared billing and resources
 
 ## What Wayfinder Does NOT Do
 
