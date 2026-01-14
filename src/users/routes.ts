@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { UserStore } from './store';
 import { TokenStore } from '../tokens/store';
 import { validateEmail, validatePassword } from './validation';
+import { verifyPassword } from './password';
 import type { User } from './types';
 import type { TokenConfigExtended } from '../tokens/types';
 import type { Logger } from '../logging/logger';
@@ -209,31 +210,26 @@ export function createUserRoutes(
       // Get user by email
       const user = await userStore.getByEmail(email);
 
-      // If user doesn't exist, return generic error (don't reveal existence)
-      if (!user) {
-        logger.warn('Login attempt with non-existent email', {
-          email,
-          timestamp: new Date().toISOString(),
-        });
+      // Always verify password to prevent timing attacks
+      // Use a dummy hash if user doesn't exist (bcrypt hash format with work factor 12)
+      const hashToVerify = user?.password_hash ??
+        '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5jtRBzC3yRqb.'; // "password"
+      const isValidPassword = await verifyPassword(password, hashToVerify);
 
-        res.status(401).json({
-          error: 'AuthenticationError',
-          code: 'AUTH_001',
-          message: 'Invalid email or password',
-          timestamp: new Date().toISOString(),
-        });
-        return;
-      }
-
-      // Verify password (constant-time comparison via bcrypt)
-      const isValidPassword = await verifyPassword(password, user.password_hash);
-
-      if (!isValidPassword) {
-        logger.warn('Failed login attempt', {
-          user_id: user.id,
-          email: user.email,
-          timestamp: new Date().toISOString(),
-        });
+      // Generic error message for both non-existent user and wrong password
+      if (!user || !isValidPassword) {
+        if (!user) {
+          logger.warn('Login attempt with non-existent email', {
+            email,
+            timestamp: new Date().toISOString(),
+          });
+        } else {
+          logger.warn('Failed login attempt', {
+            user_id: user.id,
+            email: user.email,
+            timestamp: new Date().toISOString(),
+          });
+        }
 
         res.status(401).json({
           error: 'AuthenticationError',
@@ -261,11 +257,7 @@ export function createUserRoutes(
         return;
       }
 
-      // Update last_login_at
-      const now = new Date().toISOString();
-      user.last_login_at = now;
-      user.updated_at = now;
-      await userStore.update(user.id, { });
+      // Note: authenticate() already updates last_login_at in the store
 
       // Get user's tokens
       const tokens = await tokenStore.listByUser(user.id);

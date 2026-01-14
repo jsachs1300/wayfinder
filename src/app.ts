@@ -404,7 +404,7 @@ export function createApp(deps?: Partial<AppDependencies>): {
 
   // Create tier-aware rate limiter for routing endpoint (if user self-service enabled)
   const tierRateLimiter = FEATURE_FLAGS.USER_SELF_SERVICE
-    ? createTierRateLimiter(redis)
+    ? createTierRateLimiter(redis, logger)
     : (_req: Request, _res: Response, next: NextFunction) => next(); // No-op if feature disabled
 
   // Routing endpoint: Apply both standard rate limiter and tier-aware limiter

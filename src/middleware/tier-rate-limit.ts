@@ -13,6 +13,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import type Redis from 'ioredis';
 import { getTierRateLimits, type UserTier } from './rate-limit-config';
+import type { Logger } from '../logging/logger';
 import type { TokenConfig } from '../types';
 import type { User } from '../users/types';
 
@@ -162,20 +163,17 @@ setInterval(() => inMemoryTracker.cleanup(), 5 * 60 * 1000);
  * @param redis - Optional Redis instance for distributed rate limiting
  * @returns Express middleware
  */
-export function createTierRateLimiter(redis?: Redis) {
+export function createTierRateLimiter(redis?: Redis, logger?: Logger) {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      // Get user tier from request (set by auth middleware)
-      // Default to 'free' if not set
-      const tier: UserTier = req.userTier || 'free';
+    // Extract tier and userId outside try block for error handling
+    const tier: UserTier = req.userTier || 'free';
+    const userId =
+      req.user?.id ||
+      req.tokenConfig?.id ||
+      req.ip ||
+      'unknown';
 
-      // Get user/token identifier for rate limiting
-      // Priority: user ID > token ID > IP address
-      const userId =
-        req.user?.id ||
-        req.tokenConfig?.id ||
-        req.ip ||
-        'unknown';
+    try {
 
       // Get rate limits for this tier
       const limits = getTierRateLimits(tier);
@@ -266,8 +264,29 @@ export function createTierRateLimiter(redis?: Redis) {
       // Rate limit check passed
       next();
     } catch (error) {
-      console.error('Rate limit middleware error:', error);
-      // On error, allow request to proceed (fail open)
+      const errorMessage = error instanceof Error ? error.message : String(error);
+
+      if (logger) {
+        logger.error('Rate limit middleware error', { error: errorMessage, tier, userId });
+      } else {
+        console.error('Rate limit middleware error:', error);
+      }
+
+      // Fail closed for free tier to prevent abuse during outages
+      // Fail open for paid tiers to avoid service disruption
+      if (tier === 'free') {
+        res.status(503).json({
+          error: 'ServiceUnavailable',
+          message: 'Rate limiting service temporarily unavailable. Please try again later.',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      // For paid tiers, fail open but log for monitoring
+      if (logger) {
+        logger.warn('Rate limiting bypassed due to error', { tier, userId });
+      }
       next();
     }
   };
