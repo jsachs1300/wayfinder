@@ -1,5 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { TokenStore } from '../tokens/store';
+import { UserStore } from '../users/store';
+import { TokenConfigExtended } from '../tokens/types';
+import { UserTier } from '../users/types';
 import { createHash } from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -15,8 +18,9 @@ export function hashToken(token: string): string {
 
 /**
  * Middleware to authenticate requests using X-Wayfinder-Token header
+ * Enhanced to support user authentication and tier determination
  */
-export function tokenAuthMiddleware(tokenStore: TokenStore) {
+export function tokenAuthMiddleware(tokenStore: TokenStore, userStore?: UserStore) {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     const token = req.headers[WAYFINDER_TOKEN_HEADER] as string | undefined;
 
@@ -41,8 +45,54 @@ export function tokenAuthMiddleware(tokenStore: TokenStore) {
       return;
     }
 
+    // Attach token config to request
     req.tokenConfig = tokenConfig;
     req.requestId = uuidv4();
+
+    // Check if token has user association (new user tokens)
+    const tokenExtended = tokenConfig as TokenConfigExtended;
+
+    if (tokenExtended.user_id && userStore) {
+      // Token is associated with a user - load full user object
+      const user = await userStore.getById(tokenExtended.user_id);
+
+      if (!user) {
+        res.status(401).json({
+          error: 'Unauthorized',
+          message: 'User not found for token',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      // Check if user account is suspended
+      if (user.status === 'suspended') {
+        res.status(403).json({
+          error: 'Forbidden',
+          message: 'Account suspended',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      // Check if user account is deleted
+      if (user.status === 'deleted') {
+        res.status(401).json({
+          error: 'Unauthorized',
+          message: 'Account deleted',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      // Attach user and tier to request
+      req.user = user;
+      req.userTier = user.tier;
+    } else {
+      // Legacy admin token (no user_id) - apply admin tier
+      req.userTier = 'admin';
+    }
+
     next();
   };
 }
@@ -111,6 +161,25 @@ export function requestIdMiddleware() {
     if (!req.requestId) {
       req.requestId = uuidv4();
     }
+    next();
+  };
+}
+
+/**
+ * Middleware to require authenticated user (must have user object attached)
+ * Use after tokenAuthMiddleware to ensure user routes are protected
+ */
+export function requireUserAuthMiddleware() {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    if (!req.user) {
+      res.status(401).json({
+        error: 'Unauthorized',
+        message: 'User authentication required',
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+
     next();
   };
 }

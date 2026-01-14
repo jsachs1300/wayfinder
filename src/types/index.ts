@@ -521,6 +521,8 @@ declare global {
     interface Request {
       tokenConfig?: TokenConfig;
       requestId?: string;
+      user?: import('../users/types').User;
+      userTier?: import('../users/types').UserTier;
     }
   }
 }

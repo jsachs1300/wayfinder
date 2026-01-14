@@ -1,4 +1,5 @@
 import { TokenConfig, TokenCreateRequest, TokenUpdateRequest } from '../types';
+import { TokenConfigExtended } from './types';
 import { v4 as uuidv4 } from 'uuid';
 import { hashToken } from '../auth/middleware';
 import Redis from 'ioredis';
@@ -6,6 +7,7 @@ import Redis from 'ioredis';
 const TOKEN_PREFIX = 'wayfinder:token:';
 const TOKEN_HASH_INDEX = 'wayfinder:token_hash_index:';
 const TOKEN_INDEX_KEY = 'wayfinder:token:index';
+const USER_TOKENS_PREFIX = 'wayfinder:user:';
 
 /**
  * Token storage interface for flexibility
@@ -18,6 +20,26 @@ export interface TokenStore {
   rotate(id: string): Promise<{ token: string; config: TokenConfig } | null>;
   delete(id: string): Promise<boolean>;
   list(): Promise<TokenConfig[]>;
+
+  /**
+   * Create token for a specific user
+   */
+  createForUser(
+    userId: string,
+    name: string | null,
+    request: TokenCreateRequest
+  ): Promise<{ id: string; token: string; config: TokenConfigExtended }>;
+
+  /**
+   * List all tokens for a user
+   */
+  listByUser(userId: string): Promise<TokenConfigExtended[]>;
+
+  /**
+   * Delete a token belonging to a user
+   * Returns false if token doesn't exist or doesn't belong to user
+   */
+  deleteUserToken(userId: string, tokenId: string): Promise<boolean>;
 }
 
 /**
@@ -39,8 +61,9 @@ function generateToken(): string {
  * In-memory token store for development and fallback
  */
 export class InMemoryTokenStore implements TokenStore {
-  private tokens: Map<string, TokenConfig> = new Map();
+  private tokens: Map<string, TokenConfigExtended> = new Map();
   private hashIndex: Map<string, string> = new Map();
+  private userTokenIndex: Map<string, Set<string>> = new Map();
 
   async create(request: TokenCreateRequest): Promise<{ id: string; token: string; config: TokenConfig }> {
     const id = uuidv4();
@@ -133,6 +156,90 @@ export class InMemoryTokenStore implements TokenStore {
 
   async list(): Promise<TokenConfig[]> {
     return Array.from(this.tokens.values());
+  }
+
+  async createForUser(
+    userId: string,
+    name: string | null,
+    request: TokenCreateRequest
+  ): Promise<{ id: string; token: string; config: TokenConfigExtended }> {
+    const id = uuidv4();
+    const token = generateToken();
+    const tokenHash = hashToken(token);
+    const now = new Date().toISOString();
+
+    // Check if this is the user's first token (make it primary)
+    const userTokens = this.userTokenIndex.get(userId);
+    const isPrimary = !userTokens || userTokens.size === 0;
+
+    const config: TokenConfigExtended = {
+      id,
+      token_hash: tokenHash,
+      user_id: userId,
+      name,
+      is_primary: isPrimary,
+      anonymous_session_id: null,
+      trusted_anchor_model: request.trusted_anchor_model,
+      allowed_models: request.allowed_models,
+      denied_models: request.denied_models,
+      policy_rules: request.policy_rules,
+      confidence_threshold: request.confidence_threshold ?? 0.6,
+      logging_level: request.logging_level ?? 'normal',
+      default_model: request.default_model,
+      environment: request.environment ?? 'dev',
+      knowledge_scope: request.knowledge_scope ?? 'global',
+      router_model_preference: request.router_model_preference,
+      created_at: now,
+      updated_at: now,
+    };
+
+    this.tokens.set(id, config);
+    this.hashIndex.set(tokenHash, id);
+
+    // Add to user index
+    if (!this.userTokenIndex.has(userId)) {
+      this.userTokenIndex.set(userId, new Set());
+    }
+    this.userTokenIndex.get(userId)!.add(id);
+
+    return { id, token, config };
+  }
+
+  async listByUser(userId: string): Promise<TokenConfigExtended[]> {
+    const tokenIds = this.userTokenIndex.get(userId);
+    if (!tokenIds || tokenIds.size === 0) return [];
+
+    const tokens: TokenConfigExtended[] = [];
+    for (const tokenId of tokenIds) {
+      const token = this.tokens.get(tokenId);
+      if (token && token.user_id === userId) {
+        tokens.push(token);
+      }
+    }
+
+    return tokens;
+  }
+
+  async deleteUserToken(userId: string, tokenId: string): Promise<boolean> {
+    const existing = this.tokens.get(tokenId);
+    if (!existing) return false;
+
+    // Verify token belongs to user
+    if (existing.user_id !== userId) return false;
+
+    this.hashIndex.delete(existing.token_hash);
+    this.tokens.delete(tokenId);
+
+    // Remove from user index
+    const userTokens = this.userTokenIndex.get(userId);
+    if (userTokens) {
+      userTokens.delete(tokenId);
+      if (userTokens.size === 0) {
+        this.userTokenIndex.delete(userId);
+      }
+    }
+
+    return true;
   }
 }
 
@@ -256,6 +363,90 @@ export class RedisTokenStore implements TokenStore {
     });
 
     return configs;
+  }
+
+  async createForUser(
+    userId: string,
+    name: string | null,
+    request: TokenCreateRequest
+  ): Promise<{ id: string; token: string; config: TokenConfigExtended }> {
+    const id = uuidv4();
+    const token = generateToken();
+    const tokenHash = hashToken(token);
+    const now = new Date().toISOString();
+
+    // Check if this is the user's first token (make it primary)
+    const userTokensKey = USER_TOKENS_PREFIX + userId + ':tokens';
+    const existingTokens = await this.redis.smembers(userTokensKey);
+    const isPrimary = existingTokens.length === 0;
+
+    const config: TokenConfigExtended = {
+      id,
+      token_hash: tokenHash,
+      user_id: userId,
+      name,
+      is_primary: isPrimary,
+      anonymous_session_id: null,
+      trusted_anchor_model: request.trusted_anchor_model,
+      allowed_models: request.allowed_models,
+      denied_models: request.denied_models,
+      policy_rules: request.policy_rules,
+      confidence_threshold: request.confidence_threshold ?? 0.6,
+      logging_level: request.logging_level ?? 'normal',
+      default_model: request.default_model,
+      environment: request.environment ?? 'dev',
+      knowledge_scope: request.knowledge_scope ?? 'global',
+      router_model_preference: request.router_model_preference,
+      created_at: now,
+      updated_at: now,
+    };
+
+    await this.redis.set(TOKEN_PREFIX + id, JSON.stringify(config));
+    await this.redis.set(TOKEN_HASH_INDEX + tokenHash, id);
+    await this.redis.sadd(TOKEN_INDEX_KEY, id);
+    await this.redis.sadd(userTokensKey, id);
+
+    return { id, token, config };
+  }
+
+  async listByUser(userId: string): Promise<TokenConfigExtended[]> {
+    const userTokensKey = USER_TOKENS_PREFIX + userId + ':tokens';
+    const tokenIds = await this.redis.smembers(userTokensKey);
+    if (tokenIds.length === 0) return [];
+
+    const pipeline = this.redis.multi();
+    tokenIds.forEach(id => pipeline.get(TOKEN_PREFIX + id));
+    const results = await pipeline.exec();
+
+    const configs: TokenConfigExtended[] = [];
+    results?.forEach(result => {
+      const [, data] = result ?? [];
+      if (typeof data === 'string') {
+        const config = JSON.parse(data) as TokenConfigExtended;
+        // Verify token belongs to user
+        if (config.user_id === userId) {
+          configs.push(config);
+        }
+      }
+    });
+
+    return configs;
+  }
+
+  async deleteUserToken(userId: string, tokenId: string): Promise<boolean> {
+    const existing = await this.getById(tokenId);
+    if (!existing) return false;
+
+    // Verify token belongs to user (cast to TokenConfigExtended to check user_id)
+    const extendedConfig = existing as TokenConfigExtended;
+    if (extendedConfig.user_id !== userId) return false;
+
+    await this.redis.del(TOKEN_HASH_INDEX + existing.token_hash);
+    await this.redis.del(TOKEN_PREFIX + tokenId);
+    await this.redis.srem(TOKEN_INDEX_KEY, tokenId);
+    await this.redis.srem(USER_TOKENS_PREFIX + userId + ':tokens', tokenId);
+
+    return true;
   }
 }
 
