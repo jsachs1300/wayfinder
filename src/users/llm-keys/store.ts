@@ -185,42 +185,72 @@ export class RedisUserLLMKeyStore implements UserLLMKeyStore {
 
   async setKey(userId: string, request: UserLLMKeyCreateRequest): Promise<UserLLMKey> {
     const redisKey = this.getRedisKey(userId);
-    const existingData = await this.redis.get(redisKey);
-    const userKeys: UserLLMKey[] = existingData ? JSON.parse(existingData) : [];
-    const now = new Date().toISOString();
+    const maxRetries = 10;
+    let retries = 0;
 
-    // Check if key already exists for this provider
-    const existingIndex = userKeys.findIndex((k) => k.provider === request.provider);
-
-    // Encrypt the API key
+    // Encrypt the API key once (outside retry loop for efficiency)
     const encrypted = encryptLLMKey(request.api_key);
 
-    const key: UserLLMKey = {
-      id: uuidv4(),
-      user_id: userId,
-      provider: request.provider,
-      encrypted_key: encrypted.encrypted,
-      iv: encrypted.iv,
-      auth_tag: encrypted.authTag,
-      key_version: 1,
-      is_active: true,
-      created_at: existingIndex >= 0 ? (userKeys[existingIndex]?.created_at ?? now) : now,
-      updated_at: now,
-      last_used_at: null,
-      validation_status: 'unknown',
-      validation_error: null,
-    };
+    while (retries < maxRetries) {
+      try {
+        // Watch the key for changes (optimistic locking)
+        await this.redis.watch(redisKey);
 
-    if (existingIndex >= 0) {
-      // Update existing key
-      userKeys[existingIndex] = key;
-    } else {
-      // Add new key
-      userKeys.push(key);
+        // Read current state
+        const existingData = await this.redis.get(redisKey);
+        const userKeys: UserLLMKey[] = existingData ? JSON.parse(existingData) : [];
+        const now = new Date().toISOString();
+
+        // Check if key already exists for this provider
+        const existingIndex = userKeys.findIndex((k) => k.provider === request.provider);
+
+        const key: UserLLMKey = {
+          id: uuidv4(),
+          user_id: userId,
+          provider: request.provider,
+          encrypted_key: encrypted.encrypted,
+          iv: encrypted.iv,
+          auth_tag: encrypted.authTag,
+          key_version: 1,
+          is_active: true,
+          created_at: existingIndex >= 0 ? (userKeys[existingIndex]?.created_at ?? now) : now,
+          updated_at: now,
+          last_used_at: null,
+          validation_status: 'unknown',
+          validation_error: null,
+        };
+
+        if (existingIndex >= 0) {
+          // Update existing key
+          userKeys[existingIndex] = key;
+        } else {
+          // Add new key
+          userKeys.push(key);
+        }
+
+        // Attempt atomic write with MULTI/EXEC
+        const result = await this.redis
+          .multi()
+          .set(redisKey, JSON.stringify(userKeys))
+          .exec();
+
+        // If result is null, the key was modified by another client (race condition)
+        // Retry the operation
+        if (result === null) {
+          retries++;
+          continue;
+        }
+
+        // Success - exit loop
+        return key;
+      } catch (error) {
+        // Unwatch on error
+        await this.redis.unwatch();
+        throw error;
+      }
     }
 
-    await this.redis.set(redisKey, JSON.stringify(userKeys));
-    return key;
+    throw new Error(`Failed to set LLM key after ${maxRetries} retries due to concurrent modifications`);
   }
 
   async getKeys(userId: string): Promise<UserLLMKey[]> {
@@ -258,22 +288,54 @@ export class RedisUserLLMKeyStore implements UserLLMKeyStore {
 
   async deleteKey(userId: string, provider: LLMProvider): Promise<boolean> {
     const redisKey = this.getRedisKey(userId);
-    const userKeys = await this.getKeys(userId);
-    const initialLength = userKeys.length;
+    const maxRetries = 10;
+    let retries = 0;
 
-    const filtered = userKeys.filter((k) => k.provider !== provider);
+    while (retries < maxRetries) {
+      try {
+        // Watch the key for changes (optimistic locking)
+        await this.redis.watch(redisKey);
 
-    if (filtered.length === initialLength) {
-      return false; // No key found
+        // Read current state
+        const userKeys = await this.getKeys(userId);
+        const initialLength = userKeys.length;
+
+        const filtered = userKeys.filter((k) => k.provider !== provider);
+
+        if (filtered.length === initialLength) {
+          // No key found, unwatch and return
+          await this.redis.unwatch();
+          return false;
+        }
+
+        // Attempt atomic write with MULTI/EXEC
+        const pipeline = this.redis.multi();
+
+        if (filtered.length === 0) {
+          pipeline.del(redisKey);
+        } else {
+          pipeline.set(redisKey, JSON.stringify(filtered));
+        }
+
+        const result = await pipeline.exec();
+
+        // If result is null, the key was modified by another client (race condition)
+        // Retry the operation
+        if (result === null) {
+          retries++;
+          continue;
+        }
+
+        // Success - exit loop
+        return true;
+      } catch (error) {
+        // Unwatch on error
+        await this.redis.unwatch();
+        throw error;
+      }
     }
 
-    if (filtered.length === 0) {
-      await this.redis.del(redisKey);
-    } else {
-      await this.redis.set(redisKey, JSON.stringify(filtered));
-    }
-
-    return true;
+    throw new Error(`Failed to delete key after ${maxRetries} retries due to concurrent modifications`);
   }
 
   async updateValidationStatus(
@@ -283,26 +345,100 @@ export class RedisUserLLMKeyStore implements UserLLMKeyStore {
     error?: string
   ): Promise<void> {
     const redisKey = this.getRedisKey(userId);
-    const userKeys = await this.getKeys(userId);
-    const key = userKeys.find((k) => k.provider === provider);
+    const maxRetries = 10;
+    let retries = 0;
 
-    if (key) {
-      key.validation_status = status;
-      key.validation_error = error || null;
-      key.updated_at = new Date().toISOString();
-      await this.redis.set(redisKey, JSON.stringify(userKeys));
+    while (retries < maxRetries) {
+      try {
+        // Watch the key for changes (optimistic locking)
+        await this.redis.watch(redisKey);
+
+        // Read current state
+        const userKeys = await this.getKeys(userId);
+        const key = userKeys.find((k) => k.provider === provider);
+
+        if (!key) {
+          // Key not found, unwatch and return
+          await this.redis.unwatch();
+          return;
+        }
+
+        // Modify the key
+        key.validation_status = status;
+        key.validation_error = error || null;
+        key.updated_at = new Date().toISOString();
+
+        // Attempt atomic write with MULTI/EXEC
+        const result = await this.redis
+          .multi()
+          .set(redisKey, JSON.stringify(userKeys))
+          .exec();
+
+        // If result is null, the key was modified by another client (race condition)
+        // Retry the operation
+        if (result === null) {
+          retries++;
+          continue;
+        }
+
+        // Success - exit loop
+        return;
+      } catch (error) {
+        // Unwatch on error
+        await this.redis.unwatch();
+        throw error;
+      }
     }
+
+    throw new Error(`Failed to update validation status after ${maxRetries} retries due to concurrent modifications`);
   }
 
   async updateLastUsed(userId: string, provider: LLMProvider): Promise<void> {
     const redisKey = this.getRedisKey(userId);
-    const userKeys = await this.getKeys(userId);
-    const key = userKeys.find((k) => k.provider === provider);
+    const maxRetries = 10;
+    let retries = 0;
 
-    if (key) {
-      key.last_used_at = new Date().toISOString();
-      await this.redis.set(redisKey, JSON.stringify(userKeys));
+    while (retries < maxRetries) {
+      try {
+        // Watch the key for changes (optimistic locking)
+        await this.redis.watch(redisKey);
+
+        // Read current state
+        const userKeys = await this.getKeys(userId);
+        const key = userKeys.find((k) => k.provider === provider);
+
+        if (!key) {
+          // Key not found, unwatch and return
+          await this.redis.unwatch();
+          return;
+        }
+
+        // Modify the key
+        key.last_used_at = new Date().toISOString();
+
+        // Attempt atomic write with MULTI/EXEC
+        const result = await this.redis
+          .multi()
+          .set(redisKey, JSON.stringify(userKeys))
+          .exec();
+
+        // If result is null, the key was modified by another client (race condition)
+        // Retry the operation
+        if (result === null) {
+          retries++;
+          continue;
+        }
+
+        // Success - exit loop
+        return;
+      } catch (error) {
+        // Unwatch on error
+        await this.redis.unwatch();
+        throw error;
+      }
     }
+
+    throw new Error(`Failed to update last used timestamp after ${maxRetries} retries due to concurrent modifications`);
   }
 }
 
