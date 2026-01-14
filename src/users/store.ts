@@ -6,6 +6,7 @@ import { User, UserCreateRequest, UserUpdateRequest, UserTier, UserStatus } from
 import { v4 as uuidv4 } from 'uuid';
 import * as crypto from 'crypto';
 import Redis from 'ioredis';
+import { verifyPassword, hashPassword } from './password';
 
 const USER_PREFIX = 'wayfinder:user:';
 const USER_EMAIL_INDEX = 'wayfinder:user:email:';
@@ -83,10 +84,13 @@ export class InMemoryUserStore implements UserStore {
       throw new Error('Email already registered');
     }
 
+    // Hash password internally for security
+    const password_hash = await hashPassword(request.password);
+
     const user: User = {
       id,
       email: request.email.toLowerCase().trim(),
-      password_hash: request.password, // Note: Caller must hash before passing
+      password_hash,
       tier: 'free',
       status: 'active',
       org_id: null,
@@ -117,9 +121,9 @@ export class InMemoryUserStore implements UserStore {
     const user = await this.getByEmail(email);
     if (!user) return null;
 
-    // Note: Caller is responsible for constant-time password comparison
-    // This is a placeholder - actual auth happens in the caller
-    if (user.password_hash === password) {
+    // Use constant-time bcrypt comparison
+    const isValid = await verifyPassword(password, user.password_hash);
+    if (isValid) {
       // Update last_login_at
       user.last_login_at = new Date().toISOString();
       user.updated_at = user.last_login_at;
@@ -146,10 +150,15 @@ export class InMemoryUserStore implements UserStore {
       this.emailIndex.set(newEmailHash, id);
     }
 
+    // Hash password if being updated
+    const password_hash = request.password
+      ? await hashPassword(request.password)
+      : existing.password_hash;
+
     const updated: User = {
       ...existing,
       email: request.email?.toLowerCase().trim() ?? existing.email,
-      password_hash: request.password ?? existing.password_hash,
+      password_hash,
       tier: request.tier ?? existing.tier,
       status: request.status ?? existing.status,
       updated_at: now,
@@ -193,10 +202,13 @@ export class RedisUserStore implements UserStore {
       throw new Error('Email already registered');
     }
 
+    // Hash password internally for security
+    const password_hash = await hashPassword(request.password);
+
     const user: User = {
       id,
       email: request.email.toLowerCase().trim(),
-      password_hash: request.password, // Note: Caller must hash before passing
+      password_hash,
       tier: 'free',
       status: 'active',
       org_id: null,
@@ -206,10 +218,12 @@ export class RedisUserStore implements UserStore {
       last_login_at: null,
     };
 
-    // Store user and indexes
-    await this.redis.set(USER_PREFIX + id, JSON.stringify(user));
-    await this.redis.set(USER_EMAIL_INDEX + emailHash, id);
-    await this.redis.sadd(USER_INDEX_KEY, id);
+    // Store user and indexes atomically using MULTI/EXEC
+    const pipeline = this.redis.multi();
+    pipeline.set(USER_PREFIX + id, JSON.stringify(user));
+    pipeline.set(USER_EMAIL_INDEX + emailHash, id);
+    pipeline.sadd(USER_INDEX_KEY, id);
+    await pipeline.exec();
 
     return user;
   }
@@ -231,9 +245,9 @@ export class RedisUserStore implements UserStore {
     const user = await this.getByEmail(email);
     if (!user) return null;
 
-    // Note: Caller is responsible for constant-time password comparison
-    // This is a placeholder - actual auth happens in the caller
-    if (user.password_hash === password) {
+    // Use constant-time bcrypt comparison
+    const isValid = await verifyPassword(password, user.password_hash);
+    if (isValid) {
       // Update last_login_at
       const now = new Date().toISOString();
       user.last_login_at = now;
@@ -251,7 +265,21 @@ export class RedisUserStore implements UserStore {
 
     const now = new Date().toISOString();
 
-    // If email is being updated, check for conflicts and update index
+    // Hash password if being updated (before transaction to avoid holding lock)
+    const password_hash = request.password
+      ? await hashPassword(request.password)
+      : existing.password_hash;
+
+    const updated: User = {
+      ...existing,
+      email: request.email?.toLowerCase().trim() ?? existing.email,
+      password_hash,
+      tier: request.tier ?? existing.tier,
+      status: request.status ?? existing.status,
+      updated_at: now,
+    };
+
+    // If email is being updated, check for conflicts and update atomically
     if (request.email && request.email !== existing.email) {
       const newEmailHash = hashEmail(request.email);
       const existingId = await this.redis.get(USER_EMAIL_INDEX + newEmailHash);
@@ -259,20 +287,18 @@ export class RedisUserStore implements UserStore {
         throw new Error('Email already registered');
       }
       const oldEmailHash = hashEmail(existing.email);
-      await this.redis.del(USER_EMAIL_INDEX + oldEmailHash);
-      await this.redis.set(USER_EMAIL_INDEX + newEmailHash, id);
+
+      // Update user and email indexes atomically
+      const pipeline = this.redis.multi();
+      pipeline.set(USER_PREFIX + id, JSON.stringify(updated));
+      pipeline.del(USER_EMAIL_INDEX + oldEmailHash);
+      pipeline.set(USER_EMAIL_INDEX + newEmailHash, id);
+      await pipeline.exec();
+    } else {
+      // No email change, just update user
+      await this.redis.set(USER_PREFIX + id, JSON.stringify(updated));
     }
 
-    const updated: User = {
-      ...existing,
-      email: request.email?.toLowerCase().trim() ?? existing.email,
-      password_hash: request.password ?? existing.password_hash,
-      tier: request.tier ?? existing.tier,
-      status: request.status ?? existing.status,
-      updated_at: now,
-    };
-
-    await this.redis.set(USER_PREFIX + id, JSON.stringify(updated));
     return updated;
   }
 

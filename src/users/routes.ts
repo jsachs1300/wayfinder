@@ -9,7 +9,6 @@ import { z } from 'zod';
 import { UserStore } from './store';
 import { TokenStore } from '../tokens/store';
 import { validateEmail, validatePassword } from './validation';
-import { hashPassword, verifyPassword } from './password';
 import type { User } from './types';
 import type { TokenConfigExtended } from '../tokens/types';
 import type { Logger } from '../logging/logger';
@@ -124,15 +123,12 @@ export function createUserRoutes(
         return;
       }
 
-      // Hash password
-      const password_hash = await hashPassword(password);
-
-      // Create user
+      // Create user (password will be hashed internally by store)
       let user: User;
       try {
         user = await userStore.create({
           email,
-          password: password_hash,
+          password,
         });
       } catch (error) {
         if (error instanceof Error && error.message === 'Email already registered') {
@@ -410,7 +406,8 @@ export function createUserRoutes(
         updateRequest.email = email;
       }
       if (password) {
-        updateRequest.password = await hashPassword(password);
+        // Password will be hashed internally by store
+        updateRequest.password = password;
       }
 
       // Update user

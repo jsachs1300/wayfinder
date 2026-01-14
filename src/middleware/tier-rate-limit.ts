@@ -52,7 +52,25 @@ function getWindowTTL(window: RateLimitWindow): number {
 }
 
 /**
- * Check rate limit using Redis
+ * Lua script for atomic rate limit check
+ * Increments counter and sets expiry in a single operation
+ * Returns: [count, ttl]
+ */
+const RATE_LIMIT_LUA = `
+local key = KEYS[1]
+local ttl = tonumber(ARGV[1])
+
+local count = redis.call('INCR', key)
+if count == 1 then
+  redis.call('EXPIRE', key, ttl)
+end
+
+local remaining_ttl = redis.call('TTL', key)
+return {count, remaining_ttl}
+`;
+
+/**
+ * Check rate limit using Redis with atomic Lua script
  */
 async function checkRedisRateLimit(
   redis: Redis,
@@ -61,17 +79,17 @@ async function checkRedisRateLimit(
   limit: number
 ): Promise<{ count: number; exceeded: boolean; ttl: number }> {
   const key = getRateLimitKey(userId, window);
+  const windowTTL = getWindowTTL(window);
 
-  // Increment counter
-  const count = await redis.incr(key);
+  // Execute Lua script for atomic INCR + EXPIRE
+  const result = await redis.eval(
+    RATE_LIMIT_LUA,
+    1,
+    key,
+    windowTTL
+  ) as [number, number];
 
-  // Set TTL on first request
-  if (count === 1) {
-    await redis.expire(key, getWindowTTL(window));
-  }
-
-  // Get remaining TTL
-  const ttl = await redis.ttl(key);
+  const [count, ttl] = result;
 
   return {
     count,

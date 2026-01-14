@@ -39,6 +39,29 @@ function getEncryptionKey(): Buffer {
 }
 
 /**
+ * Validate encryption key at startup
+ * This should be called during application initialization when BYOLLM features are enabled
+ *
+ * @throws Error if key is not configured or invalid
+ */
+export function validateEncryptionKeyAtStartup(): void {
+  try {
+    const key = getEncryptionKey();
+    // Additional validation: ensure key has enough entropy by checking it's not all zeros
+    const keyHex = key.toString('hex');
+    if (keyHex === '0'.repeat(64)) {
+      throw new Error('LLM_KEY_ENCRYPTION_KEY must not be all zeros');
+    }
+    // Success - key is valid
+  } catch (error) {
+    if (error instanceof Error) {
+      throw new Error(`Encryption key validation failed: ${error.message}`);
+    }
+    throw error;
+  }
+}
+
+/**
  * Encrypt LLM API key
  *
  * @param plaintext - API key to encrypt

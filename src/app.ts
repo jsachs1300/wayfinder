@@ -18,6 +18,7 @@ import { FEATURE_FLAGS } from './config';
 import { createUserStore, type UserStore } from './users';
 import { createAnonymousSessionStore, type AnonymousSessionStore } from './users/anonymous';
 import { createUserLLMKeyStore, type UserLLMKeyStore } from './users/llm-keys';
+import { validateEncryptionKeyAtStartup } from './users/llm-keys/encryption';
 
 /**
  * Application dependencies container
@@ -143,6 +144,17 @@ export function createApp(deps?: Partial<AppDependencies>): {
   let anonymousSessionStore: AnonymousSessionStore | undefined;
 
   if (FEATURE_FLAGS.USER_SELF_SERVICE) {
+    // Validate encryption key at startup
+    try {
+      validateEncryptionKeyAtStartup();
+      logger.info('Encryption key validation passed');
+    } catch (error) {
+      logger.error('Encryption key validation failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error; // Fatal error - app cannot start without valid encryption key
+    }
+
     userStore = deps?.userStore ?? createUserStore(redis);
     userLLMKeyStore = deps?.userLLMKeyStore ?? createUserLLMKeyStore(redis);
     anonymousSessionStore = deps?.anonymousSessionStore ?? createAnonymousSessionStore(tokenStore, redis);
