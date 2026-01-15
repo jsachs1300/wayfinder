@@ -66,6 +66,7 @@ describe('Global Semantic Cache', () => {
       apiKey: 'test-api-key',
       similarityThreshold: 0.9,
       ttl: 3600,
+      timeoutMs: 5000,
     });
   });
 
@@ -76,11 +77,16 @@ describe('Global Semantic Cache', () => {
       const result = await cache.get('test prompt');
 
       expect(result).toBeNull();
-      expect(mockLangCacheClient.search).toHaveBeenCalledWith({
-        prompt: 'test prompt',
-        searchStrategies: ['semantic'],
-        similarityThreshold: 0.9,
-      });
+      expect(mockLangCacheClient.search).toHaveBeenCalledWith(
+        {
+          prompt: 'test prompt',
+          searchStrategies: ['semantic'],
+          similarityThreshold: 0.9,
+        },
+        {
+          timeoutMs: 5000,
+        }
+      );
     });
 
     it('should return cached decision on cache hit', async () => {
@@ -140,15 +146,24 @@ describe('Global Semantic Cache', () => {
       await cache.get('process a csv file');
 
       // Verify no attributes (token isolation or policy scoping) are used
-      expect(mockLangCacheClient.search).toHaveBeenCalledWith({
-        prompt: 'process a csv file',
-        searchStrategies: ['semantic'],
-        similarityThreshold: 0.9,
-      });
+      expect(mockLangCacheClient.search).toHaveBeenCalledWith(
+        {
+          prompt: 'process a csv file',
+          searchStrategies: ['semantic'],
+          similarityThreshold: 0.9,
+        },
+        {
+          timeoutMs: 5000,
+        }
+      );
 
       // Verify attributes field is not present
       const callArgs = mockLangCacheClient.search.mock.calls[0][0];
       expect(callArgs).not.toHaveProperty('attributes');
+
+      // Verify timeout was passed
+      const options = mockLangCacheClient.search.mock.calls[0][1];
+      expect(options.timeoutMs).toBe(5000);
     });
   });
 
@@ -176,15 +191,27 @@ describe('Global Semantic Cache', () => {
 
       await cache.set('test prompt', cachedResponse);
 
-      expect(mockLangCacheClient.set).toHaveBeenCalledWith({
-        prompt: 'test prompt',
-        response: JSON.stringify(cachedResponse),
-        ttl: 3600,
-      });
+      expect(mockLangCacheClient.set).toHaveBeenCalledWith(
+        {
+          prompt: 'test prompt',
+          response: JSON.stringify(cachedResponse),
+          ttlMillis: 3600000, // Converted to milliseconds
+        },
+        {
+          timeoutMs: 3000,
+        }
+      );
 
       // Verify no attributes (token isolation or policy scoping) are used
       const callArgs = mockLangCacheClient.set.mock.calls[0][0];
       expect(callArgs).not.toHaveProperty('attributes');
+
+      // Verify TTL was converted to milliseconds
+      expect(callArgs.ttlMillis).toBe(3600000);
+
+      // Verify timeout was passed
+      const options = mockLangCacheClient.set.mock.calls[0][1];
+      expect(options.timeoutMs).toBe(3000);
     });
 
     it('should reject promise on cache store failure (but caller handles gracefully)', async () => {
@@ -317,16 +344,28 @@ describe('Global Semantic Cache', () => {
 
       // Verify both queries used pure prompts (no scoping)
       expect(mockLangCacheClient.search).toHaveBeenCalledTimes(2);
-      expect(mockLangCacheClient.search).toHaveBeenNthCalledWith(1, {
-        prompt: 'process a csv file',
-        searchStrategies: ['semantic'],
-        similarityThreshold: 0.9,
-      });
-      expect(mockLangCacheClient.search).toHaveBeenNthCalledWith(2, {
-        prompt: 'analyze a csv file',
-        searchStrategies: ['semantic'],
-        similarityThreshold: 0.9,
-      });
+      expect(mockLangCacheClient.search).toHaveBeenNthCalledWith(
+        1,
+        {
+          prompt: 'process a csv file',
+          searchStrategies: ['semantic'],
+          similarityThreshold: 0.9,
+        },
+        {
+          timeoutMs: 5000,
+        }
+      );
+      expect(mockLangCacheClient.search).toHaveBeenNthCalledWith(
+        2,
+        {
+          prompt: 'analyze a csv file',
+          searchStrategies: ['semantic'],
+          similarityThreshold: 0.9,
+        },
+        {
+          timeoutMs: 5000,
+        }
+      );
     });
 
     it('should share cache across all tokens (no token isolation)', async () => {
@@ -360,11 +399,16 @@ describe('Global Semantic Cache', () => {
       expect(result).toEqual(cachedResponse);
 
       // Verify no token scoping in search
-      expect(mockLangCacheClient.search).toHaveBeenCalledWith({
-        prompt: 'same prompt',
-        searchStrategies: ['semantic'],
-        similarityThreshold: 0.9,
-      });
+      expect(mockLangCacheClient.search).toHaveBeenCalledWith(
+        {
+          prompt: 'same prompt',
+          searchStrategies: ['semantic'],
+          similarityThreshold: 0.9,
+        },
+        {
+          timeoutMs: 5000,
+        }
+      );
     });
   });
 });

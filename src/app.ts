@@ -129,6 +129,7 @@ export function createApp(deps?: Partial<AppDependencies>): {
         host: cacheConfig.serverURL,
         similarity_threshold: cacheConfig.similarityThreshold,
         ttl: cacheConfig.ttl,
+        timeout_ms: cacheConfig.timeoutMs,
       });
     } catch (err) {
       logger.error('Failed to initialize cache, continuing without caching', {

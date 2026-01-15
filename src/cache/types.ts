@@ -16,6 +16,12 @@ export interface CacheConfig {
   similarityThreshold: number;
   /** TTL for cache entries in seconds (optional) */
   ttl?: number;
+  /** Timeout for cache read operations in milliseconds (optional, default: 5000ms) */
+  timeoutMs?: number;
+  /** Timeout for cache write operations in milliseconds (optional, default: 3000ms) */
+  writeTimeoutMs?: number;
+  /** Timeout for cache flush operations in milliseconds (optional, default: 10000ms) */
+  flushTimeoutMs?: number;
 }
 
 /**

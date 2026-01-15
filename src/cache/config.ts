@@ -16,6 +16,9 @@ import { CacheConfig } from './types';
  * Optional environment variables:
  * - LANGCACHE_SIMILARITY_THRESHOLD: Semantic similarity threshold (default: 0.9)
  * - LANGCACHE_TTL: Cache entry TTL in seconds (default: 3600)
+ * - LANGCACHE_TIMEOUT_MS: Cache read timeout in milliseconds (default: 5000)
+ * - LANGCACHE_WRITE_TIMEOUT_MS: Cache write timeout in milliseconds (default: 3000)
+ * - LANGCACHE_FLUSH_TIMEOUT_MS: Cache flush timeout in milliseconds (default: 10000)
  *
  * @throws Error if required environment variables are missing
  */
@@ -46,16 +49,51 @@ export function loadCacheConfig(): CacheConfig {
     ? parseInt(process.env.LANGCACHE_TTL, 10)
     : 3600;
 
+  const timeoutMs = process.env.LANGCACHE_TIMEOUT_MS
+    ? parseInt(process.env.LANGCACHE_TIMEOUT_MS, 10)
+    : 5000; // Default 5 second timeout for reads
+
+  const writeTimeoutMs = process.env.LANGCACHE_WRITE_TIMEOUT_MS
+    ? parseInt(process.env.LANGCACHE_WRITE_TIMEOUT_MS, 10)
+    : 3000; // Default 3 second timeout for writes
+
+  const flushTimeoutMs = process.env.LANGCACHE_FLUSH_TIMEOUT_MS
+    ? parseInt(process.env.LANGCACHE_FLUSH_TIMEOUT_MS, 10)
+    : 10000; // Default 10 second timeout for flush
+
   // Validate similarity threshold range
-  if (similarityThreshold < 0 || similarityThreshold > 1) {
+  if (isNaN(similarityThreshold) || similarityThreshold < 0 || similarityThreshold > 1) {
     throw new Error(
-      `LANGCACHE_SIMILARITY_THRESHOLD must be between 0 and 1, got: ${similarityThreshold}`
+      `LANGCACHE_SIMILARITY_THRESHOLD must be a number between 0 and 1, got: ${process.env.LANGCACHE_SIMILARITY_THRESHOLD}. Please set a valid decimal value (e.g., 0.9).`
     );
   }
 
   // Validate TTL is positive
-  if (ttl <= 0) {
-    throw new Error(`LANGCACHE_TTL must be a positive number, got: ${ttl}`);
+  if (isNaN(ttl) || ttl <= 0) {
+    throw new Error(
+      `LANGCACHE_TTL must be a positive integer, got: ${process.env.LANGCACHE_TTL}. Please set a valid number of seconds (e.g., 3600 for 1 hour).`
+    );
+  }
+
+  // Validate read timeout is positive
+  if (isNaN(timeoutMs) || timeoutMs <= 0) {
+    throw new Error(
+      `LANGCACHE_TIMEOUT_MS must be a positive integer, got: ${process.env.LANGCACHE_TIMEOUT_MS}. Please set a valid number of milliseconds (e.g., 5000 for 5 seconds).`
+    );
+  }
+
+  // Validate write timeout is positive
+  if (isNaN(writeTimeoutMs) || writeTimeoutMs <= 0) {
+    throw new Error(
+      `LANGCACHE_WRITE_TIMEOUT_MS must be a positive integer, got: ${process.env.LANGCACHE_WRITE_TIMEOUT_MS}. Please set a valid number of milliseconds (e.g., 3000 for 3 seconds).`
+    );
+  }
+
+  // Validate flush timeout is positive
+  if (isNaN(flushTimeoutMs) || flushTimeoutMs <= 0) {
+    throw new Error(
+      `LANGCACHE_FLUSH_TIMEOUT_MS must be a positive integer, got: ${process.env.LANGCACHE_FLUSH_TIMEOUT_MS}. Please set a valid number of milliseconds (e.g., 10000 for 10 seconds).`
+    );
   }
 
   // Build server URL (ensure https://)
@@ -67,5 +105,8 @@ export function loadCacheConfig(): CacheConfig {
     apiKey,
     similarityThreshold,
     ttl,
+    timeoutMs,
+    writeTimeoutMs,
+    flushTimeoutMs,
   };
 }
