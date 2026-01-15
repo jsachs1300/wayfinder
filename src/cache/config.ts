@@ -45,6 +45,10 @@ export function loadCacheConfig(): CacheConfig {
     ? parseFloat(process.env.LANGCACHE_SIMILARITY_THRESHOLD)
     : 0.9;
 
+  // LangCache maximum TTL is 31,556,952,000 milliseconds (~365.25 days)
+  // The API requires ttlMillis < 31556952000 (exclusive), so we cap at 31556951 seconds
+  // to ensure ttlMillis = 31556951000 < 31556952000
+  const MAX_TTL_SECONDS = 31556951;
   const ttl = process.env.LANGCACHE_TTL
     ? parseInt(process.env.LANGCACHE_TTL, 10)
     : 3600;
@@ -72,6 +76,13 @@ export function loadCacheConfig(): CacheConfig {
   if (isNaN(ttl) || ttl <= 0) {
     throw new Error(
       `LANGCACHE_TTL must be a positive integer, got: ${process.env.LANGCACHE_TTL}. Please set a valid number of seconds (e.g., 3600 for 1 hour).`
+    );
+  }
+
+  // Validate TTL does not exceed LangCache maximum
+  if (ttl > MAX_TTL_SECONDS) {
+    throw new Error(
+      `LANGCACHE_TTL must not exceed ${MAX_TTL_SECONDS} seconds (~365 days), got: ${ttl}. LangCache has a maximum TTL of ${MAX_TTL_SECONDS} seconds (approximately 1 year).`
     );
   }
 

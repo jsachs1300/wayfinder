@@ -16,11 +16,29 @@
  * - Simpler implementation = fewer bugs
  */
 
-import { LangCache, SearchStrategy, SearchResponse } from '@redis-ai/langcache';
+import { LangCache } from '@redis-ai/langcache';
 import { createHash } from 'crypto';
 import type { CacheConfig, CacheStats } from './types';
 import type { CachedRouterResponse } from '../types/index';
 import { logger } from '../logging';
+
+// LangCache types (from @redis-ai/langcache/models)
+// Defining locally to avoid module resolution issues with older TypeScript moduleResolution: "node"
+type SearchStrategy = 'exact' | 'semantic';
+const SearchStrategy = {
+  Exact: 'exact' as const,
+  Semantic: 'semantic' as const,
+};
+
+interface CacheEntry {
+  response: string;
+  similarity?: number;
+  searchStrategy?: string;
+}
+
+interface SearchResponse {
+  data: CacheEntry[];
+}
 
 /**
  * SemanticCache class

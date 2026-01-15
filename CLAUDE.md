@@ -82,3 +82,44 @@ Optional:
 ## Testing
 
 Tests use Vitest with supertest for HTTP assertions. Test files mirror source structure in `test/`. Edge case tests are separated (e.g., `policy-edge-cases.test.ts`).
+
+## Known Technical Debt
+
+### LangCache Type Definitions (Medium Priority)
+
+**Location:** `src/cache/semantic-cache.ts:25-41`
+
+**Issue:** Locally-defined types create potential for type drift and maintenance burden.
+
+The `SearchStrategy`, `SearchResponse`, and `CacheEntry` types are defined locally to work around module resolution issues:
+
+```typescript
+// Local definitions - could drift from @redis-ai/langcache
+type SearchStrategy = 'exact' | 'semantic';
+const SearchStrategy = {
+  Exact: 'exact' as const,
+  Semantic: 'semantic' as const,
+};
+
+interface CacheEntry {
+  response: string;
+  similarity?: number;
+  searchStrategy?: string;
+}
+
+interface SearchResponse {
+  data: CacheEntry[];
+}
+```
+
+**Root Cause:** The `@redis-ai/langcache` package uses modern package.json `exports` field for type definitions, which isn't supported by TypeScript's `moduleResolution: "node"` setting. Importing from `@redis-ai/langcache/models` fails at compile time.
+
+**Risk:** If `@redis-ai/langcache` updates these types in a future version, this code won't catch the breaking change at compile time. Type mismatches will only be discovered at runtime.
+
+**Mitigation Options:**
+1. Upgrade to TypeScript `moduleResolution: "node16"` or `"bundler"` (requires changing `module` setting to `Node16` or ES modules)
+2. Add integration tests that validate type compatibility with the actual LangCache package
+3. Monitor `@redis-ai/langcache` releases and manually verify type compatibility
+4. Extract types from the package's `.d.ts` files during build process
+
+**Current Status:** Accepted technical debt. Runtime behavior is correct, but type safety could be improved.
