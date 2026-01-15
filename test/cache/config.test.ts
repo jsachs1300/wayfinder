@@ -193,6 +193,30 @@ describe('Cache Configuration', () => {
 
       expect(config.ttl).toBe(86400);
     });
+
+    it('should reject TTL exceeding maximum (31556951 seconds)', () => {
+      process.env.LANGCACHE_TTL = '31556952'; // One second over the limit
+
+      expect(() => loadCacheConfig()).toThrow(
+        /LANGCACHE_TTL must not exceed 31556951 seconds/
+      );
+    });
+
+    it('should accept TTL at maximum (31556951 seconds)', () => {
+      process.env.LANGCACHE_TTL = '31556951'; // Exactly at the limit
+
+      const config = loadCacheConfig();
+
+      expect(config.ttl).toBe(31556951);
+    });
+
+    it('should reject very large TTL values', () => {
+      process.env.LANGCACHE_TTL = '100000000'; // Far exceeds limit
+
+      expect(() => loadCacheConfig()).toThrow(
+        /LANGCACHE_TTL must not exceed 31556951 seconds/
+      );
+    });
   });
 
   describe('Timeout Validation', () => {
