@@ -16,6 +16,7 @@ import { CacheConfig } from './types';
  * Optional environment variables:
  * - LANGCACHE_SIMILARITY_THRESHOLD: Semantic similarity threshold (default: 0.9)
  * - LANGCACHE_TTL: Cache entry TTL in seconds (default: 3600)
+ * - LANGCACHE_TIMEOUT_MS: Cache operation timeout in milliseconds (default: 5000)
  *
  * @throws Error if required environment variables are missing
  */
@@ -46,6 +47,10 @@ export function loadCacheConfig(): CacheConfig {
     ? parseInt(process.env.LANGCACHE_TTL, 10)
     : 3600;
 
+  const timeoutMs = process.env.LANGCACHE_TIMEOUT_MS
+    ? parseInt(process.env.LANGCACHE_TIMEOUT_MS, 10)
+    : 5000; // Default 5 second timeout
+
   // Validate similarity threshold range
   if (similarityThreshold < 0 || similarityThreshold > 1) {
     throw new Error(
@@ -58,6 +63,11 @@ export function loadCacheConfig(): CacheConfig {
     throw new Error(`LANGCACHE_TTL must be a positive number, got: ${ttl}`);
   }
 
+  // Validate timeout is positive
+  if (timeoutMs <= 0) {
+    throw new Error(`LANGCACHE_TIMEOUT_MS must be a positive number, got: ${timeoutMs}`);
+  }
+
   // Build server URL (ensure https://)
   const serverURL = host.startsWith('http') ? host : `https://${host}`;
 
@@ -67,5 +77,6 @@ export function loadCacheConfig(): CacheConfig {
     apiKey,
     similarityThreshold,
     ttl,
+    timeoutMs,
   };
 }

@@ -59,14 +59,26 @@ export class SemanticCache {
       // Search for cached entries using semantic matching
       // Semantic match finds similar prompts (e.g., "analyze csv" ≈ "process csv")
       // No token isolation - cache is shared across all tokens
+      const searchStartTime = Date.now();
+      console.log(`[${new Date().toISOString()}] LangCache search() STARTED`);
+
       const result = await this.client.search({
         prompt,
         searchStrategies: ['semantic' as any], // LangCache SearchStrategy enum
         similarityThreshold: this.config.similarityThreshold,
+      }, {
+        timeoutMs: this.config.timeoutMs ?? 5000, // Configurable timeout to prevent cache from blocking routing
       });
 
+      const searchDuration = Date.now() - searchStartTime;
+      console.log(`[${new Date().toISOString()}] LangCache search() COMPLETED in ${searchDuration}ms`);
+
       // Log full LangCache response to diagnose cache retrieval issues
-      console.log('LangCache search() full response:', JSON.stringify(result, null, 2));
+      const stringifyStartTime = Date.now();
+      const resultJson = JSON.stringify(result, null, 2);
+      const stringifyDuration = Date.now() - stringifyStartTime;
+      console.log(`[${new Date().toISOString()}] JSON.stringify() took ${stringifyDuration}ms`);
+      console.log('LangCache search() full response:', resultJson);
       console.log('LangCache search() input:', {
         prompt_hash: this.hashPrompt(prompt),
         prompt_length: prompt.length,
@@ -95,7 +107,10 @@ export class SemanticCache {
       }
 
       // Parse cached response from first result (stored as JSON string)
+      const parseStartTime = Date.now();
       const cachedResponse = JSON.parse(data[0].response) as CachedRouterResponse;
+      const parseDuration = Date.now() - parseStartTime;
+      console.log(`[${new Date().toISOString()}] JSON.parse() took ${parseDuration}ms, response size: ${data[0].response.length} bytes`);
       console.log('LangCache cache hit!', {
         prompt_hash: this.hashPrompt(prompt),
         similarity: data[0].similarity,
@@ -132,7 +147,9 @@ export class SemanticCache {
       const setResult = await this.client.set({
         prompt,
         response: JSON.stringify(response),
-        ttl: this.config.ttl,
+        ttlMillis: this.config.ttl ? this.config.ttl * 1000 : undefined, // Convert seconds to milliseconds
+      }, {
+        timeoutMs: 3000, // 3 second timeout for cache writes (fire-and-forget, don't block response)
       });
 
       // Log full LangCache response to diagnose cache save issues
@@ -189,7 +206,9 @@ export class SemanticCache {
    */
   async clear(): Promise<void> {
     try {
-      await this.client.flush();
+      await this.client.flush(undefined, {
+        timeoutMs: 10000, // 10 second timeout for flush operation
+      });
     } catch (error) {
       // Log error and re-throw for admin endpoint to handle
       console.error('Cache clear failed:', {
@@ -205,7 +224,7 @@ export class SemanticCache {
    * @returns TTL in seconds
    */
   getTTL(): number {
-    return this.config.ttl;
+    return this.config.ttl ?? 3600; // Default 1 hour if not configured
   }
 
   /**
