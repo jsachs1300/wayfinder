@@ -88,18 +88,12 @@ function buildLargeDecision(numModels: number = 14): RankedRouteDecision {
 
 describe('LangCache Integration Tests', () => {
   let cache: SemanticCache;
-  let consoleLogSpy: any;
-  let consoleErrorSpy: any;
 
   beforeEach(() => {
     // Reset mock calls (only used in mock mode)
     if (!RUN_INTEGRATION) {
       vi.clearAllMocks();
     }
-
-    // Suppress console logs during tests (they're verbose with timing instrumentation)
-    consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     cache = new SemanticCache({
       serverURL: 'https://test-cache.langcache.redis.io',
@@ -109,11 +103,6 @@ describe('LangCache Integration Tests', () => {
       ttl: 3600,
       timeoutMs: 5000,
     });
-  });
-
-  afterEach(() => {
-    consoleLogSpy.mockRestore();
-    consoleErrorSpy.mockRestore();
   });
 
   describe('Timeout Configuration', () => {
@@ -201,12 +190,6 @@ describe('LangCache Integration Tests', () => {
 
       // Should return null on timeout (graceful degradation)
       expect(result).toBeNull();
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        'Cache get failed:',
-        expect.objectContaining({
-          error: 'Request timed out after 5000ms',
-        })
-      );
     });
   });
 
@@ -288,12 +271,6 @@ describe('LangCache Integration Tests', () => {
       const result = await cache.get('test');
 
       expect(result).toBeNull();
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        'Cache get failed:',
-        expect.objectContaining({
-          error: expect.stringContaining('Authentication Failed'),
-        })
-      );
     });
 
     it('should handle 424 index not found errors gracefully', async () => {
@@ -310,12 +287,6 @@ describe('LangCache Integration Tests', () => {
       const result = await cache.get('test');
 
       expect(result).toBeNull();
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        'Cache get failed:',
-        expect.objectContaining({
-          error: expect.stringContaining('Index Not Found'),
-        })
-      );
     });
 
     it('should handle network errors gracefully', async () => {
@@ -328,7 +299,6 @@ describe('LangCache Integration Tests', () => {
       const result = await cache.get('test');
 
       expect(result).toBeNull();
-      expect(consoleErrorSpy).toHaveBeenCalled();
     });
 
     it('should re-throw set() errors for logging but not block routing', async () => {
@@ -344,13 +314,6 @@ describe('LangCache Integration Tests', () => {
       // set() should reject (so routing engine can log)
       await expect(cache.set('test', cachedResponse)).rejects.toThrow(
         'Network error'
-      );
-
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        'Cache set failed:',
-        expect.objectContaining({
-          error: 'Network error',
-        })
       );
     });
   });

@@ -126,7 +126,7 @@ describe('Cache Configuration', () => {
       process.env.LANGCACHE_SIMILARITY_THRESHOLD = '-0.1';
 
       expect(() => loadCacheConfig()).toThrow(
-        'LANGCACHE_SIMILARITY_THRESHOLD must be between 0 and 1'
+        'LANGCACHE_SIMILARITY_THRESHOLD must be a number between 0 and 1'
       );
     });
 
@@ -134,7 +134,7 @@ describe('Cache Configuration', () => {
       process.env.LANGCACHE_SIMILARITY_THRESHOLD = '1.5';
 
       expect(() => loadCacheConfig()).toThrow(
-        'LANGCACHE_SIMILARITY_THRESHOLD must be between 0 and 1'
+        'LANGCACHE_SIMILARITY_THRESHOLD must be a number between 0 and 1'
       );
     });
 
@@ -174,7 +174,7 @@ describe('Cache Configuration', () => {
       process.env.LANGCACHE_TTL = '0';
 
       expect(() => loadCacheConfig()).toThrow(
-        'LANGCACHE_TTL must be a positive number'
+        'LANGCACHE_TTL must be a positive integer'
       );
     });
 
@@ -182,7 +182,7 @@ describe('Cache Configuration', () => {
       process.env.LANGCACHE_TTL = '-100';
 
       expect(() => loadCacheConfig()).toThrow(
-        'LANGCACHE_TTL must be a positive number'
+        'LANGCACHE_TTL must be a positive integer'
       );
     });
 
@@ -202,28 +202,100 @@ describe('Cache Configuration', () => {
       process.env.LANGCACHE_API_KEY = 'test-api-key';
     });
 
-    it('should reject timeout = 0', () => {
+    it('should reject read timeout = 0', () => {
       process.env.LANGCACHE_TIMEOUT_MS = '0';
 
       expect(() => loadCacheConfig()).toThrow(
-        'LANGCACHE_TIMEOUT_MS must be a positive number'
+        'LANGCACHE_TIMEOUT_MS must be a positive integer'
       );
     });
 
-    it('should reject negative timeout', () => {
+    it('should reject negative read timeout', () => {
       process.env.LANGCACHE_TIMEOUT_MS = '-1000';
 
       expect(() => loadCacheConfig()).toThrow(
-        'LANGCACHE_TIMEOUT_MS must be a positive number'
+        'LANGCACHE_TIMEOUT_MS must be a positive integer'
       );
     });
 
-    it('should accept positive timeout', () => {
+    it('should accept positive read timeout', () => {
       process.env.LANGCACHE_TIMEOUT_MS = '15000';
 
       const config = loadCacheConfig();
 
       expect(config.timeoutMs).toBe(15000);
+    });
+
+    it('should use default write timeout (3000ms)', () => {
+      delete process.env.LANGCACHE_WRITE_TIMEOUT_MS;
+
+      const config = loadCacheConfig();
+
+      expect(config.writeTimeoutMs).toBe(3000);
+    });
+
+    it('should use custom write timeout from env', () => {
+      process.env.LANGCACHE_WRITE_TIMEOUT_MS = '5000';
+
+      const config = loadCacheConfig();
+
+      expect(config.writeTimeoutMs).toBe(5000);
+    });
+
+    it('should reject write timeout = 0', () => {
+      process.env.LANGCACHE_WRITE_TIMEOUT_MS = '0';
+
+      expect(() => loadCacheConfig()).toThrow(
+        'LANGCACHE_WRITE_TIMEOUT_MS must be a positive integer'
+      );
+    });
+
+    it('should use default flush timeout (10000ms)', () => {
+      delete process.env.LANGCACHE_FLUSH_TIMEOUT_MS;
+
+      const config = loadCacheConfig();
+
+      expect(config.flushTimeoutMs).toBe(10000);
+    });
+
+    it('should use custom flush timeout from env', () => {
+      process.env.LANGCACHE_FLUSH_TIMEOUT_MS = '15000';
+
+      const config = loadCacheConfig();
+
+      expect(config.flushTimeoutMs).toBe(15000);
+    });
+
+    it('should reject flush timeout = 0', () => {
+      process.env.LANGCACHE_FLUSH_TIMEOUT_MS = '0';
+
+      expect(() => loadCacheConfig()).toThrow(
+        'LANGCACHE_FLUSH_TIMEOUT_MS must be a positive integer'
+      );
+    });
+
+    it('should reject invalid (NaN) read timeout', () => {
+      process.env.LANGCACHE_TIMEOUT_MS = 'not-a-number';
+
+      expect(() => loadCacheConfig()).toThrow(
+        'LANGCACHE_TIMEOUT_MS must be a positive integer'
+      );
+    });
+
+    it('should reject invalid (NaN) write timeout', () => {
+      process.env.LANGCACHE_WRITE_TIMEOUT_MS = 'invalid';
+
+      expect(() => loadCacheConfig()).toThrow(
+        'LANGCACHE_WRITE_TIMEOUT_MS must be a positive integer'
+      );
+    });
+
+    it('should reject invalid (NaN) flush timeout', () => {
+      process.env.LANGCACHE_FLUSH_TIMEOUT_MS = 'abc';
+
+      expect(() => loadCacheConfig()).toThrow(
+        'LANGCACHE_FLUSH_TIMEOUT_MS must be a positive integer'
+      );
     });
   });
 
@@ -276,6 +348,8 @@ describe('Cache Configuration', () => {
         similarityThreshold: 0.85,
         ttl: 7200,
         timeoutMs: 8000,
+        writeTimeoutMs: 3000, // Default
+        flushTimeoutMs: 10000, // Default
       });
     });
 
@@ -296,6 +370,8 @@ describe('Cache Configuration', () => {
         similarityThreshold: 0.9, // Default
         ttl: 3600, // Default
         timeoutMs: 5000, // Default
+        writeTimeoutMs: 3000, // Default
+        flushTimeoutMs: 10000, // Default
       });
     });
   });

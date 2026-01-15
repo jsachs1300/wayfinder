@@ -16,10 +16,11 @@
  * - Simpler implementation = fewer bugs
  */
 
-import { LangCache } from '@redis-ai/langcache';
+import { LangCache, SearchStrategy, SearchResponse } from '@redis-ai/langcache';
 import { createHash } from 'crypto';
 import type { CacheConfig, CacheStats } from './types';
 import type { CachedRouterResponse } from '../types/index';
+import { logger } from '../logging';
 
 /**
  * SemanticCache class
@@ -56,50 +57,24 @@ export class SemanticCache {
    */
   async get(prompt: string): Promise<CachedRouterResponse | null> {
     try {
-      // Search for cached entries using semantic matching
-      // Semantic match finds similar prompts (e.g., "analyze csv" ≈ "process csv")
-      // No token isolation - cache is shared across all tokens
-      const searchStartTime = Date.now();
-      console.log(`[${new Date().toISOString()}] LangCache search() STARTED`);
+      logger.debug('LangCache search started', {
+        prompt_hash: this.hashPrompt(prompt),
+        prompt_length: prompt.length,
+        similarityThreshold: this.config.similarityThreshold,
+      });
 
-      const result = await this.client.search({
+      const result: SearchResponse = await this.client.search({
         prompt,
-        searchStrategies: ['semantic' as any], // LangCache SearchStrategy enum
+        searchStrategies: [SearchStrategy.Semantic],
         similarityThreshold: this.config.similarityThreshold,
       }, {
         timeoutMs: this.config.timeoutMs ?? 5000, // Configurable timeout to prevent cache from blocking routing
       });
 
-      const searchDuration = Date.now() - searchStartTime;
-      console.log(`[${new Date().toISOString()}] LangCache search() COMPLETED in ${searchDuration}ms`);
-
-      // Log full LangCache response to diagnose cache retrieval issues
-      const stringifyStartTime = Date.now();
-      const resultJson = JSON.stringify(result, null, 2);
-      const stringifyDuration = Date.now() - stringifyStartTime;
-      console.log(`[${new Date().toISOString()}] JSON.stringify() took ${stringifyDuration}ms`);
-      console.log('LangCache search() full response:', resultJson);
-      console.log('LangCache search() input:', {
-        prompt_hash: this.hashPrompt(prompt),
-        prompt_length: prompt.length,
-        similarityThreshold: this.config.similarityThreshold,
-        config: {
-          serverURL: this.config.serverURL,
-          cacheId: this.config.cacheId,
-        },
-      });
-
       // LangCache returns { data: [{ response, similarity, ... }] } structure
       // Check if we have data array with at least one result
-      const data = (result as any)?.data;
-      if (!result || !data || !Array.isArray(data) || data.length === 0 || !data[0]?.response) {
-        console.log('LangCache search() returned no match:', {
-          result_is_null: result === null,
-          result_is_undefined: result === undefined,
-          has_data: !!data,
-          is_array: Array.isArray(data),
-          data_length: data?.length || 0,
-          has_response: data?.[0]?.response ? true : false,
+      if (!result?.data || result.data.length === 0 || !result.data[0]?.response) {
+        logger.debug('LangCache cache miss', {
           prompt_hash: this.hashPrompt(prompt),
         });
         this.stats.misses++;
@@ -107,17 +82,13 @@ export class SemanticCache {
       }
 
       // Parse cached response from first result (stored as JSON string)
-      const parseStartTime = Date.now();
-      const cachedResponse = JSON.parse(data[0].response) as CachedRouterResponse;
-      const parseDuration = Date.now() - parseStartTime;
-      console.log(`[${new Date().toISOString()}] JSON.parse() took ${parseDuration}ms, response size: ${data[0].response.length} bytes`);
-      console.log('LangCache cache hit!', {
+      const cachedResponse = JSON.parse(result.data[0].response) as CachedRouterResponse;
+
+      logger.debug('LangCache cache hit', {
         prompt_hash: this.hashPrompt(prompt),
-        similarity: data[0].similarity,
-        searchStrategy: data[0].searchStrategy,
+        similarity: result.data[0].similarity,
+        searchStrategy: result.data[0].searchStrategy,
         consensus_top_model: cachedResponse.consensus.ranked_models[0]?.model,
-        has_openai: !!cachedResponse.provider_rankings.openai,
-        has_gemini: !!cachedResponse.provider_rankings.gemini,
       });
       this.stats.hits++;
 
@@ -125,7 +96,7 @@ export class SemanticCache {
     } catch (error) {
       // Graceful degradation: log error and return null
       // Cache failures should never block routing
-      console.error('Cache get failed:', {
+      logger.error('Cache get failed', {
         error: error instanceof Error ? error.message : String(error),
         prompt_hash: this.hashPrompt(prompt),
       });
@@ -142,36 +113,29 @@ export class SemanticCache {
    */
   async set(prompt: string, response: CachedRouterResponse): Promise<void> {
     try {
+      logger.debug('LangCache set started', {
+        prompt_hash: this.hashPrompt(prompt),
+        prompt_length: prompt.length,
+        ttl: this.config.ttl,
+      });
+
       // Store response as JSON string in global cache
       // No token scoping - any token can retrieve this cached response
-      const setResult = await this.client.set({
+      await this.client.set({
         prompt,
         response: JSON.stringify(response),
         ttlMillis: this.config.ttl ? this.config.ttl * 1000 : undefined, // Convert seconds to milliseconds
       }, {
-        timeoutMs: 3000, // 3 second timeout for cache writes (fire-and-forget, don't block response)
+        timeoutMs: this.config.writeTimeoutMs ?? 3000, // Configurable timeout for cache writes
       });
 
-      // Log full LangCache response to diagnose cache save issues
-      console.log('LangCache set() full response:', JSON.stringify(setResult, null, 2));
-      console.log('LangCache set() input:', {
+      logger.debug('LangCache set completed', {
         prompt_hash: this.hashPrompt(prompt),
-        prompt_length: prompt.length,
-        response_length: JSON.stringify(response).length,
-        ttl: this.config.ttl,
-        has_openai: !!response.provider_rankings.openai,
-        has_gemini: !!response.provider_rankings.gemini,
-        config: {
-          serverURL: this.config.serverURL,
-          cacheId: this.config.cacheId,
-          similarityThreshold: this.config.similarityThreshold,
-        },
       });
 
       this.stats.stores++;
     } catch (error) {
-      // Log error for debugging (appears in console.error)
-      console.error('Cache set failed:', {
+      logger.error('Cache set failed', {
         error: error instanceof Error ? error.message : String(error),
         prompt_hash: this.hashPrompt(prompt),
       });
@@ -207,11 +171,11 @@ export class SemanticCache {
   async clear(): Promise<void> {
     try {
       await this.client.flush(undefined, {
-        timeoutMs: 10000, // 10 second timeout for flush operation
+        timeoutMs: this.config.flushTimeoutMs ?? 10000, // Configurable timeout for flush operation
       });
     } catch (error) {
       // Log error and re-throw for admin endpoint to handle
-      console.error('Cache clear failed:', {
+      logger.error('Cache clear failed', {
         error: error instanceof Error ? error.message : String(error),
       });
       throw error;
