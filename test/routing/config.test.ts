@@ -18,8 +18,10 @@ describe('loadRouterLLMConfig', () => {
     process.env = originalEnv;
   });
 
-  it('should load default configuration when only API keys are provided', () => {
+  it('should load default configuration when providers are enabled with API keys', () => {
+    process.env.ROUTER_LLM_OPENAI_ENABLED = 'true';
     process.env.ROUTER_LLM_OPENAI_API_KEY = 'test-openai-key';
+    process.env.ROUTER_LLM_GEMINI_ENABLED = 'true';
     process.env.ROUTER_LLM_GEMINI_API_KEY = 'test-gemini-key';
 
     const config = loadRouterLLMConfig();
@@ -42,8 +44,18 @@ describe('loadRouterLLMConfig', () => {
     });
   });
 
+  it('should have providers disabled by default', () => {
+    process.env.NODE_ENV = 'test'; // Test mode allows no providers
+    const config = loadRouterLLMConfig();
+
+    expect(config.openai.enabled).toBe(false);
+    expect(config.gemini.enabled).toBe(false);
+  });
+
   it('should load custom model configuration', () => {
+    process.env.ROUTER_LLM_OPENAI_ENABLED = 'true';
     process.env.ROUTER_LLM_OPENAI_API_KEY = 'test-openai-key';
+    process.env.ROUTER_LLM_GEMINI_ENABLED = 'true';
     process.env.ROUTER_LLM_GEMINI_API_KEY = 'test-gemini-key';
     process.env.ROUTER_LLM_OPENAI_MODEL = 'gpt-4';
     process.env.ROUTER_LLM_GEMINI_MODEL = 'gemini-1.5-pro';
@@ -55,7 +67,9 @@ describe('loadRouterLLMConfig', () => {
   });
 
   it('should load custom numeric configuration', () => {
+    process.env.ROUTER_LLM_OPENAI_ENABLED = 'true';
     process.env.ROUTER_LLM_OPENAI_API_KEY = 'test-openai-key';
+    process.env.ROUTER_LLM_GEMINI_ENABLED = 'true';
     process.env.ROUTER_LLM_GEMINI_API_KEY = 'test-gemini-key';
     process.env.ROUTER_LLM_TIMEOUT = '5000';
     process.env.ROUTER_LLM_MAX_RETRIES = '3';
@@ -70,7 +84,9 @@ describe('loadRouterLLMConfig', () => {
     expect(config.maxTokens).toBe(1000);
   });
 
-  it('should throw error when OpenAI API key is missing', () => {
+  it('should throw error when OpenAI API key is missing (production mode)', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.ROUTER_LLM_OPENAI_ENABLED = 'true';
     process.env.ROUTER_LLM_GEMINI_API_KEY = 'test-gemini-key';
     delete process.env.ROUTER_LLM_OPENAI_API_KEY;
 
@@ -79,7 +95,9 @@ describe('loadRouterLLMConfig', () => {
     );
   });
 
-  it('should throw error when Gemini API key is missing', () => {
+  it('should throw error when Gemini API key is missing (production mode)', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.ROUTER_LLM_GEMINI_ENABLED = 'true';
     process.env.ROUTER_LLM_OPENAI_API_KEY = 'test-openai-key';
     delete process.env.ROUTER_LLM_GEMINI_API_KEY;
 
@@ -89,7 +107,9 @@ describe('loadRouterLLMConfig', () => {
   });
 
   it('should throw error for invalid timeout', () => {
+    process.env.ROUTER_LLM_OPENAI_ENABLED = 'true';
     process.env.ROUTER_LLM_OPENAI_API_KEY = 'test-openai-key';
+    process.env.ROUTER_LLM_GEMINI_ENABLED = 'true';
     process.env.ROUTER_LLM_GEMINI_API_KEY = 'test-gemini-key';
     process.env.ROUTER_LLM_TIMEOUT = 'invalid';
 
@@ -215,7 +235,8 @@ describe('loadRouterLLMConfig', () => {
       expect(config.gemini.enabled).toBe(true);
     });
 
-    it('should throw error when both providers disabled', () => {
+    it('should throw error when both providers disabled (production mode)', () => {
+      process.env.NODE_ENV = 'production';
       process.env.ROUTER_LLM_OPENAI_ENABLED = 'false';
       process.env.ROUTER_LLM_GEMINI_ENABLED = 'false';
 
@@ -224,7 +245,19 @@ describe('loadRouterLLMConfig', () => {
       );
     });
 
-    it('should throw error when OpenAI enabled but API key missing', () => {
+    it('should allow both providers disabled in test/dev mode', () => {
+      process.env.NODE_ENV = 'test';
+      process.env.ROUTER_LLM_OPENAI_ENABLED = 'false';
+      process.env.ROUTER_LLM_GEMINI_ENABLED = 'false';
+
+      // Should not throw in test mode
+      const config = loadRouterLLMConfig();
+      expect(config.openai.enabled).toBe(false);
+      expect(config.gemini.enabled).toBe(false);
+    });
+
+    it('should throw error when OpenAI enabled but API key missing (production mode)', () => {
+      process.env.NODE_ENV = 'production';
       process.env.ROUTER_LLM_GEMINI_API_KEY = 'test-gemini-key';
       process.env.ROUTER_LLM_OPENAI_ENABLED = 'true';
       process.env.ROUTER_LLM_GEMINI_ENABLED = 'true';
@@ -235,7 +268,21 @@ describe('loadRouterLLMConfig', () => {
       );
     });
 
-    it('should throw error when Gemini enabled but API key missing', () => {
+    it('should allow missing API key in test/dev mode', () => {
+      process.env.NODE_ENV = 'test';
+      process.env.ROUTER_LLM_GEMINI_API_KEY = 'test-gemini-key';
+      process.env.ROUTER_LLM_OPENAI_ENABLED = 'true';
+      process.env.ROUTER_LLM_GEMINI_ENABLED = 'true';
+      delete process.env.ROUTER_LLM_OPENAI_API_KEY;
+
+      // Should not throw in test mode
+      const config = loadRouterLLMConfig();
+      expect(config.openai.enabled).toBe(true);
+      expect(config.openai.apiKey).toBeUndefined();
+    });
+
+    it('should throw error when Gemini enabled but API key missing (production mode)', () => {
+      process.env.NODE_ENV = 'production';
       process.env.ROUTER_LLM_OPENAI_API_KEY = 'test-openai-key';
       process.env.ROUTER_LLM_OPENAI_ENABLED = 'true';
       process.env.ROUTER_LLM_GEMINI_ENABLED = 'true';

@@ -8,7 +8,8 @@ import { CacheConfig } from './types';
 /**
  * Load cache configuration from environment variables
  *
- * Required environment variables:
+ * Required environment variables (unless NODE_ENV=test or development):
+ * - LANGCACHE_ENABLED: Must be set to 'true' to enable caching (required for production)
  * - LANGCACHE_HOST: LangCache API hostname (e.g., "your-cache.langcache.redis.io")
  * - LANGCACHE_CACHE_ID: Cache ID from LangCache console
  * - LANGCACHE_API_KEY: LangCache API authentication key
@@ -19,8 +20,9 @@ import { CacheConfig } from './types';
  * - LANGCACHE_TIMEOUT_MS: Cache read timeout in milliseconds (default: 5000)
  * - LANGCACHE_WRITE_TIMEOUT_MS: Cache write timeout in milliseconds (default: 3000)
  * - LANGCACHE_FLUSH_TIMEOUT_MS: Cache flush timeout in milliseconds (default: 10000)
+ * - NODE_ENV: Set to 'test' or 'development' to bypass cache requirement for testing
  *
- * @throws Error if required environment variables are missing
+ * @throws Error if required environment variables are missing (unless in test/dev mode)
  */
 export function loadCacheConfig(): CacheConfig {
   const host = process.env.LANGCACHE_HOST;
@@ -29,15 +31,27 @@ export function loadCacheConfig(): CacheConfig {
 
   // Validate required variables
   if (!host) {
-    throw new Error('LANGCACHE_HOST environment variable is required for semantic caching');
+    throw new Error(
+      'LANGCACHE_HOST environment variable is required for semantic caching.\n' +
+      'Set LANGCACHE_HOST in your .env file (e.g., your-cache-id.langcache.redis.io)\n' +
+      'Get your LangCache credentials at: https://redis.io/langcache/'
+    );
   }
 
   if (!cacheId) {
-    throw new Error('LANGCACHE_CACHE_ID environment variable is required for semantic caching');
+    throw new Error(
+      'LANGCACHE_CACHE_ID environment variable is required for semantic caching.\n' +
+      'Set LANGCACHE_CACHE_ID in your .env file.\n' +
+      'Get your LangCache credentials at: https://redis.io/langcache/'
+    );
   }
 
   if (!apiKey) {
-    throw new Error('LANGCACHE_API_KEY environment variable is required for semantic caching');
+    throw new Error(
+      'LANGCACHE_API_KEY environment variable is required for semantic caching.\n' +
+      'Set LANGCACHE_API_KEY in your .env file.\n' +
+      'Get your LangCache credentials at: https://redis.io/langcache/'
+    );
   }
 
   // Parse optional variables with defaults

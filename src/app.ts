@@ -119,9 +119,29 @@ export function createApp(deps?: Partial<AppDependencies>): {
   // Initialize dependencies
   const logger = deps?.logger ?? createLogger(process.env.LOG_LEVEL);
 
-  // Initialize semantic cache if enabled
+  // Check if we're in test/dev mode (allows bypassing requirements for testing)
+  const isTestMode = process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development';
+
+  // Initialize semantic cache (REQUIRED for production, optional for test/dev)
   let cache: SemanticCache | undefined;
-  if (process.env.LANGCACHE_ENABLED === 'true') {
+  const langCacheEnabled = process.env.LANGCACHE_ENABLED === 'true';
+
+  if (!langCacheEnabled && !isTestMode) {
+    const errorMsg =
+      'LANGCACHE_ENABLED must be set to "true" for production use.\n\n' +
+      'Wayfinder requires semantic caching to optimize router LLM costs and latency.\n' +
+      'To enable caching, set these environment variables:\n' +
+      '  LANGCACHE_ENABLED=true\n' +
+      '  LANGCACHE_HOST=your-cache-id.langcache.redis.io\n' +
+      '  LANGCACHE_CACHE_ID=your-cache-id\n' +
+      '  LANGCACHE_API_KEY=your-api-key\n\n' +
+      'Get your LangCache credentials at: https://redis.io/langcache/\n\n' +
+      'For testing/development, set NODE_ENV=development or NODE_ENV=test';
+    logger.error(errorMsg);
+    throw new Error(errorMsg);
+  }
+
+  if (langCacheEnabled) {
     try {
       const cacheConfig = loadCacheConfig();
       cache = new SemanticCache(cacheConfig);
@@ -132,10 +152,18 @@ export function createApp(deps?: Partial<AppDependencies>): {
         timeout_ms: cacheConfig.timeoutMs,
       });
     } catch (err) {
-      logger.error('Failed to initialize cache, continuing without caching', {
-        error: err instanceof Error ? err.message : String(err),
-      });
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      logger.error('Failed to initialize cache', { error: errorMsg });
+
+      // In production, cache initialization failure is fatal
+      if (!isTestMode) {
+        throw new Error(`Cache initialization failed: ${errorMsg}`);
+      }
+
+      logger.warn('Continuing without cache in test/dev mode');
     }
+  } else if (isTestMode) {
+    logger.warn('Running in test/dev mode without semantic cache - this is not suitable for production');
   }
   const tokenStore = deps?.tokenStore ?? createTokenStore(redis);
 
@@ -173,7 +201,9 @@ export function createApp(deps?: Partial<AppDependencies>): {
   const opinionPoller = deps?.opinionPoller ?? createOpinionPoller(knowledgeStore, modelRegistry);
   const feedbackHandler = deps?.feedbackHandler ?? createFeedbackHandler(knowledgeStore);
 
-  // Initialize router LLM (use MultiProviderRouterLLM if configured, otherwise StubRouterLLM)
+  // Initialize router LLM (REQUIRED for production, optional for test/dev)
+  // Note: loadRouterLLMConfig() (called by MultiProviderRouterLLM constructor) validates
+  // that at least one provider is enabled in production mode, so no need for redundant checks here
   let routerLLM;
   try {
     routerLLM = new MultiProviderRouterLLM(undefined, console);
@@ -181,10 +211,20 @@ export function createApp(deps?: Partial<AppDependencies>): {
     const enabledProviders = [];
     if (config.openai.enabled) enabledProviders.push('OpenAI');
     if (config.gemini.enabled) enabledProviders.push('Gemini');
+
     logger.info(`Router LLM initialized with providers: ${enabledProviders.join(' + ')}`);
   } catch (error) {
-    logger.warn('Failed to initialize Router LLM, falling back to stub', {
-      error: error instanceof Error ? error.message : String(error),
+    const errorMsg = error instanceof Error ? error.message : String(error);
+
+    // In production, router LLM initialization failure is fatal
+    if (!isTestMode) {
+      logger.error('Router LLM initialization failed', { error: errorMsg });
+      throw new Error(`Router LLM initialization failed: ${errorMsg}`);
+    }
+
+    // In test/dev mode, fall back to stub
+    logger.warn('Failed to initialize Router LLM, falling back to stub for test/dev mode', {
+      error: errorMsg,
     });
     routerLLM = new StubRouterLLM();
   }
