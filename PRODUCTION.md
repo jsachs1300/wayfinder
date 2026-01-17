@@ -56,7 +56,15 @@ npm run validate
 **Recommended Solutions:**
 ```bash
 # Option 1: Use environment variables directly (Docker/K8s)
-docker run -e ADMIN_API_KEY=xxx -e ROUTER_LLM_API_KEY=yyy wayfinder
+docker run \
+  -e ADMIN_API_KEY=xxx \
+  -e ROUTER_LLM_OPENAI_ENABLED=true \
+  -e ROUTER_LLM_OPENAI_API_KEY=yyy \
+  -e LANGCACHE_ENABLED=true \
+  -e LANGCACHE_HOST=... \
+  -e LANGCACHE_CACHE_ID=... \
+  -e LANGCACHE_API_KEY=... \
+  wayfinder
 
 # Option 2: Secrets management services
 - AWS Secrets Manager
@@ -529,9 +537,14 @@ api.yourdomain.com {
 
 # Or Nginx with Let's Encrypt (see NGINX_GUIDE.md for full setup)
 
-# 5. Set strong environment variables
+# 5. Set required environment variables
 ADMIN_API_KEY=$(openssl rand -hex 32)
-ROUTER_LLM_API_KEY=your-openai-or-anthropic-key
+ROUTER_LLM_OPENAI_ENABLED=true
+ROUTER_LLM_OPENAI_API_KEY=your-openai-key
+LANGCACHE_ENABLED=true
+LANGCACHE_HOST=your-cache.langcache.redis.io
+LANGCACHE_CACHE_ID=your-cache-id
+LANGCACHE_API_KEY=your-langcache-key
 NODE_ENV=production
 
 # 6. Monitor with simple health checks

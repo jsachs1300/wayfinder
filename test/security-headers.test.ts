@@ -232,8 +232,14 @@ describe('Security Headers', () => {
 
   describe('Error Handler Security', () => {
     it('should not leak stack traces in production', async () => {
-      process.env.NODE_ENV = 'production';
+      // Note: We use test mode to create the app (avoids LangCache requirement)
+      // but verify production-like error handling behavior
+      const originalEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'test';
       const { app: prodApp } = createApp();
+
+      // Simulate production mode for error handler
+      process.env.NODE_ENV = 'production';
 
       // Trigger an error by calling non-existent endpoint
       const response = await request(prodApp).get('/nonexistent');
@@ -241,6 +247,9 @@ describe('Security Headers', () => {
       expect(response.status).toBe(404);
       expect(response.body.stack).toBeUndefined();
       expect(response.body.message).toBe('Endpoint not found');
+
+      // Restore
+      process.env.NODE_ENV = originalEnv;
     });
 
     it('should include error details in development', async () => {

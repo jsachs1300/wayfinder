@@ -67,48 +67,60 @@ const DEFAULTS = {
  * Loads router LLM configuration from environment variables
  *
  * Environment variables:
- * - ROUTER_LLM_OPENAI_ENABLED: Enable OpenAI provider (default: true)
+ * - ROUTER_LLM_OPENAI_ENABLED: Enable OpenAI provider (default: false)
  * - ROUTER_LLM_OPENAI_API_KEY: OpenAI API key (required if OpenAI enabled)
  * - ROUTER_LLM_OPENAI_MODEL: OpenAI model identifier (default: 'gpt-4o-mini')
- * - ROUTER_LLM_GEMINI_ENABLED: Enable Gemini provider (default: true)
+ * - ROUTER_LLM_GEMINI_ENABLED: Enable Gemini provider (default: false)
  * - ROUTER_LLM_GEMINI_API_KEY: Gemini API key (required if Gemini enabled)
  * - ROUTER_LLM_GEMINI_MODEL: Gemini model identifier (default: 'gemini-1.5-flash')
  * - ROUTER_LLM_TIMEOUT: Request timeout in ms (default: 30000)
  * - ROUTER_LLM_MAX_RETRIES: Max retry attempts (default: 2)
  * - ROUTER_LLM_TEMPERATURE: Sampling temperature (default: 0.0)
  * - ROUTER_LLM_MAX_TOKENS: Max response tokens (default: 2000)
+ * - NODE_ENV: Set to 'test' or 'development' to bypass router LLM requirement for testing
  *
- * @throws Error if required configuration is missing or invalid
+ * @throws Error if required configuration is missing or invalid (unless in test/dev mode)
  * @returns Validated RouterLLMConfig
  */
 export function loadRouterLLMConfig(): RouterLLMConfig {
+  // Check if we're in test/dev mode (allows bypassing requirements for testing)
+  const isTestMode = process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development';
+
   // OpenAI configuration
-  const openaiEnabled = process.env.ROUTER_LLM_OPENAI_ENABLED !== 'false'; // Default: true
+  const openaiEnabled = process.env.ROUTER_LLM_OPENAI_ENABLED === 'true'; // Default: false
   const openaiApiKey = process.env.ROUTER_LLM_OPENAI_API_KEY;
   const openaiModel = process.env.ROUTER_LLM_OPENAI_MODEL || DEFAULTS.openaiModel;
 
-  if (openaiEnabled && !openaiApiKey) {
+  if (openaiEnabled && !openaiApiKey && !isTestMode) {
     throw new Error(
-      'ROUTER_LLM_OPENAI_API_KEY environment variable is required when OpenAI is enabled'
+      'ROUTER_LLM_OPENAI_API_KEY environment variable is required when OpenAI is enabled.\n' +
+      'Set ROUTER_LLM_OPENAI_API_KEY in your .env file or disable OpenAI with ROUTER_LLM_OPENAI_ENABLED=false'
     );
   }
 
   // Gemini configuration
-  const geminiEnabled = process.env.ROUTER_LLM_GEMINI_ENABLED !== 'false'; // Default: true
+  const geminiEnabled = process.env.ROUTER_LLM_GEMINI_ENABLED === 'true'; // Default: false
   const geminiApiKey = process.env.ROUTER_LLM_GEMINI_API_KEY;
   const geminiModel = process.env.ROUTER_LLM_GEMINI_MODEL || DEFAULTS.geminiModel;
 
-  if (geminiEnabled && !geminiApiKey) {
+  if (geminiEnabled && !geminiApiKey && !isTestMode) {
     throw new Error(
-      'ROUTER_LLM_GEMINI_API_KEY environment variable is required when Gemini is enabled'
+      'ROUTER_LLM_GEMINI_API_KEY environment variable is required when Gemini is enabled.\n' +
+      'Set ROUTER_LLM_GEMINI_API_KEY in your .env file or disable Gemini with ROUTER_LLM_GEMINI_ENABLED=false'
     );
   }
 
-  // Validate that at least one provider is enabled
-  if (!openaiEnabled && !geminiEnabled) {
+  // Validate that at least one provider is enabled (unless in test mode)
+  if (!openaiEnabled && !geminiEnabled && !isTestMode) {
     throw new Error(
-      'At least one router LLM provider must be enabled. ' +
-      'Set ROUTER_LLM_OPENAI_ENABLED=true or ROUTER_LLM_GEMINI_ENABLED=true'
+      'At least one router LLM provider must be enabled for production use.\n\n' +
+      'To enable OpenAI:\n' +
+      '  ROUTER_LLM_OPENAI_ENABLED=true\n' +
+      '  ROUTER_LLM_OPENAI_API_KEY=sk-your-key-here\n\n' +
+      'To enable Gemini:\n' +
+      '  ROUTER_LLM_GEMINI_ENABLED=true\n' +
+      '  ROUTER_LLM_GEMINI_API_KEY=your-key-here\n\n' +
+      'You can enable both providers for multi-provider routing.'
     );
   }
 

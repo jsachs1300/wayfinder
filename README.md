@@ -38,13 +38,16 @@ npm install
 
 # 2. Configure environment
 cp .env.example .env
-# Edit .env and set ADMIN_API_KEY and ROUTER_LLM_API_KEY
+# Edit .env and configure:
+#   - ADMIN_API_KEY
+#   - ROUTER_LLM_OPENAI_ENABLED=true and ROUTER_LLM_OPENAI_API_KEY
+#   - LANGCACHE_ENABLED=true and LangCache credentials
 
 # 3. Run the server
 npm run dev
 ```
 
-The system requires a router LLM API key to function. Without it, you'll get an error. See [Router LLM Setup](#router-llm-setup-required) below.
+The system requires at least one router LLM provider and LangCache to be configured for production. See [Router LLM Setup](#router-llm-setup-required) and [Semantic Caching](#semantic-caching-required) below. For development/testing, set `NODE_ENV=development` to bypass these requirements.
 
 ### Option A: Admin Token Flow (Traditional)
 
@@ -163,9 +166,9 @@ Wayfinder supports **configurable knowledge scope** for flexibility between shar
 
 > ℹ️ Knowledge decay and statistics are now lazy and incremental (see [issue #6](https://github.com/jsachs1300/wayfinder/issues/6)). Effective scores are computed at read time using exponential decay, and statistics are updated on writes, so aggregate totals are approximate over time without scanning Redis keyspaces.
 
-### Semantic Caching
+### Semantic Caching (REQUIRED)
 
-Wayfinder supports **optional semantic caching** using Redis LangCache to significantly reduce router LLM API costs and improve response times.
+Wayfinder requires **semantic caching** using Redis LangCache to significantly reduce router LLM API costs and improve response times. For development/testing, set `NODE_ENV=development` to bypass this requirement.
 
 **What is Semantic Caching?**
 
@@ -1427,17 +1430,22 @@ Configured keys are encrypted at rest using AES-256-GCM and only decrypted when 
 |----------|-------------|---------|
 | `ADMIN_API_KEY` | Admin API key for token management | **REQUIRED** |
 
-#### Router LLM (Required)
+#### Router LLM (Required for Production)
+
+At least one provider must be enabled. Both can be enabled for multi-provider ranking.
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `ROUTER_LLM_API_KEY` | API key for router LLM provider | **REQUIRED** |
-| `ROUTER_LLM_PROVIDER` | LLM provider (openai, anthropic) | `openai` |
-| `ROUTER_LLM_MODEL` | Model to use for routing decisions | `gpt-4o-mini` |
-| `ROUTER_LLM_TIMEOUT` | Request timeout in milliseconds | `10000` |
+| `ROUTER_LLM_OPENAI_ENABLED` | Enable OpenAI provider | `false` |
+| `ROUTER_LLM_OPENAI_API_KEY` | OpenAI API key | **Required if enabled** |
+| `ROUTER_LLM_OPENAI_MODEL` | OpenAI model identifier | `gpt-4o-mini` |
+| `ROUTER_LLM_GEMINI_ENABLED` | Enable Gemini provider | `false` |
+| `ROUTER_LLM_GEMINI_API_KEY` | Gemini API key | **Required if enabled** |
+| `ROUTER_LLM_GEMINI_MODEL` | Gemini model identifier | `gemini-1.5-flash` |
+| `ROUTER_LLM_TIMEOUT` | Request timeout in milliseconds | `30000` |
 | `ROUTER_LLM_MAX_RETRIES` | Maximum retry attempts on failure | `2` |
 | `ROUTER_LLM_TEMPERATURE` | Sampling temperature (0.0-2.0) | `0.0` |
-| `ROUTER_LLM_MAX_TOKENS` | Maximum tokens in LLM response | `500` |
+| `ROUTER_LLM_MAX_TOKENS` | Maximum tokens in LLM response | `2000` |
 
 #### Redis & Storage
 
@@ -1614,53 +1622,60 @@ The system default model is `claude-3-5-sonnet`, used as a fallback when no othe
 
 ## Router LLM Setup (REQUIRED)
 
-Wayfinder requires a working router LLM to make routing decisions. The system WILL FAIL without proper configuration.
+Wayfinder requires at least one router LLM provider to make routing decisions. The system WILL FAIL to start in production mode without proper configuration.
 
 ### Supported Providers
 
-- **OpenAI** - gpt-4o-mini, gpt-4-turbo, gpt-4, o1-preview
-- **Anthropic** - claude-3-5-sonnet, claude-3-opus
+You must enable at least one provider. Both can be enabled for multi-provider ranking.
+
+- **OpenAI** - gpt-4o-mini (default), gpt-4-turbo, gpt-4, o1-preview
+- **Gemini** - gemini-1.5-flash (default), gemini-1.5-pro
 
 ### Environment Configuration
 
 Set these variables in your `.env` file:
 
 ```bash
-# REQUIRED: Your router LLM provider API key
-# Generate from https://platform.openai.com/api-keys (OpenAI)
-# or https://console.anthropic.com/account/keys (Anthropic)
-ROUTER_LLM_API_KEY=sk-your-api-key-here
+# REQUIRED: Enable at least one provider
+# OpenAI Provider
+ROUTER_LLM_OPENAI_ENABLED=true
+ROUTER_LLM_OPENAI_API_KEY=sk-your-openai-api-key
+ROUTER_LLM_OPENAI_MODEL=gpt-4o-mini
 
-# OPTIONAL: Provider to use (default: openai)
-ROUTER_LLM_PROVIDER=openai
-# Alternative:
-# ROUTER_LLM_PROVIDER=anthropic
+# Gemini Provider
+ROUTER_LLM_GEMINI_ENABLED=false
+ROUTER_LLM_GEMINI_API_KEY=your-gemini-api-key
+ROUTER_LLM_GEMINI_MODEL=gemini-1.5-flash
 
-# OPTIONAL: Model to use for routing (default depends on provider)
-# OpenAI default: gpt-4o-mini
-# Anthropic default: claude-3-5-sonnet
-ROUTER_LLM_MODEL=gpt-4o-mini
+# OPTIONAL: Shared settings across all providers
+# Request timeout in milliseconds (default: 30000)
+ROUTER_LLM_TIMEOUT=30000
 
-# OPTIONAL: Request timeout in milliseconds (default: 10000)
-ROUTER_LLM_TIMEOUT=10000
-
-# OPTIONAL: Maximum retry attempts on failure (default: 2)
+# Maximum retry attempts on failure (default: 2)
 ROUTER_LLM_MAX_RETRIES=2
 
-# OPTIONAL: Sampling temperature for LLM (default: 0.0 = deterministic)
+# Sampling temperature for LLM (default: 0.0 = deterministic)
 # Range: 0.0 (deterministic) to 2.0 (creative)
 ROUTER_LLM_TEMPERATURE=0.0
 
-# OPTIONAL: Maximum tokens in LLM response (default: 500)
-ROUTER_LLM_MAX_TOKENS=500
+# Maximum tokens in LLM response (default: 2000)
+ROUTER_LLM_MAX_TOKENS=2000
 ```
+
+**Get API Keys:**
+- OpenAI: https://platform.openai.com/api-keys
+- Gemini: https://aistudio.google.com/app/apikey
+
+### Test Mode
+
+For development and testing, set `NODE_ENV=development` or `NODE_ENV=test` to bypass router LLM requirements.
 
 ### Quick Test
 
 After configuration, test that your router LLM works:
 
 ```bash
-# This will fail if ROUTER_LLM_API_KEY is not set or invalid
+# This will fail if no providers are enabled or API keys are invalid
 npm run dev
 
 # In another terminal, try a route request
@@ -2117,22 +2132,31 @@ curl -X POST http://localhost:3000/route \
 
 ### Router LLM Configuration
 
-**Problem:** `RouterLLMError: ROUTER_LLM_API_KEY environment variable is required`
+**Problem:** `Error: At least one router LLM provider must be enabled`
 
-**Cause:** System cannot start without a router LLM API key.
+**Cause:** System cannot start in production without at least one router LLM provider configured.
 
 **Solution:**
 1. Get API key from your provider:
    - OpenAI: https://platform.openai.com/api-keys
-   - Anthropic: https://console.anthropic.com/account/keys
+   - Gemini: https://aistudio.google.com/app/apikey
 
 2. Add to `.env`:
    ```bash
-   ROUTER_LLM_API_KEY=sk-your-key-here
-   ROUTER_LLM_PROVIDER=openai  # or 'anthropic'
+   # Enable OpenAI
+   ROUTER_LLM_OPENAI_ENABLED=true
+   ROUTER_LLM_OPENAI_API_KEY=sk-your-openai-key
+
+   # Or enable Gemini
+   ROUTER_LLM_GEMINI_ENABLED=true
+   ROUTER_LLM_GEMINI_API_KEY=your-gemini-key
+
+   # Or enable both for multi-provider routing
    ```
 
 3. Restart the server
+
+**For testing/development:** Set `NODE_ENV=development` to bypass this requirement
 
 ### Router LLM API Failures
 

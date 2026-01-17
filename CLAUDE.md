@@ -71,13 +71,29 @@ The knowledge store is **not a cache**—it accumulates votes and calculates con
 
 ## Environment Variables
 
-Required: `ADMIN_API_KEY`
+### Required for Production
 
-Optional:
+- `ADMIN_API_KEY` - Admin API key for token management
+- **Router LLM** (at least one provider):
+  - `ROUTER_LLM_OPENAI_ENABLED=true` + `ROUTER_LLM_OPENAI_API_KEY`
+  - OR `ROUTER_LLM_GEMINI_ENABLED=true` + `ROUTER_LLM_GEMINI_API_KEY`
+  - Both providers can be enabled for multi-provider ranking
+- **LangCache** (semantic caching):
+  - `LANGCACHE_ENABLED=true`
+  - `LANGCACHE_HOST`, `LANGCACHE_CACHE_ID`, `LANGCACHE_API_KEY`
+
+### Test/Development Override
+
+Set `NODE_ENV=development` or `NODE_ENV=test` to bypass router LLM and LangCache requirements. This allows tests to run without external dependencies.
+
+### Optional
+
 - `PORT` (default: 3000)
+- `NODE_ENV` (development, test, production)
 - `REDIS_ENABLED` / `REDIS_URL` (falls back to in-memory if disabled)
 - `LOG_LEVEL` (debug, info, warn, error)
-- `KNOWLEDGE_DECAY_LAMBDA`, `MIN_VOTES_FOR_STRONG_CONFIDENCE`
+- `KNOWLEDGE_DECAY_RATE`, `MIN_VOTES_FOR_STRONG_CONFIDENCE`
+- `ROUTER_LLM_TIMEOUT`, `ROUTER_LLM_MAX_RETRIES`, `ROUTER_LLM_TEMPERATURE`, `ROUTER_LLM_MAX_TOKENS`
 
 ## Testing
 
