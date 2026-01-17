@@ -202,6 +202,8 @@ export function createApp(deps?: Partial<AppDependencies>): {
   const feedbackHandler = deps?.feedbackHandler ?? createFeedbackHandler(knowledgeStore);
 
   // Initialize router LLM (REQUIRED for production, optional for test/dev)
+  // Note: loadRouterLLMConfig() (called by MultiProviderRouterLLM constructor) validates
+  // that at least one provider is enabled in production mode, so no need for redundant checks here
   let routerLLM;
   try {
     routerLLM = new MultiProviderRouterLLM(undefined, console);
@@ -209,10 +211,6 @@ export function createApp(deps?: Partial<AppDependencies>): {
     const enabledProviders = [];
     if (config.openai.enabled) enabledProviders.push('OpenAI');
     if (config.gemini.enabled) enabledProviders.push('Gemini');
-
-    if (enabledProviders.length === 0) {
-      throw new Error('No router LLM providers enabled');
-    }
 
     logger.info(`Router LLM initialized with providers: ${enabledProviders.join(' + ')}`);
   } catch (error) {
