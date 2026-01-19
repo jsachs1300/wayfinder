@@ -144,6 +144,17 @@ export class DefaultRouterLLM implements RouterLLM {
         try {
           parsed = JSON.parse(response.content);
         } catch (error) {
+          // Log the raw response for diagnosis of intermittent parse failures
+          this.logger?.error('[RouterLLM] Failed to parse response as JSON', {
+            error: error instanceof Error ? error.message : String(error),
+            rawResponse: response.content,
+            responseLength: response.content.length,
+            provider: response.metadata.provider,
+            model: response.metadata.model,
+            outputTokens: response.metadata.outputTokens,
+            inputTokens: response.metadata.inputTokens,
+          });
+
           throw new RouterLLMError(
             `Failed to parse router LLM response as JSON: ${error instanceof Error ? error.message : String(error)}`
           );
