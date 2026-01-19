@@ -6,6 +6,8 @@ This document outlines the design for implementing LangCache attributes to enabl
 1. **Token-scoped caching** - Prevent cache pollution across different tokens with different policies
 2. **Router-model-specific caching** - Cache separate responses for OpenAI, Gemini, and consensus routing decisions
 3. **Improved cache hit rates** - More granular cache keys lead to correct hits and avoid false positives
+4. **Cache lifecycle management** - Automatic cache clearing on token deletion
+5. **Immutable eligible_models** - Set once at token creation to ensure cache consistency
 
 ## Requirements Analysis
 
@@ -1144,29 +1146,65 @@ curl -X POST http://localhost:3000/route \
 
 #### Edge Case 2: Token's eligible_models Updated
 
-**Scenario:** Token's `eligible_models` list is updated (e.g., add a new model or remove one).
+**Scenario:** Token's `eligible_models` is attempted to be updated.
 
 **Behavior:**
-- Cache entries for old token configuration remain (same token_id scope)
-- Cached decisions may include models no longer in eligible_models
-- **Solution:** Clear token's cache on eligible_models update
+- **PREVENTED:** `eligible_models` is immutable and cannot be changed after token creation
+- API returns 400 error with message explaining immutability
+- Rationale: Ensures cache consistency - cached decisions always reflect same eligible_models
 
-**Mitigation:**
+**Implementation:**
 ```typescript
-// When updating token's eligible_models
-async function updateToken(tokenId: string, updates: Partial<TokenConfig>) {
-  if (updates.eligible_models) {
-    // Clear cache for this token scope
-    await cache.clear({ scope: tokenId });
-  }
-
-  await tokenStore.update(tokenId, updates);
+// In token update endpoint
+if (request.eligible_models !== undefined) {
+  res.status(400).json({
+    error: 'ValidationError',
+    message: 'eligible_models cannot be modified after token creation. This field is immutable to ensure cache consistency.',
+  });
+  return;
 }
 ```
 
-**Alternative:** Accept stale cache entries, rely on TTL (1 hour) for natural expiry.
+**User Workflow:** To change eligible_models, user must:
+1. Delete old token (cache automatically cleared)
+2. Create new token with new eligible_models
 
-#### Edge Case 3: Router Model Disabled After Caching
+#### Edge Case 3: Token Deletion and Cache Cleanup
+
+**Scenario:** Token is deleted via DELETE /admin/tokens/:id or DELETE /api/tokens/:id
+
+**Behavior:**
+- Cache for deleted token should be cleared to prevent stale data
+- Cache clearing happens before token deletion
+- If cache clear fails, log error but still proceed with token deletion
+
+**Implementation:**
+```typescript
+// In token delete endpoint
+router.delete('/tokens/:id', async (req, res) => {
+  const { id } = req.params;
+
+  // Clear cache for this token before deletion
+  if (cache) {
+    try {
+      await cache.clearByScope(id);
+    } catch (cacheError) {
+      // Log but don't fail deletion if cache clear fails
+      console.error('Failed to clear cache for token:', id, cacheError);
+    }
+  }
+
+  const deleted = await tokenStore.delete(id);
+  // ...
+});
+```
+
+**Rationale:**
+- Prevents accumulation of orphaned cache entries
+- Ensures deleted tokens don't leave behind cached data
+- Non-blocking: cache clear failure doesn't prevent token deletion
+
+#### Edge Case 4: Router Model Disabled After Caching
 
 **Scenario:** OpenAI provider disabled via `ROUTER_LLM_OPENAI_ENABLED=false`, but cache has `router_model: "openai"` entries.
 
@@ -1221,6 +1259,7 @@ logger.info('Cache performance', {
    - Before: Computed dynamically from allowed/denied models + policy
    - After: Optional static field on TokenConfig with system default fallback
    - System Default: All models in registry (when eligible_models not specified)
+   - **Immutability**: Set at token creation only, cannot be changed (ensures cache consistency)
    - Benefit: Simpler, more predictable, better cache hit rate, flexible defaults
 
 3. **LangCache attributes enable token-scoped caching**

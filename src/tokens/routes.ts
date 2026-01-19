@@ -35,7 +35,8 @@ const TokenUpdateSchema = TokenCreateSchema.partial();
  */
 export function createAdminRoutes(
   tokenStore: TokenStore,
-  modelRegistry: ModelRegistry
+  modelRegistry: ModelRegistry,
+  cache?: { clearByScope: (tokenId: string) => Promise<void> }
 ): Router {
   const router = Router();
 
@@ -134,6 +135,16 @@ export function createAdminRoutes(
       }
 
       const request: TokenUpdateRequest = parsed.data;
+
+      // eligible_models is immutable - cannot be changed after token creation
+      if (request.eligible_models !== undefined) {
+        res.status(400).json({
+          error: 'ValidationError',
+          message: 'eligible_models cannot be modified after token creation. This field is immutable to ensure cache consistency.',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
 
       // Get existing token to merge with updates for validation
       const existing = await tokenStore.getById(id);
@@ -243,6 +254,17 @@ export function createAdminRoutes(
   router.delete('/tokens/:id', async (req: Request<IdParams>, res: Response): Promise<void> => {
     try {
       const { id } = req.params;
+
+      // Clear cache for this token before deletion
+      if (cache) {
+        try {
+          await cache.clearByScope(id);
+        } catch (cacheError) {
+          // Log but don't fail deletion if cache clear fails
+          console.error('Failed to clear cache for token:', id, cacheError);
+        }
+      }
+
       const deleted = await tokenStore.delete(id);
 
       if (!deleted) {

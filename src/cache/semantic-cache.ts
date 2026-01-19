@@ -187,9 +187,39 @@ export class SemanticCache {
   }
 
   /**
-   * Clear entire global cache
+   * Clear cache for a specific token scope
    *
-   * Note: Since cache is global (no token isolation), this clears all cached routing decisions
+   * @param tokenId - Token ID to clear cache for
+   */
+  async clearByScope(tokenId: string): Promise<void> {
+    try {
+      logger.debug('Clearing cache for token scope', {
+        token_id: tokenId,
+      });
+
+      // LangCache flush with attributes to clear only entries matching the scope
+      await this.client.flush({
+        scope: tokenId,
+      } as any, {
+        timeoutMs: this.config.flushTimeoutMs ?? 10000,
+      });
+
+      logger.info('Cache cleared for token scope', {
+        token_id: tokenId,
+      });
+    } catch (error) {
+      logger.error('Cache clear by scope failed', {
+        error: error instanceof Error ? error.message : String(error),
+        token_id: tokenId,
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Clear entire cache
+   *
+   * Note: Clears all cached routing decisions across all tokens
    */
   async clear(): Promise<void> {
     try {

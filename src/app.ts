@@ -296,7 +296,7 @@ export function createApp(deps?: Partial<AppDependencies>): {
   const adminRouter = express.Router();
   adminRouter.use(rateLimiters.admin);
   adminRouter.use(adminAuthMiddleware());
-  adminRouter.use(createAdminRoutes(tokenStore, modelRegistry));
+  adminRouter.use(createAdminRoutes(tokenStore, modelRegistry, cache));
 
   // Knowledge stats endpoint (admin only)
   // Optional query params: ?scope=global|token&token_id=xxx
@@ -480,7 +480,7 @@ export function createApp(deps?: Partial<AppDependencies>): {
       // Protected routes (require user auth)
       app.use('/api/tokens',
         tokenAuthMiddleware(tokenStore, userStore),
-        createUserTokenRoutes(tokenStore, modelRegistry)
+        createUserTokenRoutes(tokenStore, modelRegistry, cache)
       );
 
       app.use('/api/llm-keys',

@@ -46,7 +46,8 @@ interface AuthenticatedRequest extends Request {
  */
 export function createUserTokenRoutes(
   tokenStore: TokenStore,
-  modelRegistry: ModelRegistry
+  modelRegistry: ModelRegistry,
+  cache?: { clearByScope: (tokenId: string) => Promise<void> }
 ): Router {
   const router = Router();
 
@@ -211,6 +212,16 @@ export function createUserTokenRoutes(
           timestamp: new Date().toISOString(),
         });
         return;
+      }
+
+      // Clear cache for this token before deletion
+      if (cache) {
+        try {
+          await cache.clearByScope(id);
+        } catch (cacheError) {
+          // Log but don't fail deletion if cache clear fails
+          console.error('Failed to clear cache for token:', id, cacheError);
+        }
       }
 
       await tokenStore.delete(id);
