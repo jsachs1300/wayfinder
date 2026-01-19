@@ -9,6 +9,7 @@ import type { TokenConfig } from '../../src/types/index';
 import type { RouterLLMConfig } from '../../src/routing/config';
 import {
   RouterLLMProviderError,
+  RouterLLMParseError,
   RouterLLMTimeoutError,
   RouterLLMValidationError,
   RouterLLMRetryExhaustedError,
@@ -347,10 +348,10 @@ describe('DefaultRouterLLM', () => {
       routerLLM.invoke('Test', ['gpt-4', 'claude-3-opus'], {
         tokenConfig: mockTokenConfig,
       })
-    ).rejects.toThrow(RouterLLMRetryExhaustedError);
+    ).rejects.toThrow(RouterLLMParseError);
 
-    // Should retry 3 times (1 initial + 2 retries)
-    expect(global.fetch).toHaveBeenCalledTimes(3);
+    // Should NOT retry for parse errors
+    expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
   it('should expose config and client', () => {
@@ -667,20 +668,36 @@ describe('DefaultRouterLLM', () => {
 
     const routerLLM = new DefaultRouterLLM(testConfig, mockLogger);
 
-    // Should exhaust retries and throw retry exhausted error
-    await expect(
-      routerLLM.invoke('Test prompt', ['gpt-4o', 'claude-3-opus'], {
+    // Should throw RouterLLMParseError immediately (no retry for parse errors)
+    let caughtError: RouterLLMParseError | undefined;
+    try {
+      await routerLLM.invoke('Test prompt', ['gpt-4o', 'claude-3-opus'], {
         tokenConfig: mockTokenConfig,
-      })
-    ).rejects.toThrow('Router LLM invocation failed after 3 attempts');
+      });
+    } catch (error) {
+      caughtError = error as RouterLLMParseError;
+    }
 
-    // Verify error logging was called with raw response (should be called 3 times due to retries)
+    // Verify the error is RouterLLMParseError with raw response
+    expect(caughtError).toBeInstanceOf(RouterLLMParseError);
+    expect(caughtError?.rawResponse).toBe(malformedJSON);
+    expect(caughtError?.message).toContain('Failed to parse router LLM response as JSON');
+
+    // Verify error logging was called with raw response
     expect(mockLogger.error).toHaveBeenCalledWith(
       '[RouterLLM] Failed to parse response as JSON',
       expect.objectContaining({
         rawResponse: malformedJSON,
         responseLength: malformedJSON.length,
         model: 'gpt-4o-mini',
+      })
+    );
+
+    // Verify parse error logging (should not retry)
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      '[RouterLLM] Parse error, not retrying',
+      expect.objectContaining({
+        responseLength: malformedJSON.length,
       })
     );
   });
