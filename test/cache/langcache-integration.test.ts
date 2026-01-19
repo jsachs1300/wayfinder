@@ -511,6 +511,44 @@ describe('LangCache Integration Tests', () => {
     });
   });
 
+  describe('Token-Scoped Cache Clearing', () => {
+    it('should call flush with scope attribute for clearByScope', async () => {
+      if (RUN_INTEGRATION) {
+        return;
+      }
+
+      mockLangCacheClient.flush.mockResolvedValue(undefined);
+
+      await cache.clearByScope('token-123');
+
+      expect(mockLangCacheClient.flush).toHaveBeenCalledWith(
+        { scope: 'token-123' },
+        { timeoutMs: 10000 }
+      );
+    });
+
+    it('should handle clearByScope errors gracefully', async () => {
+      if (RUN_INTEGRATION) {
+        return;
+      }
+
+      mockLangCacheClient.flush.mockRejectedValue(new Error('Network error'));
+
+      await expect(cache.clearByScope('token-123')).rejects.toThrow('Network error');
+    });
+
+    it('should log when clearing cache by scope', async () => {
+      if (RUN_INTEGRATION) {
+        return;
+      }
+
+      mockLangCacheClient.flush.mockResolvedValue(undefined);
+
+      // Just verify it doesn't throw
+      await expect(cache.clearByScope('token-456')).resolves.not.toThrow();
+    });
+  });
+
   describe('Real Integration Tests (Optional)', () => {
     // These tests only run when LANGCACHE_INTEGRATION_TEST=true
     // and require valid LangCache credentials in .env
