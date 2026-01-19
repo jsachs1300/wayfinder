@@ -197,10 +197,13 @@ export class SemanticCache {
         token_id: tokenId,
       });
 
-      // LangCache flush with attributes to clear only entries matching the scope
-      await this.client.flush({
-        scope: tokenId,
-      } as any, {
+      // Use deleteQuery to delete only entries with matching scope attribute
+      // Note: flush() deletes the ENTIRE cache - deleteQuery() filters by attributes
+      await this.client.deleteQuery({
+        attributes: {
+          scope: tokenId,
+        },
+      }, {
         timeoutMs: this.config.flushTimeoutMs ?? 10000,
       });
 
