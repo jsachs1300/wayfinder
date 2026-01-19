@@ -22,10 +22,10 @@ const UserTokenCreateSchema = z.object({
   trusted_anchor_model: z.string().optional(),
   allowed_models: z.array(z.string()).optional(),
   denied_models: z.array(z.string()).optional(),
+  eligible_models: z.array(z.string()).optional(),
   policy_rules: z.array(PolicyRuleSchema).optional(),
   confidence_threshold: z.number().min(0).max(1).optional(),
   logging_level: z.enum(['normal', 'verbose']).optional(),
-  default_model: z.string().optional(),
   environment: z.enum(['prod', 'dev']).optional(),
   knowledge_scope: z.enum(['global', 'token', 'org', 'hybrid']).optional(),
   router_model_preference: z.enum(VALID_ROUTER_MODEL_PREFERENCES as [string, ...string[]]).optional(),
@@ -46,7 +46,8 @@ interface AuthenticatedRequest extends Request {
  */
 export function createUserTokenRoutes(
   tokenStore: TokenStore,
-  modelRegistry: ModelRegistry
+  modelRegistry: ModelRegistry,
+  cache?: { clearByScope: (tokenId: string) => Promise<void> }
 ): Router {
   const router = Router();
 
@@ -211,6 +212,16 @@ export function createUserTokenRoutes(
           timestamp: new Date().toISOString(),
         });
         return;
+      }
+
+      // Clear cache for this token before deletion
+      if (cache) {
+        try {
+          await cache.clearByScope(id);
+        } catch (cacheError) {
+          // Log but don't fail deletion if cache clear fails
+          console.error('Failed to clear cache for token:', id, cacheError);
+        }
       }
 
       await tokenStore.delete(id);

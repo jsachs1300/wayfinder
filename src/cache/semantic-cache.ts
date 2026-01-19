@@ -18,7 +18,7 @@
 
 import { LangCache } from '@redis-ai/langcache';
 import { createHash } from 'crypto';
-import type { CacheConfig, CacheStats } from './types';
+import type { CacheConfig, CacheStats, CacheAttributes } from './types';
 import type { CachedRouterResponse } from '../types/index';
 import { logger } from '../logging';
 
@@ -68,23 +68,26 @@ export class SemanticCache {
   }
 
   /**
-   * Get a cached routing decision using global semantic matching
+   * Get a cached routing decision using semantic matching with attributes
    *
    * @param prompt - User's prompt
+   * @param attributes - Optional cache attributes for scoping (scope, router_model)
    * @returns Cached CachedRouterResponse or null if not found
    */
-  async get(prompt: string): Promise<CachedRouterResponse | null> {
+  async get(prompt: string, attributes?: CacheAttributes): Promise<CachedRouterResponse | null> {
     try {
       logger.debug('LangCache search started', {
         prompt_hash: this.hashPrompt(prompt),
         prompt_length: prompt.length,
         similarityThreshold: this.config.similarityThreshold,
+        attributes,
       });
 
       const result: SearchResponse = await this.client.search({
         prompt,
         searchStrategies: [SearchStrategy.Semantic],
         similarityThreshold: this.config.similarityThreshold,
+        ...(attributes && { attributes }),
       }, {
         timeoutMs: this.config.timeoutMs ?? 5000, // Configurable timeout to prevent cache from blocking routing
       });
@@ -124,25 +127,27 @@ export class SemanticCache {
   }
 
   /**
-   * Store a routing decision in global cache
+   * Store a routing decision in cache with optional attributes
    *
    * @param prompt - User's prompt
    * @param response - CachedRouterResponse to cache (all provider rankings + consensus)
+   * @param attributes - Optional cache attributes for scoping (scope, router_model)
    */
-  async set(prompt: string, response: CachedRouterResponse): Promise<void> {
+  async set(prompt: string, response: CachedRouterResponse, attributes?: CacheAttributes): Promise<void> {
     try {
       logger.debug('LangCache set started', {
         prompt_hash: this.hashPrompt(prompt),
         prompt_length: prompt.length,
         ttl: this.config.ttl,
+        attributes,
       });
 
-      // Store response as JSON string in global cache
-      // No token scoping - any token can retrieve this cached response
+      // Store response with attributes for token-scoped caching
       await this.client.set({
         prompt,
         response: JSON.stringify(response),
         ttlMillis: this.config.ttl ? this.config.ttl * 1000 : undefined, // Convert seconds to milliseconds
+        ...(attributes && { attributes }),
       }, {
         timeoutMs: this.config.writeTimeoutMs ?? 3000, // Configurable timeout for cache writes
       });
@@ -182,9 +187,39 @@ export class SemanticCache {
   }
 
   /**
-   * Clear entire global cache
+   * Clear cache for a specific token scope
    *
-   * Note: Since cache is global (no token isolation), this clears all cached routing decisions
+   * @param tokenId - Token ID to clear cache for
+   */
+  async clearByScope(tokenId: string): Promise<void> {
+    try {
+      logger.debug('Clearing cache for token scope', {
+        token_id: tokenId,
+      });
+
+      // LangCache flush with attributes to clear only entries matching the scope
+      await this.client.flush({
+        scope: tokenId,
+      } as any, {
+        timeoutMs: this.config.flushTimeoutMs ?? 10000,
+      });
+
+      logger.info('Cache cleared for token scope', {
+        token_id: tokenId,
+      });
+    } catch (error) {
+      logger.error('Cache clear by scope failed', {
+        error: error instanceof Error ? error.message : String(error),
+        token_id: tokenId,
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Clear entire cache
+   *
+   * Note: Clears all cached routing decisions across all tokens
    */
   async clear(): Promise<void> {
     try {

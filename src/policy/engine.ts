@@ -32,41 +32,59 @@ export class DefaultPolicyEngine implements PolicyEngine {
     tokenConfig: TokenConfig
   ): PolicyEvaluationResult {
     const auditTrail: PolicyAuditEntry[] = [];
-    let eligibleModels = [...availableModels];
+
+    // Use token's eligible_models if specified, otherwise use all available models
+    // This replaces the old allowed_models/denied_models logic
+    let eligibleModels = tokenConfig.eligible_models
+      ? [...tokenConfig.eligible_models]
+      : [...availableModels];
+
     let forcedModel: string | null = null;
 
-    // Step 1: Apply global allow list (if specified, only these are allowed)
-    if (tokenConfig.allowed_models && tokenConfig.allowed_models.length > 0) {
-      const previousCount = eligibleModels.length;
-      eligibleModels = eligibleModels.filter((m) =>
-        tokenConfig.allowed_models!.includes(m)
-      );
+    // Legacy: Still support allowed_models and denied_models for backward compatibility
+    // If eligible_models is not specified, apply allowed/denied model logic
+    if (!tokenConfig.eligible_models) {
+      // Step 1: Apply global allow list (if specified, only these are allowed)
+      if (tokenConfig.allowed_models && tokenConfig.allowed_models.length > 0) {
+        const previousCount = eligibleModels.length;
+        eligibleModels = eligibleModels.filter((m) =>
+          tokenConfig.allowed_models!.includes(m)
+        );
 
-      if (eligibleModels.length !== previousCount) {
-        auditTrail.push({
-          rule_type: 'AllowModelsGlobal',
-          action: 'allow',
-          models_affected: tokenConfig.allowed_models,
-          timestamp: new Date().toISOString(),
-        });
+        if (eligibleModels.length !== previousCount) {
+          auditTrail.push({
+            rule_type: 'AllowModelsGlobal',
+            action: 'allow',
+            models_affected: tokenConfig.allowed_models,
+            timestamp: new Date().toISOString(),
+          });
+        }
       }
-    }
 
-    // Step 2: Apply global deny list
-    if (tokenConfig.denied_models && tokenConfig.denied_models.length > 0) {
-      const deniedSet = new Set(tokenConfig.denied_models);
-      const previousModels = [...eligibleModels];
-      eligibleModels = eligibleModels.filter((m) => !deniedSet.has(m));
+      // Step 2: Apply global deny list
+      if (tokenConfig.denied_models && tokenConfig.denied_models.length > 0) {
+        const deniedSet = new Set(tokenConfig.denied_models);
+        const previousModels = [...eligibleModels];
+        eligibleModels = eligibleModels.filter((m) => !deniedSet.has(m));
 
-      const removed = previousModels.filter((m) => deniedSet.has(m));
-      if (removed.length > 0) {
-        auditTrail.push({
-          rule_type: 'DenyModelsGlobal',
-          action: 'deny',
-          models_affected: removed,
-          timestamp: new Date().toISOString(),
-        });
+        const removed = previousModels.filter((m) => deniedSet.has(m));
+        if (removed.length > 0) {
+          auditTrail.push({
+            rule_type: 'DenyModelsGlobal',
+            action: 'deny',
+            models_affected: removed,
+            timestamp: new Date().toISOString(),
+          });
+        }
       }
+    } else {
+      // If eligible_models is specified, log it
+      auditTrail.push({
+        rule_type: 'AllowModelsGlobal',
+        action: 'allow',
+        models_affected: tokenConfig.eligible_models,
+        timestamp: new Date().toISOString(),
+      });
     }
 
     // Step 3: Apply policy rules from token config

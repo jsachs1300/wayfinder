@@ -41,6 +41,16 @@ export interface CacheStats {
 }
 
 /**
+ * Cache attributes for scoping and filtering
+ */
+export interface CacheAttributes {
+  /** Token ID for cache isolation */
+  scope: string;
+  /** Router model variant (openai, gemini, or consensus) */
+  router_model: 'openai' | 'gemini' | 'consensus';
+}
+
+/**
  * Cached route decision
  * Extends the core RouteDecision with cache metadata
  */

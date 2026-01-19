@@ -257,11 +257,14 @@ export class DefaultRoutingEngine implements RoutingEngine {
     // Resolve effective router preference (request > token > consensus)
     const effectiveRouter = this.resolveEffectiveRouter(request.router_model, tokenConfig);
 
-    // Check global cache AFTER policy evaluation, BEFORE router LLM invocation (REQUIREMENTS.md §8 step 8)
-    // Note: Cache is global (no token isolation). App handles token-specific behavior via policies.
+    // Check cache AFTER policy evaluation, BEFORE router LLM invocation (REQUIREMENTS.md §8 step 8)
+    // Cache is token-scoped with router model differentiation via attributes
     let routerModelUsed = effectiveRouter;
     if (this.deps.cache) {
-      const cachedResponse = await this.deps.cache.get(request.prompt);
+      const cachedResponse = await this.deps.cache.get(request.prompt, {
+        scope: tokenConfig.id,
+        router_model: effectiveRouter,
+      });
 
       if (cachedResponse) {
         // Extract the requested provider's ranking
@@ -279,12 +282,13 @@ export class DefaultRoutingEngine implements RoutingEngine {
           routerModelUsed = 'consensus';
         }
 
-        this.deps.logger.info('Global cache hit - returning cached decision', {
+        this.deps.logger.info('Token-scoped cache hit - returning cached decision', {
           token_id: tokenConfig.id,
           prompt_hash: hashPrompt(request.prompt),
           request_id: requestId,
           router_model_used: routerModelUsed,
           router_model_requested: effectiveRouter,
+          cache_scope: tokenConfig.id,
           top_model: rankedDecision.ranked_models[0]?.model,
         });
 
@@ -389,14 +393,26 @@ export class DefaultRoutingEngine implements RoutingEngine {
     // Convert to legacy format for backward compatibility
     const decision = toLegacyRouteDecision(rankedDecision);
 
-    // Store full multi-provider response in global cache (fire-and-forget to avoid adding latency)
+    // Store full multi-provider response in cache for all router model variants
+    // This allows users to switch router models without additional LLM calls
     if (this.deps.cache) {
-      this.deps.cache.set(request.prompt, cachedResponse)
+      // Cache for all three router model variants (openai, gemini, consensus)
+      const routerModels: Array<'openai' | 'gemini' | 'consensus'> = ['openai', 'gemini', 'consensus'];
+
+      Promise.all(
+        routerModels.map(routerModel =>
+          this.deps.cache!.set(request.prompt, cachedResponse, {
+            scope: tokenConfig.id,
+            router_model: routerModel,
+          })
+        )
+      )
         .then(() => {
-          this.deps.logger.info('Cached routing decision for future requests', {
+          this.deps.logger.info('Cached routing decision for all router model variants', {
             token_id: tokenConfig.id,
             prompt_hash: hashPrompt(request.prompt),
             request_id: requestId,
+            router_models_cached: routerModels,
             has_openai: !!cachedResponse.provider_rankings.openai,
             has_gemini: !!cachedResponse.provider_rankings.gemini,
             top_model: rankedDecision!.ranked_models[0]?.model,

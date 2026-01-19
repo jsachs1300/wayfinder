@@ -406,13 +406,19 @@ export class DefaultModelRegistry implements ModelRegistry {
       }
     }
 
-    // Validate default_model
-    if (tokenConfig.default_model) {
-      this.assertModelExists(tokenConfig.default_model, 'token_config');
-      this.assertModelActive(tokenConfig.default_model, 'token_config');
+    // Validate eligible_models
+    if (tokenConfig.eligible_models) {
+      this.assertModelListValid(
+        tokenConfig.eligible_models,
+        knowledgeScope,
+        'token_config'
+      );
 
-      if (knowledgeScope === 'global') {
-        this.assertModelGlobalEligible(tokenConfig.default_model, 'token_config');
+      // Ensure at least one model
+      if (tokenConfig.eligible_models.length === 0) {
+        throw new ModelConfigurationError(
+          'eligible_models must contain at least one model'
+        );
       }
     }
 
@@ -463,15 +469,20 @@ export class DefaultModelRegistry implements ModelRegistry {
       );
     }
 
-    // default_model must not be denied
+    // eligible_models must not overlap with denied_models
     if (
-      tokenConfig.default_model &&
+      tokenConfig.eligible_models &&
       tokenConfig.denied_models &&
-      tokenConfig.denied_models.includes(tokenConfig.default_model)
+      tokenConfig.denied_models.length > 0
     ) {
-      throw new ModelConfigurationError(
-        `default_model "${tokenConfig.default_model}" cannot be in denied_models`
+      const overlap = tokenConfig.eligible_models.filter(m =>
+        tokenConfig.denied_models!.includes(m)
       );
+      if (overlap.length > 0) {
+        throw new ModelConfigurationError(
+          `Models cannot be in both eligible_models and denied_models: ${overlap.join(', ')}`
+        );
+      }
     }
 
     // If allowed_models is specified, trusted_anchor and default must be in it
@@ -486,12 +497,18 @@ export class DefaultModelRegistry implements ModelRegistry {
       }
 
       if (
-        tokenConfig.default_model &&
-        !tokenConfig.allowed_models.includes(tokenConfig.default_model)
+        tokenConfig.eligible_models
       ) {
-        throw new ModelConfigurationError(
-          `default_model "${tokenConfig.default_model}" must be in allowed_models`
+        // If both allowed_models and eligible_models are specified,
+        // eligible_models must be a subset of allowed_models
+        const notInAllowed = tokenConfig.eligible_models.filter(m =>
+          !tokenConfig.allowed_models!.includes(m)
         );
+        if (notInAllowed.length > 0) {
+          throw new ModelConfigurationError(
+            `eligible_models must be a subset of allowed_models. Not in allowed: ${notInAllowed.join(', ')}`
+          );
+        }
       }
     }
 

@@ -20,7 +20,6 @@ describe('API Integration Tests', () => {
     // Create a user token for testing
     const tokenResult = await deps.tokenStore.create({
       trusted_anchor_model: 'claude-3-5-sonnet',
-      default_model: 'gpt-4o',
     });
     userToken = tokenResult.token;
   });
@@ -78,7 +77,7 @@ describe('API Integration Tests', () => {
       const createResponse = await request(app)
         .post('/admin/tokens')
         .set('X-Admin-Api-Key', adminApiKey)
-        .send({ default_model: 'gpt-4o' });
+        .send({ eligible_models: ['gpt-4o', 'claude-3-5-sonnet'] });
 
       const tokenId = createResponse.body.id;
 
@@ -88,7 +87,7 @@ describe('API Integration Tests', () => {
 
       expect(response.status).toBe(200);
       expect(response.body.id).toBe(tokenId);
-      expect(response.body.default_model).toBe('gpt-4o');
+      expect(response.body.eligible_models).toEqual(['gpt-4o', 'claude-3-5-sonnet']);
     });
 
     it('should update token configuration', async () => {

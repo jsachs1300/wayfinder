@@ -139,3 +139,39 @@ interface SearchResponse {
 4. Extract types from the package's `.d.ts` files during build process
 
 **Current Status:** Accepted technical debt. Runtime behavior is correct, but type safety could be improved.
+
+**Mitigation Implemented:** Integration tests in `test/cache/langcache-integration.test.ts` validate type compatibility with actual LangCache package behavior.
+
+### LangCache flush() with Attributes (Medium Priority)
+
+**Location:** `src/cache/semantic-cache.ts:201-203`
+
+**Issue:** Using `as any` cast to bypass TypeScript type checking when calling `flush()` with attribute-based filtering.
+
+```typescript
+// Current implementation - bypasses type safety
+await this.client.flush({
+  scope: tokenId,
+} as any, {  // ⚠️ Using 'as any' bypasses type checking
+  timeoutMs: this.config.flushTimeoutMs ?? 10000,
+});
+```
+
+**Root Cause:** Same as above - LangCache types are not properly exported/accessible, so we cannot properly type the attributes parameter for `flush()`.
+
+**Risk:**
+- If LangCache's `flush()` method signature changes, no compile-time detection
+- If attribute-based filtering is not actually supported by LangCache, will fail at runtime
+- Type drift between our assumptions and actual LangCache behavior
+
+**Mitigation Implemented:**
+- Integration tests verify `clearByScope()` works correctly with LangCache
+- Runtime logging confirms cache clearing operations
+- Cache clear failures are non-blocking (logged but don't prevent token deletion)
+
+**Future Options:**
+1. Define local interface for flush attributes (similar to search/set attributes)
+2. Upgrade TypeScript module resolution to properly import LangCache types
+3. Monitor LangCache releases for API changes to flush() method
+
+**Current Status:** Accepted technical debt with integration test coverage. Runtime behavior verified, but type safety bypassed with `as any` cast.
