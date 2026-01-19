@@ -21,6 +21,7 @@ import { buildRoutingPrompt } from './prompt-builder';
 import { validateRankedRouteDecision } from '../ranked-routing';
 import {
   RouterLLMError,
+  RouterLLMParseError,
   RouterLLMTimeoutError,
   RouterLLMPolicyBypassError,
   RouterLLMProviderError,
@@ -322,8 +323,20 @@ export class MultiProviderRouterLLM implements RouterLLM {
         try {
           parsed = JSON.parse(response.content);
         } catch (error) {
-          throw new RouterLLMError(
-            `Failed to parse ${providerName} response as JSON: ${error instanceof Error ? error.message : String(error)}`
+          // Log the raw response for diagnosis of intermittent parse failures
+          this.logger?.error(`[${providerName}] Failed to parse response as JSON`, {
+            error: error instanceof Error ? error.message : String(error),
+            rawResponse: response.content,
+            responseLength: response.content.length,
+            model: response.metadata.model,
+            outputTokens: response.metadata.outputTokens,
+            inputTokens: response.metadata.inputTokens,
+          });
+
+          throw new RouterLLMParseError(
+            `Failed to parse ${providerName} response as JSON: ${error instanceof Error ? error.message : String(error)}`,
+            response.content,
+            error instanceof Error ? error : undefined
           );
         }
 
@@ -337,6 +350,7 @@ export class MultiProviderRouterLLM implements RouterLLM {
         // Don't retry on certain error types
         if (
           error instanceof RouterLLMTimeoutError ||
+          error instanceof RouterLLMParseError ||
           error instanceof RouterLLMPolicyBypassError ||
           (error instanceof RouterLLMError && error.name === 'RouterLLMValidationError')
         ) {

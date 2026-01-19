@@ -21,6 +21,7 @@ import { buildRoutingPrompt } from './prompt-builder';
 import { validateRankedRouteDecision } from '../ranked-routing';
 import {
   RouterLLMError,
+  RouterLLMParseError,
   RouterLLMRetryExhaustedError,
   RouterLLMTimeoutError,
   RouterLLMPolicyBypassError,
@@ -144,8 +145,21 @@ export class DefaultRouterLLM implements RouterLLM {
         try {
           parsed = JSON.parse(response.content);
         } catch (error) {
-          throw new RouterLLMError(
-            `Failed to parse router LLM response as JSON: ${error instanceof Error ? error.message : String(error)}`
+          // Log the raw response for diagnosis of intermittent parse failures
+          this.logger?.error('[RouterLLM] Failed to parse response as JSON', {
+            error: error instanceof Error ? error.message : String(error),
+            rawResponse: response.content,
+            responseLength: response.content.length,
+            provider: response.metadata.provider,
+            model: response.metadata.model,
+            outputTokens: response.metadata.outputTokens,
+            inputTokens: response.metadata.inputTokens,
+          });
+
+          throw new RouterLLMParseError(
+            `Failed to parse router LLM response as JSON: ${error instanceof Error ? error.message : String(error)}`,
+            response.content,
+            error instanceof Error ? error : undefined
           );
         }
 
@@ -168,6 +182,15 @@ export class DefaultRouterLLM implements RouterLLM {
         if (error instanceof RouterLLMTimeoutError) {
           this.logger?.error('[RouterLLM] Request timed out, not retrying', {
             timeoutMs: error.timeoutMs,
+          });
+          throw error;
+        }
+
+        // Don't retry on parse errors (retrying won't fix malformed JSON)
+        if (error instanceof RouterLLMParseError) {
+          this.logger?.error('[RouterLLM] Parse error, not retrying', {
+            error: error.message,
+            responseLength: error.rawResponse.length,
           });
           throw error;
         }

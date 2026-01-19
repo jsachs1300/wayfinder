@@ -9,6 +9,7 @@ import type { TokenConfig } from '../../src/types/index';
 import type { RouterLLMConfig } from '../../src/routing/config';
 import {
   RouterLLMProviderError,
+  RouterLLMParseError,
   RouterLLMTimeoutError,
   RouterLLMValidationError,
   RouterLLMRetryExhaustedError,
@@ -347,10 +348,10 @@ describe('DefaultRouterLLM', () => {
       routerLLM.invoke('Test', ['gpt-4', 'claude-3-opus'], {
         tokenConfig: mockTokenConfig,
       })
-    ).rejects.toThrow(RouterLLMRetryExhaustedError);
+    ).rejects.toThrow(RouterLLMParseError);
 
-    // Should retry 3 times (1 initial + 2 retries)
-    expect(global.fetch).toHaveBeenCalledTimes(3);
+    // Should NOT retry for parse errors
+    expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
   it('should expose config and client', () => {
@@ -625,6 +626,80 @@ describe('DefaultRouterLLM', () => {
       expect(decision).toBeDefined();
       expect(fetchSpy).toHaveBeenCalledTimes(2);
     });
+  });
+
+  it('should log raw response when JSON parsing fails', async () => {
+    const malformedJSON = '{"intent": "code_generation", "ranked_models": [{"model": "gpt-4o", "score": 9, "reason": "Best for...';
+
+    const mockResponse = {
+      id: 'chatcmpl-123',
+      object: 'chat.completion',
+      created: 1677652288,
+      model: 'gpt-4o-mini',
+      choices: [
+        {
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: malformedJSON,
+          },
+          finish_reason: 'stop',
+        },
+      ],
+      usage: {
+        prompt_tokens: 100,
+        completion_tokens: 50,
+        total_tokens: 150,
+      },
+    };
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => mockResponse,
+      headers: new Headers(),
+    } as Response);
+
+    const mockLogger = {
+      log: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
+
+    const routerLLM = new DefaultRouterLLM(testConfig, mockLogger);
+
+    // Should throw RouterLLMParseError immediately (no retry for parse errors)
+    let caughtError: RouterLLMParseError | undefined;
+    try {
+      await routerLLM.invoke('Test prompt', ['gpt-4o', 'claude-3-opus'], {
+        tokenConfig: mockTokenConfig,
+      });
+    } catch (error) {
+      caughtError = error as RouterLLMParseError;
+    }
+
+    // Verify the error is RouterLLMParseError with raw response
+    expect(caughtError).toBeInstanceOf(RouterLLMParseError);
+    expect(caughtError?.rawResponse).toBe(malformedJSON);
+    expect(caughtError?.message).toContain('Failed to parse router LLM response as JSON');
+
+    // Verify error logging was called with raw response
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      '[RouterLLM] Failed to parse response as JSON',
+      expect.objectContaining({
+        rawResponse: malformedJSON,
+        responseLength: malformedJSON.length,
+        model: 'gpt-4o-mini',
+      })
+    );
+
+    // Verify parse error logging (should not retry)
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      '[RouterLLM] Parse error, not retrying',
+      expect.objectContaining({
+        responseLength: malformedJSON.length,
+      })
+    );
   });
 });
 
