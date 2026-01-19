@@ -26,6 +26,7 @@ const mockLangCacheClient = {
   search: vi.fn(),
   set: vi.fn(),
   flush: vi.fn(),
+  deleteQuery: vi.fn(),
 };
 
 // Conditionally mock LangCache only in mock mode
@@ -512,17 +513,17 @@ describe('LangCache Integration Tests', () => {
   });
 
   describe('Token-Scoped Cache Clearing', () => {
-    it('should call flush with scope attribute for clearByScope', async () => {
+    it('should call deleteQuery with scope attribute for clearByScope', async () => {
       if (RUN_INTEGRATION) {
         return;
       }
 
-      mockLangCacheClient.flush.mockResolvedValue(undefined);
+      mockLangCacheClient.deleteQuery.mockResolvedValue(undefined);
 
       await cache.clearByScope('token-123');
 
-      expect(mockLangCacheClient.flush).toHaveBeenCalledWith(
-        { scope: 'token-123' },
+      expect(mockLangCacheClient.deleteQuery).toHaveBeenCalledWith(
+        { attributes: { scope: 'token-123' } },
         { timeoutMs: 10000 }
       );
     });
@@ -532,7 +533,7 @@ describe('LangCache Integration Tests', () => {
         return;
       }
 
-      mockLangCacheClient.flush.mockRejectedValue(new Error('Network error'));
+      mockLangCacheClient.deleteQuery.mockRejectedValue(new Error('Network error'));
 
       await expect(cache.clearByScope('token-123')).rejects.toThrow('Network error');
     });
@@ -542,7 +543,7 @@ describe('LangCache Integration Tests', () => {
         return;
       }
 
-      mockLangCacheClient.flush.mockResolvedValue(undefined);
+      mockLangCacheClient.deleteQuery.mockResolvedValue(undefined);
 
       // Just verify it doesn't throw
       await expect(cache.clearByScope('token-456')).resolves.not.toThrow();
@@ -598,6 +599,60 @@ describe('LangCache Integration Tests', () => {
         expect(result === null || typeof result === 'object').toBe(true);
       },
       5000
+    );
+
+    it.skipIf(!RUN_INTEGRATION)(
+      'should delete only entries for specific token scope (Issue #56 regression test)',
+      async () => {
+        // This test verifies that clearByScope() only deletes cache entries
+        // for the specified token, not the entire cache for all tokens.
+        // This is a regression test for Issue #56.
+
+        const config = loadCacheConfig();
+        const realCache = new SemanticCache(config);
+
+        // Create unique prompts for two different "tokens"
+        const token1Id = `token-${Date.now()}-1`;
+        const token2Id = `token-${Date.now()}-2`;
+        const prompt1 = `Test for ${token1Id} at ${Date.now()}`;
+        const prompt2 = `Test for ${token2Id} at ${Date.now()}`;
+
+        const decision = buildLargeDecision(3);
+
+        // Create cache entries with different scope attributes
+        const response1 = buildCachedResponse(decision, prompt1);
+        const response2 = buildCachedResponse(decision, prompt2);
+
+        // Store both entries
+        await realCache.set(prompt1, response1, { scope: token1Id });
+        await realCache.set(prompt2, response2, { scope: token2Id });
+
+        // Give LangCache time to index
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+
+        // Verify both entries exist
+        const beforeDelete1 = await realCache.get(prompt1, { scope: token1Id });
+        const beforeDelete2 = await realCache.get(prompt2, { scope: token2Id });
+        expect(beforeDelete1).not.toBeNull();
+        expect(beforeDelete2).not.toBeNull();
+
+        // Clear cache for token1 only
+        await realCache.clearByScope(token1Id);
+
+        // Give LangCache time to process deletion
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+
+        // Verify token1's entry is deleted but token2's entry still exists
+        const afterDelete1 = await realCache.get(prompt1, { scope: token1Id });
+        const afterDelete2 = await realCache.get(prompt2, { scope: token2Id });
+
+        expect(afterDelete1).toBeNull(); // Token1's cache should be cleared
+        expect(afterDelete2).not.toBeNull(); // Token2's cache should still exist
+
+        // Cleanup: delete token2's entry
+        await realCache.clearByScope(token2Id);
+      },
+      30000 // 30 second timeout for multiple API calls
     );
   });
 });

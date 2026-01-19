@@ -142,36 +142,61 @@ interface SearchResponse {
 
 **Mitigation Implemented:** Integration tests in `test/cache/langcache-integration.test.ts` validate type compatibility with actual LangCache package behavior.
 
-### LangCache flush() with Attributes (Medium Priority)
+### LangCache API: flush() vs deleteQuery()
 
-**Location:** `src/cache/semantic-cache.ts:201-203`
+**Location:** `src/cache/semantic-cache.ts`
 
-**Issue:** Using `as any` cast to bypass TypeScript type checking when calling `flush()` with attribute-based filtering.
+**Important Distinction:**
+
+LangCache provides two methods for deleting cache entries:
+
+1. **`flush()`** - Deletes the **ENTIRE cache** for the cache ID
+   - Takes no parameters (or only timeout options)
+   - Use for: `clear()` method - clearing all cached routing decisions
+   - **WARNING:** Never use for token-scoped deletion
+
+2. **`deleteQuery(attributes)`** - Deletes entries matching specific attributes
+   - Accepts `attributes` object to filter deletions
+   - Use for: `clearByScope(tokenId)` - deleting only one token's cache entries
+   - Supports filtering by `scope`, `router_model`, or other custom attributes
+
+**Code Examples:**
 
 ```typescript
-// Current implementation - bypasses type safety
-await this.client.flush({
-  scope: tokenId,
-} as any, {  // ⚠️ Using 'as any' bypasses type checking
-  timeoutMs: this.config.flushTimeoutMs ?? 10000,
-});
+// CORRECT: Clear entire cache (admin operation)
+async clear(): Promise<void> {
+  await this.client.flush(undefined, {
+    timeoutMs: this.config.flushTimeoutMs ?? 10000,
+  });
+}
+
+// CORRECT: Clear only specific token's cache entries
+async clearByScope(tokenId: string): Promise<void> {
+  await this.client.deleteQuery({
+    attributes: {
+      scope: tokenId,
+    },
+  }, {
+    timeoutMs: this.config.flushTimeoutMs ?? 10000,
+  });
+}
+
+// WRONG: flush() does NOT support attribute filtering
+// This will delete EVERYTHING, not just the token's entries
+async clearByScope(tokenId: string): Promise<void> {
+  await this.client.flush({
+    scope: tokenId,  // ❌ flush() ignores this - deletes entire cache!
+  } as any, { timeoutMs: 10000 });
+}
 ```
 
-**Root Cause:** Same as above - LangCache types are not properly exported/accessible, so we cannot properly type the attributes parameter for `flush()`.
+**Historical Context:**
 
-**Risk:**
-- If LangCache's `flush()` method signature changes, no compile-time detection
-- If attribute-based filtering is not actually supported by LangCache, will fail at runtime
-- Type drift between our assumptions and actual LangCache behavior
+This distinction was discovered during Issue #56 investigation. The original implementation incorrectly used `flush()` for token-scoped deletion, which caused **all tokens' cache entries** to be deleted whenever any single token was deleted.
 
 **Mitigation Implemented:**
-- Integration tests verify `clearByScope()` works correctly with LangCache
-- Runtime logging confirms cache clearing operations
-- Cache clear failures are non-blocking (logged but don't prevent token deletion)
+- Integration test in `test/cache/langcache-integration.test.ts` verifies `clearByScope()` only deletes the specified token's entries
+- Test creates cache entries for two different tokens and confirms deletion is scoped correctly
+- Regression test ensures Issue #56 cannot reoccur
 
-**Future Options:**
-1. Define local interface for flush attributes (similar to search/set attributes)
-2. Upgrade TypeScript module resolution to properly import LangCache types
-3. Monitor LangCache releases for API changes to flush() method
-
-**Current Status:** Accepted technical debt with integration test coverage. Runtime behavior verified, but type safety bypassed with `as any` cast.
+**Current Status:** Fixed. Using correct API method (`deleteQuery()`) with comprehensive integration test coverage.
