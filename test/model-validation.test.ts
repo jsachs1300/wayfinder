@@ -266,11 +266,11 @@ describe('Model Validation - Proof Tests', () => {
       });
     }).toThrow(ModelValidationError);
 
-    // Default model not in allowed list
+    // eligible_models not in allowed list
     expect(() => {
       modelRegistry.validateTokenConfig({
         allowed_models: ['deprecated-model'],
-        default_model: 'active-model',
+        eligible_models: ['active-model'],
       });
     }).toThrow(ModelValidationError);
   });

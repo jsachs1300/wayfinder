@@ -33,7 +33,6 @@ describe('Rate Limiting', () => {
     // Create a test token for authenticated requests using tokenStore directly
     const tokenConfig = await deps.tokenStore.create({
       trusted_anchor_model: 'claude-3-5-sonnet',
-      default_model: 'gpt-4o',
     });
 
     testToken = tokenConfig.token;
@@ -109,7 +108,6 @@ describe('Rate Limiting', () => {
       // Create a second token using tokenStore directly
       const tokenConfig2 = await deps.tokenStore.create({
         trusted_anchor_model: 'claude-3-5-sonnet',
-        default_model: 'gpt-4-turbo',
       });
 
       const testToken2 = tokenConfig2.token;

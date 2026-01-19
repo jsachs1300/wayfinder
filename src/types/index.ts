@@ -80,10 +80,10 @@ export interface TokenConfig {
   trusted_anchor_model?: string;
   allowed_models?: string[];
   denied_models?: string[];
+  eligible_models?: string[]; // Optional: Override system default (all models in registry)
   policy_rules?: PolicyRule[];
   confidence_threshold?: number;
   logging_level?: LoggingLevel;
-  default_model?: string;
   environment?: Environment;
   knowledge_scope?: KnowledgeScope; // Default: 'global'
   router_model_preference?: RouterModelPreference; // Default: 'consensus'
@@ -96,10 +96,10 @@ export interface TokenCreateRequest {
   trusted_anchor_model?: string;
   allowed_models?: string[];
   denied_models?: string[];
+  eligible_models?: string[]; // Optional: Override system default (all models in registry)
   policy_rules?: PolicyRule[];
   confidence_threshold?: number;
   logging_level?: LoggingLevel;
-  default_model?: string;
   environment?: Environment;
   knowledge_scope?: KnowledgeScope;
   router_model_preference?: RouterModelPreference;
@@ -115,10 +115,10 @@ export interface TokenUpdateRequest {
   trusted_anchor_model?: string;
   allowed_models?: string[];
   denied_models?: string[];
+  eligible_models?: string[]; // Optional: Override system default (all models in registry)
   policy_rules?: PolicyRule[];
   confidence_threshold?: number;
   logging_level?: LoggingLevel;
-  default_model?: string;
   environment?: Environment;
   knowledge_scope?: KnowledgeScope;
   router_model_preference?: RouterModelPreference;
@@ -307,7 +307,6 @@ export type RoutingReason =
   | 'policy_forced'
   | 'knowledge_consensus'
   | 'trusted_anchor_fallback'
-  | 'default_model_fallback'
   | 'system_default';
 
 // Fallback Chain Entry for routing decision logging
@@ -355,7 +354,6 @@ export interface RoutingDecisionLog {
   // Model Eligibility
   eligible_models: string[];
   denied_models: string[];
-  default_model: string | null;
 
   // Knowledge & Confidence
   agreement_score: number | null;
@@ -525,6 +523,34 @@ declare global {
       userTier?: import('../users/types').UserTier;
     }
   }
+}
+
+/**
+ * Get eligible models for a token
+ * Returns token's eligible_models if specified, otherwise all models from registry
+ */
+export function getEligibleModels(
+  tokenConfig: TokenConfig,
+  allModels: string[]
+): string[] {
+  return tokenConfig.eligible_models ?? allModels;
+}
+
+/**
+ * Get fallback model for a token
+ * Returns first model in eligible_models list
+ */
+export function getFallbackModel(
+  tokenConfig: TokenConfig,
+  allModels: string[]
+): string {
+  const eligible = getEligibleModels(tokenConfig, allModels);
+
+  if (eligible.length === 0) {
+    throw new Error('No eligible models available for fallback');
+  }
+
+  return eligible[0];
 }
 
 export {};

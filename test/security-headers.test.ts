@@ -143,7 +143,6 @@ describe('Security Headers', () => {
 
       const tokenConfig = await testDeps.tokenStore.create({
         trusted_anchor_model: 'claude-3-5-sonnet',
-        default_model: 'gpt-4o',
       });
 
       const response = await request(testApp)
