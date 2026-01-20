@@ -41,10 +41,10 @@ export interface AppDependencies {
 /**
  * Create and configure the Express application
  */
-export function createApp(deps?: Partial<AppDependencies>): {
+export async function createApp(deps?: Partial<AppDependencies>): Promise<{
   app: Express;
   dependencies: AppDependencies;
-} {
+}> {
   const app = express();
 
   // Trust first proxy for correct IP detection (required for rate limiting behind reverse proxy)
@@ -107,17 +107,29 @@ export function createApp(deps?: Partial<AppDependencies>): {
     maxAge: 86400, // 24 hours - how long browsers cache preflight responses
   }));
 
+  // Initialize dependencies
+  const logger = deps?.logger ?? createLogger(process.env.LOG_LEVEL);
+
   // Initialize Redis connection if enabled
+  // Connect immediately to prevent auto-connection later (Issue #53)
   let redis: Redis | undefined;
   if (process.env.REDIS_ENABLED === 'true' && process.env.REDIS_URL) {
-    redis = new Redis(process.env.REDIS_URL, {
+    const redisClient = new Redis(process.env.REDIS_URL, {
       maxRetriesPerRequest: 3,
       lazyConnect: true,
     });
-  }
 
-  // Initialize dependencies
-  const logger = deps?.logger ?? createLogger(process.env.LOG_LEVEL);
+    try {
+      await redisClient.connect();
+      redis = redisClient;
+      logger.info('Connected to Redis');
+    } catch (error) {
+      logger.warn('Failed to connect to Redis, using in-memory stores', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+      redis = undefined; // Fall back to in-memory stores
+    }
+  }
 
   // Check if we're in test/dev mode (allows bypassing requirements for testing)
   const isTestMode = process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development';

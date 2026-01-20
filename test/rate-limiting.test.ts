@@ -26,7 +26,7 @@ describe('Rate Limiting', () => {
     process.env.ADMIN_API_KEY = adminApiKey;
 
     // Create fresh app instance for each test
-    const result = createApp();
+    const result = await createApp();
     app = result.app;
     deps = result.dependencies;
 
@@ -225,13 +225,13 @@ describe('Rate Limiting', () => {
   });
 
   describe('Configuration Validation', () => {
-    it('should use default values for invalid environment variables', () => {
+    it('should use default values for invalid environment variables', async () => {
       // This test verifies the parsePositiveInt function works correctly
       // Set invalid env vars
       process.env.RATE_LIMIT_ROUTING_MAX = 'invalid';
       process.env.RATE_LIMIT_ROUTING_WINDOW_MS = '-1000';
 
-      const { app: testApp } = createApp();
+      const { app: testApp } = await createApp();
 
       // App should still work with defaults (will log warnings)
       request(testApp).get('/health').expect(200);

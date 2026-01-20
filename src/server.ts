@@ -21,19 +21,8 @@ async function main(): Promise<void> {
   const rateLimitConfig = getRateLimitConfigSummary();
   logger.info('Rate limiting enabled', rateLimitConfig);
 
-  const { app, dependencies } = createApp();
-
-  // Connect to Redis if available
-  if (dependencies.redis) {
-    try {
-      await dependencies.redis.connect();
-      logger.info('Connected to Redis');
-    } catch (error) {
-      logger.warn('Failed to connect to Redis, using in-memory stores', {
-        error: error instanceof Error ? error.message : 'Unknown error',
-      });
-    }
-  }
+  // Create app (async - connects to Redis internally)
+  const { app, dependencies } = await createApp();
 
   const server = app.listen(PORT, () => {
     logger.info(`Wayfinder server listening on port ${PORT}`);

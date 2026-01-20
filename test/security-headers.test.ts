@@ -28,7 +28,7 @@ describe('Security Headers', () => {
     process.env.ADMIN_API_KEY = adminApiKey;
 
     // Create fresh app instance for each test
-    const result = createApp();
+    const result = await createApp();
     app = result.app;
     deps = result.dependencies;
   });
@@ -102,7 +102,7 @@ describe('Security Headers', () => {
 
     it('should allow wildcard origin when ALLOWED_ORIGINS=*', async () => {
       process.env.ALLOWED_ORIGINS = '*';
-      const { app: testApp } = createApp();
+      const { app: testApp } = await createApp();
 
       const response = await request(testApp)
         .get('/health')
@@ -114,7 +114,7 @@ describe('Security Headers', () => {
 
     it('should allow specific origin when in ALLOWED_ORIGINS list', async () => {
       process.env.ALLOWED_ORIGINS = 'https://app.example.com,https://example.com';
-      const { app: testApp } = createApp();
+      const { app: testApp } = await createApp();
 
       const response = await request(testApp)
         .get('/health')
@@ -126,7 +126,7 @@ describe('Security Headers', () => {
 
     it('should reject origin not in ALLOWED_ORIGINS list', async () => {
       process.env.ALLOWED_ORIGINS = 'https://app.example.com';
-      const { app: testApp } = createApp();
+      const { app: testApp } = await createApp();
 
       const response = await request(testApp)
         .get('/health')
@@ -139,7 +139,7 @@ describe('Security Headers', () => {
     it('should expose rate limiting headers in CORS', async () => {
       // Explicitly set ALLOWED_ORIGINS to ensure CORS is active
       process.env.ALLOWED_ORIGINS = '*';
-      const { app: testApp, dependencies: testDeps } = createApp();
+      const { app: testApp, dependencies: testDeps } = await createApp();
 
       const tokenConfig = await testDeps.tokenStore.create({
         trusted_anchor_model: 'claude-3-5-sonnet',
@@ -162,7 +162,7 @@ describe('Security Headers', () => {
     it('should support credentials (cookies, auth headers)', async () => {
       // Explicitly set ALLOWED_ORIGINS to ensure CORS is active
       process.env.ALLOWED_ORIGINS = '*';
-      const { app: testApp } = createApp();
+      const { app: testApp } = await createApp();
 
       const response = await request(testApp)
         .get('/health')
@@ -174,7 +174,7 @@ describe('Security Headers', () => {
     it('should handle OPTIONS preflight requests on health endpoint', async () => {
       // Explicitly set ALLOWED_ORIGINS to ensure CORS is active
       process.env.ALLOWED_ORIGINS = '*';
-      const { app: testApp } = createApp();
+      const { app: testApp } = await createApp();
 
       const response = await request(testApp)
         .options('/health')
@@ -235,7 +235,7 @@ describe('Security Headers', () => {
       // but verify production-like error handling behavior
       const originalEnv = process.env.NODE_ENV;
       process.env.NODE_ENV = 'test';
-      const { app: prodApp } = createApp();
+      const { app: prodApp } = await createApp();
 
       // Simulate production mode for error handler
       process.env.NODE_ENV = 'production';
@@ -253,7 +253,7 @@ describe('Security Headers', () => {
 
     it('should include error details in development', async () => {
       process.env.NODE_ENV = 'development';
-      const { app: devApp } = createApp();
+      const { app: devApp } = await createApp();
 
       // Create a scenario that triggers the error handler
       // (404 handler doesn't go through error handler, so this test verifies the pattern)
