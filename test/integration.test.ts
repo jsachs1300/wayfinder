@@ -13,7 +13,7 @@ describe('API Integration Tests', () => {
     adminApiKey = 'test-admin-key';
     process.env.ADMIN_API_KEY = adminApiKey;
 
-    const result = createApp();
+    const result = await createApp();
     app = result.app;
     deps = result.dependencies;
 
