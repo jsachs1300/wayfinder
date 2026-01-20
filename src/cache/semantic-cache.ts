@@ -19,7 +19,7 @@
 import { LangCache } from '@redis-ai/langcache';
 import { createHash } from 'crypto';
 import type { CacheConfig, CacheStats, CacheAttributes } from './types';
-import type { CachedRouterResponse } from '../types/index';
+import type { SimpleCachedResponse } from '../types/index';
 import { logger } from '../logging';
 
 // LangCache types (from @redis-ai/langcache/models)
@@ -72,9 +72,9 @@ export class SemanticCache {
    *
    * @param prompt - User's prompt
    * @param attributes - Optional cache attributes for scoping (scope, router_model)
-   * @returns Cached CachedRouterResponse or null if not found
+   * @returns Cached SimpleCachedResponse or null if not found
    */
-  async get(prompt: string, attributes?: CacheAttributes): Promise<CachedRouterResponse | null> {
+  async get(prompt: string, attributes?: CacheAttributes): Promise<SimpleCachedResponse | null> {
     try {
       logger.debug('LangCache search started', {
         prompt_hash: this.hashPrompt(prompt),
@@ -103,13 +103,14 @@ export class SemanticCache {
       }
 
       // Parse cached response from first result (stored as JSON string)
-      const cachedResponse = JSON.parse(result.data[0].response) as CachedRouterResponse;
+      const cachedResponse = JSON.parse(result.data[0].response) as SimpleCachedResponse;
 
       logger.debug('LangCache cache hit', {
         prompt_hash: this.hashPrompt(prompt),
         similarity: result.data[0].similarity,
         searchStrategy: result.data[0].searchStrategy,
-        consensus_top_model: cachedResponse.consensus.ranked_models[0]?.model,
+        router_model: cachedResponse.router_model,
+        top_model: cachedResponse.ranking.ranked_models[0]?.model,
       });
       this.stats.hits++;
 
@@ -130,10 +131,10 @@ export class SemanticCache {
    * Store a routing decision in cache with optional attributes
    *
    * @param prompt - User's prompt
-   * @param response - CachedRouterResponse to cache (all provider rankings + consensus)
+   * @param response - SimpleCachedResponse to cache (single router model ranking)
    * @param attributes - Optional cache attributes for scoping (scope, router_model)
    */
-  async set(prompt: string, response: CachedRouterResponse, attributes?: CacheAttributes): Promise<void> {
+  async set(prompt: string, response: SimpleCachedResponse, attributes?: CacheAttributes): Promise<void> {
     try {
       logger.debug('LangCache set started', {
         prompt_hash: this.hashPrompt(prompt),

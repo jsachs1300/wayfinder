@@ -271,6 +271,8 @@ export interface ProviderRanking {
 /**
  * Cached response containing all provider rankings
  * Stored in SemanticCache, keyed by prompt
+ *
+ * @deprecated Use SimpleCachedResponse instead - stores entire multi-provider response (wasteful)
  */
 export interface CachedRouterResponse {
   /** The prompt this response is for */
@@ -282,6 +284,24 @@ export interface CachedRouterResponse {
   };
   /** Aggregated consensus ranking from all providers */
   consensus: RankedRouteDecision;
+  /** Timestamp when cached (ISO 8601 UTC) */
+  cached_at: string;
+  /** TTL in seconds */
+  ttl: number;
+}
+
+/**
+ * Simple cached response containing a single router ranking
+ * Each router model (openai, gemini, consensus) is cached separately
+ * This avoids storing redundant provider data in each cache entry
+ */
+export interface SimpleCachedResponse {
+  /** The prompt this response is for */
+  prompt: string;
+  /** Single ranking from the specified router model */
+  ranking: RankedRouteDecision;
+  /** Which router model this ranking is from */
+  router_model: RouterModelPreference;
   /** Timestamp when cached (ISO 8601 UTC) */
   cached_at: string;
   /** TTL in seconds */
