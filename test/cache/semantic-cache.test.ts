@@ -11,7 +11,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { SemanticCache, hashPrompt } from '../../src/cache';
-import type { CachedRouterResponse, RankedRouteDecision } from '../../src/types';
+import type { SimpleCachedResponse, RankedRouteDecision, RouterModelPreference } from '../../src/types';
 
 // Create mock LangCache client
 const mockLangCacheClient = {
@@ -31,23 +31,16 @@ vi.mock('@redis-ai/langcache', () => {
   };
 });
 
-// Helper to build CachedRouterResponse from RankedRouteDecision
-function buildCachedResponse(decision: RankedRouteDecision, prompt: string = 'test'): CachedRouterResponse {
+// Helper to build SimpleCachedResponse from RankedRouteDecision
+function buildCachedResponse(
+  decision: RankedRouteDecision,
+  prompt: string = 'test',
+  routerModel: RouterModelPreference = 'consensus'
+): SimpleCachedResponse {
   return {
     prompt,
-    provider_rankings: {
-      openai: {
-        provider: 'openai',
-        decision,
-        generated_at: new Date().toISOString(),
-      },
-      gemini: {
-        provider: 'gemini',
-        decision,
-        generated_at: new Date().toISOString(),
-      },
-    },
-    consensus: decision,
+    ranking: decision,
+    router_model: routerModel,
     cached_at: new Date().toISOString(),
     ttl: 3600,
   };

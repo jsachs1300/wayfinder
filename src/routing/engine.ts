@@ -11,7 +11,7 @@
  * It MUST NOT influence routing logic, scoring, or model eligibility.
  */
 
-import type { RouteRequest, TokenConfig, RouteDecision, RankedRouteDecision, RouteResult, PolicyEvaluationLogEvent, RouterModelPreference, CachedRouterResponse, ProviderRanking } from '../types/index';
+import type { RouteRequest, TokenConfig, RouteDecision, RankedRouteDecision, RouteResult, PolicyEvaluationLogEvent, RouterModelPreference, ProviderRanking } from '../types/index';
 import { toLegacyRouteDecision, validateRankedRouteDecision } from './ranked-routing';
 import type { PolicyEngine } from '../policy/engine';
 import type { ModelRegistry } from '../models/registry';
@@ -267,20 +267,9 @@ export class DefaultRoutingEngine implements RoutingEngine {
       });
 
       if (cachedResponse) {
-        // Extract the requested provider's ranking
-        let rankedDecision = this.extractProviderRanking(cachedResponse, effectiveRouter);
-
-        // If requested provider not available, fall back to consensus
-        if (!rankedDecision) {
-          this.deps.logger.warn('Requested router provider not in cache, falling back to consensus', {
-            requested_router: effectiveRouter,
-            token_id: tokenConfig.id,
-            prompt_hash: hashPrompt(request.prompt),
-            request_id: requestId,
-          });
-          rankedDecision = cachedResponse.consensus;
-          routerModelUsed = 'consensus';
-        }
+        // Cached response already contains just the requested router model's ranking
+        const rankedDecision = cachedResponse.ranking;
+        routerModelUsed = cachedResponse.router_model;
 
         this.deps.logger.info('Token-scoped cache hit - returning cached decision', {
           token_id: tokenConfig.id,
@@ -365,18 +354,17 @@ export class DefaultRoutingEngine implements RoutingEngine {
       );
     }
 
-    // Build CachedRouterResponse for storage
-    const cachedResponse = this.buildCachedResponse(
-      request.prompt,
-      multiProviderResult,
-      this.deps.cache?.getTTL() ?? 3600 // Default 1 hour if not configured
-    );
+    // Extract the requested provider's ranking directly from multiProviderResult
+    let rankedDecision: RankedRouteDecision;
 
-    // Extract the requested provider's ranking
-    let rankedDecision = this.extractProviderRanking(cachedResponse, effectiveRouter);
-
-    // If requested provider not available, fall back to consensus
-    if (!rankedDecision) {
+    if (effectiveRouter === 'consensus') {
+      rankedDecision = multiProviderResult.consensus;
+    } else if (effectiveRouter === 'openai' && multiProviderResult.provider_rankings.openai) {
+      rankedDecision = multiProviderResult.provider_rankings.openai.decision;
+    } else if (effectiveRouter === 'gemini' && multiProviderResult.provider_rankings.gemini) {
+      rankedDecision = multiProviderResult.provider_rankings.gemini.decision;
+    } else {
+      // Requested provider not available, fall back to consensus
       this.deps.logger.warn('Requested router provider not available, falling back to consensus', {
         requested_router: effectiveRouter,
         token_id: tokenConfig.id,
@@ -393,28 +381,68 @@ export class DefaultRoutingEngine implements RoutingEngine {
     // Convert to legacy format for backward compatibility
     const decision = toLegacyRouteDecision(rankedDecision);
 
-    // Store full multi-provider response in cache for all router model variants
-    // This allows users to switch router models without additional LLM calls
+    // Store each router model's ranking separately in cache
+    // This avoids storing redundant provider data in each cache entry (Issue #50)
     if (this.deps.cache) {
-      // Cache for all three router model variants (openai, gemini, consensus)
-      const routerModels: Array<'openai' | 'gemini' | 'consensus'> = ['openai', 'gemini', 'consensus'];
+      const ttl = this.deps.cache.getTTL() ?? 3600;
+      const cached_at = new Date().toISOString();
+      const cachePromises: Promise<void>[] = [];
 
-      Promise.all(
-        routerModels.map(routerModel =>
-          this.deps.cache!.set(request.prompt, cachedResponse, {
+      // Cache consensus ranking
+      cachePromises.push(
+        this.deps.cache.set(request.prompt, {
+          prompt: request.prompt,
+          ranking: multiProviderResult.consensus,
+          router_model: 'consensus',
+          cached_at,
+          ttl,
+        }, {
+          scope: tokenConfig.id,
+          router_model: 'consensus',
+        })
+      );
+
+      // Cache OpenAI ranking if available
+      if (multiProviderResult.provider_rankings.openai) {
+        cachePromises.push(
+          this.deps.cache.set(request.prompt, {
+            prompt: request.prompt,
+            ranking: multiProviderResult.provider_rankings.openai.decision,
+            router_model: 'openai',
+            cached_at,
+            ttl,
+          }, {
             scope: tokenConfig.id,
-            router_model: routerModel,
+            router_model: 'openai',
           })
-        )
-      )
+        );
+      }
+
+      // Cache Gemini ranking if available
+      if (multiProviderResult.provider_rankings.gemini) {
+        cachePromises.push(
+          this.deps.cache.set(request.prompt, {
+            prompt: request.prompt,
+            ranking: multiProviderResult.provider_rankings.gemini.decision,
+            router_model: 'gemini',
+            cached_at,
+            ttl,
+          }, {
+            scope: tokenConfig.id,
+            router_model: 'gemini',
+          })
+        );
+      }
+
+      Promise.all(cachePromises)
         .then(() => {
-          this.deps.logger.info('Cached routing decision for all router model variants', {
+          this.deps.logger.info('Cached routing decision for router model variants', {
             token_id: tokenConfig.id,
             prompt_hash: hashPrompt(request.prompt),
             request_id: requestId,
-            router_models_cached: routerModels,
-            has_openai: !!cachedResponse.provider_rankings.openai,
-            has_gemini: !!cachedResponse.provider_rankings.gemini,
+            cached_openai: !!multiProviderResult.provider_rankings.openai,
+            cached_gemini: !!multiProviderResult.provider_rankings.gemini,
+            cached_consensus: true,
             top_model: rankedDecision!.ranked_models[0]?.model,
           });
         })
@@ -464,56 +492,6 @@ export class DefaultRoutingEngine implements RoutingEngine {
     return 'consensus';
   }
 
-  /**
-   * Extracts the ranking for a specific router model from cached response
-   *
-   * @param cachedResponse - Full cached response with all provider rankings
-   * @param routerModel - Which provider's ranking to extract
-   * @returns Extracted ranked decision, or null if provider not available
-   */
-  private extractProviderRanking(
-    cachedResponse: CachedRouterResponse,
-    routerModel: RouterModelPreference
-  ): RankedRouteDecision | null {
-    // Handle consensus request
-    if (routerModel === 'consensus') {
-      return cachedResponse.consensus;
-    }
-
-    // Get specific provider ranking
-    const providerRanking = cachedResponse.provider_rankings[routerModel];
-
-    if (!providerRanking) {
-      return null;
-    }
-
-    return providerRanking.decision;
-  }
-
-  /**
-   * Builds a CachedRouterResponse from MultiProviderResult
-   *
-   * Constructs a complete cache entry containing all provider rankings and consensus.
-   * This allows future requests to retrieve rankings from any provider without re-invoking router LLMs.
-   *
-   * @param prompt - Original user prompt used as cache key
-   * @param multiProviderResult - Router LLM response with all provider rankings and consensus
-   * @param ttl - Time-to-live in seconds for this cache entry
-   * @returns Complete CachedRouterResponse ready for storage
-   */
-  private buildCachedResponse(
-    prompt: string,
-    multiProviderResult: MultiProviderResult,
-    ttl: number
-  ): CachedRouterResponse {
-    return {
-      prompt,
-      provider_rankings: multiProviderResult.provider_rankings,
-      consensus: multiProviderResult.consensus,
-      cached_at: new Date().toISOString(),
-      ttl,
-    };
-  }
 }
 
 export function createRoutingEngine(deps: RoutingEngineDependencies): RoutingEngine {

@@ -16,7 +16,7 @@
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { SemanticCache, hashPrompt, loadCacheConfig } from '../../src/cache';
-import type { CachedRouterResponse, RankedRouteDecision } from '../../src/types';
+import type { SimpleCachedResponse, RankedRouteDecision, RouterModelPreference } from '../../src/types';
 
 // Check if we should run real integration tests
 const RUN_INTEGRATION = process.env.LANGCACHE_INTEGRATION_TEST === 'true';
@@ -42,28 +42,16 @@ if (!RUN_INTEGRATION) {
   });
 }
 
-// Helper to build large CachedRouterResponse (for performance testing)
+// Helper to build SimpleCachedResponse (for testing)
 function buildCachedResponse(
   decision: RankedRouteDecision,
   prompt: string = 'test',
-  numProviders: number = 2
-): CachedRouterResponse {
-  const providerRankings: any = {};
-
-  // Create multiple provider rankings to test large payloads
-  const providers = ['openai', 'gemini', 'anthropic', 'meta', 'mistral'];
-  for (let i = 0; i < Math.min(numProviders, providers.length); i++) {
-    providerRankings[providers[i]] = {
-      provider: providers[i],
-      decision,
-      generated_at: new Date().toISOString(),
-    };
-  }
-
+  routerModel: 'openai' | 'gemini' | 'consensus' = 'consensus'
+): SimpleCachedResponse {
   return {
     prompt,
-    provider_rankings: providerRankings,
-    consensus: decision,
+    ranking: decision,
+    router_model: routerModel,
     cached_at: new Date().toISOString(),
     ttl: 3600,
   };
@@ -326,7 +314,7 @@ describe('LangCache Integration Tests', () => {
       }
 
       const largeDecision = buildLargeDecision(14); // Real-world size
-      const cachedResponse = buildCachedResponse(largeDecision, 'test', 2);
+      const cachedResponse = buildCachedResponse(largeDecision, 'test', 'consensus');
 
       mockLangCacheClient.set.mockResolvedValue({ entryId: 'test-id' });
 
@@ -338,7 +326,7 @@ describe('LangCache Integration Tests', () => {
       expect(setCall.response).toBeDefined();
 
       const parsed = JSON.parse(setCall.response);
-      expect(parsed.consensus.ranked_models).toHaveLength(14);
+      expect(parsed.ranking.ranked_models).toHaveLength(14);
     });
 
     it('should handle large decision retrieval and parsing', async () => {
@@ -347,7 +335,7 @@ describe('LangCache Integration Tests', () => {
       }
 
       const largeDecision = buildLargeDecision(14);
-      const cachedResponse = buildCachedResponse(largeDecision, 'test', 2);
+      const cachedResponse = buildCachedResponse(largeDecision, 'test', 'consensus');
 
       mockLangCacheClient.search.mockResolvedValue({
         data: [
@@ -365,7 +353,7 @@ describe('LangCache Integration Tests', () => {
       const result = await cache.get('test');
 
       expect(result).not.toBeNull();
-      expect(result?.consensus.ranked_models).toHaveLength(14);
+      expect(result?.ranking.ranked_models).toHaveLength(14);
       expect(result?.prompt).toBe('test');
     });
 
@@ -377,7 +365,7 @@ describe('LangCache Integration Tests', () => {
       // Create 10KB prompt (edge case)
       const largePrompt = 'a'.repeat(10000);
       const decision = buildLargeDecision(5);
-      const cachedResponse = buildCachedResponse(decision, largePrompt, 2);
+      const cachedResponse = buildCachedResponse(decision, largePrompt, 'consensus');
 
       mockLangCacheClient.set.mockResolvedValue({ entryId: 'test-id' });
 
@@ -575,7 +563,7 @@ describe('LangCache Integration Tests', () => {
         const result = await realCache.get(testPrompt);
 
         expect(result).not.toBeNull();
-        expect(result?.consensus.ranked_models).toHaveLength(5);
+        expect(result?.ranking.ranked_models).toHaveLength(5);
       },
       15000 // 15 second timeout for real API calls
     );
