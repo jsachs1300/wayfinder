@@ -1,0 +1,39 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', '${_IMAGE}', '.']
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '${_IMAGE}']
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image=${_IMAGE}
+      - --region=${_REGION}
+      - --platform=managed
+      - --port=3000
+      - --service-account=${_RUNTIME_SA}
+      - --allow-unauthenticated
+      - --memory=${_MEMORY}
+      - --cpu=${_CPU}
+      - --timeout=${_TIMEOUT}
+      - --concurrency=${_CONCURRENCY}
+      - --min-instances=${_MIN_INSTANCES}
+      - --max-instances=${_MAX_INSTANCES}
+      - --set-env-vars=NODE_ENV=production,REDIS_ENABLED=true,LANGCACHE_ENABLED=true,ROUTER_LLM_OPENAI_ENABLED=true,ROUTER_LLM_GEMINI_ENABLED=true,LOG_LEVEL=info,ALLOWED_ORIGINS=${_ALLOWED_ORIGINS}
+      - --set-secrets=ADMIN_API_KEY=ADMIN_API_KEY:latest,ROUTER_LLM_OPENAI_API_KEY=ROUTER_LLM_OPENAI_API_KEY:latest,ROUTER_LLM_GEMINI_API_KEY=ROUTER_LLM_GEMINI_API_KEY:latest,REDIS_URL=REDIS_URL:latest,LANGCACHE_API_KEY=LANGCACHE_API_KEY:latest,LANGCACHE_HOST=LANGCACHE_HOST:latest,LANGCACHE_CACHE_ID=LANGCACHE_CACHE_ID:latest
+substitutions:
+  _REGION: us-central1
+  _SERVICE: wayfinder
+  _REPO: wayfinder
+  _IMAGE: '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/wayfinder:${TAG_NAME}'
+  _RUNTIME_SA: 'wayfinder-runtime@${PROJECT_ID}.iam.gserviceaccount.com'
+  _MEMORY: 512Mi
+  _CPU: '1'
+  _TIMEOUT: 300s
+  _CONCURRENCY: '10'
+  _MIN_INSTANCES: '1'
+  _MAX_INSTANCES: '20'
+  # Add additional origins (e.g., https://www.wyfndr.ai, https://staging.wyfndr.ai) as needed.
+  _ALLOWED_ORIGINS: 'https://wyfndr.ai'
