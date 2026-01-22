@@ -483,6 +483,38 @@ jobs:
 
 ---
 
+## Cloud Build Triggers & Secrets
+
+### Triggers
+We maintain two Cloud Build triggers:
+- **Dev (main branch)**: Builds and deploys `wayfinder-dev` using `cloudbuild.main.yaml` (image tagged with `COMMIT_SHA`).
+- **Prod (tags)**: Builds and deploys `wayfinder-prod` using `cloudbuild.yaml` (image tagged with `TAG_NAME`).
+
+Recommended trigger patterns:
+- `main` branch: `^main$`
+- production release tags: `^v\\d+\\.\\d+\\.\\d+$`
+
+### Secrets (Environment-Specific Names)
+The Cloud Run environment variables are the same for dev and prod, but secrets are split by name:
+
+Dev secrets:
+- `ADMIN_API_KEY_DEV`
+- `ROUTER_LLM_OPENAI_API_KEY_DEV`
+- `ROUTER_LLM_GEMINI_API_KEY_DEV`
+- `REDIS_URL_DEV`
+- `LANGCACHE_API_KEY_DEV`
+
+Prod secrets:
+- `ADMIN_API_KEY_PROD`
+- `ROUTER_LLM_OPENAI_API_KEY_PROD`
+- `ROUTER_LLM_GEMINI_API_KEY_PROD`
+- `REDIS_URL_PROD`
+- `LANGCACHE_API_KEY_PROD`
+
+Cloud Build mappings:
+- Dev (`cloudbuild.main.yaml`) maps `ADMIN_API_KEY=ADMIN_API_KEY_DEV:latest` (same pattern for other secrets).
+- Prod (`cloudbuild.yaml`) maps `ADMIN_API_KEY=ADMIN_API_KEY_PROD:latest` (same pattern for other secrets).
+
 ## Recommended Deployment Architecture
 
 ```
