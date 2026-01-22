@@ -509,7 +509,7 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
       // Protected routes (require user auth)
       app.use('/api/tokens',
         tokenAuthMiddleware(tokenStore, userStore),
-        createUserTokenRoutes(tokenStore, modelRegistry, cache)
+        createUserTokenRoutes(tokenStore, modelRegistry, logger, cache)
       );
 
       app.use('/api/llm-keys',

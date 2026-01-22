@@ -3,6 +3,8 @@
 // before other modules are evaluated, ensuring env vars are available at import time
 import 'dotenv/config';
 
+import './observability';
+
 import { createApp } from './app';
 import { logger } from './logging';
 import { getRateLimitConfigSummary } from './middleware';

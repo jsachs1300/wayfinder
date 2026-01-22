@@ -18,6 +18,8 @@ import type { RouteRequest, RoutingDecisionLogEvent, RoutingErrorLogEvent, Route
 import { VALID_ROUTER_MODEL_PREFERENCES } from '../types/index';
 import type { Logger } from '../logging/logger';
 import { z, ZodError } from 'zod';
+import { logRoutingUsage } from '../observability/events';
+import { recordRoutingError, recordRoutingFallback, recordRoutingRequest } from '../observability/metrics';
 
 /**
  * Create SHA256 hash of prompt for privacy-safe logging
@@ -79,14 +81,21 @@ export function createRoutingRoutes(
         userTier: req.userTier,
       } : undefined;
 
+      recordRoutingRequest({
+        token_tier: req.userTier,
+        router_model_requested: routeRequest.router_model ?? req.tokenConfig.router_model_preference ?? 'consensus',
+      });
+
       // Get routing decision from engine (includes intent and policy metadata)
       // The engine handles policy evaluation and logging internally
+      const routingStart = Date.now();
       const result = await routingEngine.route(
         routeRequest,
         req.tokenConfig,
         req.requestId,
         userContext,
       );
+      const routingDurationMs = Date.now() - routingStart;
 
       // Structured logging for routing decision per REQUIREMENTS.md §12
       // Note: Policy details are logged by the routing engine during evaluation
@@ -120,6 +129,27 @@ export function createRoutingRoutes(
       const requestedRouter = routeRequest.router_model || req.tokenConfig.router_model_preference || 'consensus';
       const usedRouter = result.router_model_used || 'consensus';
       const didFallback = requestedRouter !== usedRouter;
+      if (didFallback) {
+        recordRoutingFallback({
+          token_tier: req.userTier,
+          router_model_requested: requestedRouter,
+          router_model_used: usedRouter,
+        });
+      }
+
+      logRoutingUsage(logger, {
+        request_id: req.requestId,
+        token_id: req.tokenConfig.id,
+        user_id: req.user?.id,
+        token_tier: req.userTier,
+        provider: usedRouter,
+        router_model_requested: requestedRouter,
+        router_model_used: usedRouter,
+        cache_hit: result.cache_hit ?? false,
+        llm_call: !(result.cache_hit ?? false),
+        llm_latency_ms: result.cache_hit ? undefined : routingDurationMs,
+        eligible_models_count: result.policyMetadata.eligibleModelsCount,
+      });
 
       // HTTP status: 200 for success, 203 for fallback to different provider
       const statusCode = didFallback ? 203 : 200;
@@ -134,6 +164,10 @@ export function createRoutingRoutes(
 
       res.status(statusCode).json(response);
     } catch (error) {
+      recordRoutingError({
+        error_type: error instanceof ZodError ? 'validation' : 'internal',
+        token_tier: req.userTier,
+      });
       const routeRequest = RouteRequestSchema.safeParse(req.body);
       const prompt = routeRequest.success ? routeRequest.data.prompt : '';
 

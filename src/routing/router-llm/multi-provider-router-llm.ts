@@ -26,6 +26,7 @@ import {
   RouterLLMPolicyBypassError,
   RouterLLMProviderError,
 } from './errors';
+import { recordLlmCall, recordLlmError } from '../../observability/metrics';
 
 /**
  * Result from querying all router LLM providers
@@ -329,6 +330,7 @@ export class MultiProviderRouterLLM implements RouterLLM {
           inputTokens: response.metadata.inputTokens,
           outputTokens: response.metadata.outputTokens,
         });
+        recordLlmCall(providerName, response.metadata.latencyMs, {});
 
         // Parse response as JSON
         let parsed: any;
@@ -358,6 +360,7 @@ export class MultiProviderRouterLLM implements RouterLLM {
         return rankedDecision;
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
+        recordLlmError(providerName, {});
 
         // Don't retry on certain error types
         if (

@@ -11,6 +11,9 @@ import {
 import { ModelRegistry, ModelValidationError } from '../models';
 import { User } from '../users/types';
 import { z } from 'zod';
+import { logTokenEvent } from '../observability/events';
+import { recordTokenCreated, recordTokenDeleted, recordTokenRotated } from '../observability/metrics';
+import type { Logger } from '../logging/logger';
 
 interface IdParams {
   id: string;
@@ -57,6 +60,7 @@ interface AuthenticatedRequest extends Request {
 export function createUserTokenRoutes(
   tokenStore: TokenStore,
   modelRegistry: ModelRegistry,
+  logger: Logger,
   cache?: { clearByScope: (tokenId: string) => Promise<void> }
 ): Router {
   const router = Router();
@@ -136,7 +140,6 @@ export function createUserTokenRoutes(
 
       const request: TokenCreateRequest = {
         ...parsed.data,
-        router_model_preference: parsed.data.router_model_preference as any,
       };
 
       // Validate all model identifiers against the registry
@@ -167,6 +170,14 @@ export function createUserTokenRoutes(
           user_id: undefined, // Don't expose user_id in response
         },
       });
+      logTokenEvent(logger, {
+        event_type: 'token_created',
+        token_id: result.id,
+        user_id: req.user.id,
+        is_primary: result.config.is_primary,
+        eligible_models: result.config.eligible_models,
+      });
+      recordTokenCreated();
     } catch (error) {
       res.status(500).json({
         error: 'InternalError',
@@ -236,6 +247,13 @@ export function createUserTokenRoutes(
 
       await tokenStore.delete(id);
       res.status(204).send();
+      logTokenEvent(logger, {
+        event_type: 'token_deleted',
+        token_id: id,
+        user_id: req.user.id,
+        is_primary: token.is_primary,
+      });
+      recordTokenDeleted();
     } catch (error) {
       res.status(500).json({
         error: 'InternalError',
@@ -298,6 +316,13 @@ export function createUserTokenRoutes(
         token: result.token,
         rotated_at: result.config.rotated_at,
       });
+      logTokenEvent(logger, {
+        event_type: 'token_rotated',
+        token_id: id,
+        user_id: req.user.id,
+        is_primary: token.is_primary,
+      });
+      recordTokenRotated();
     } catch (error) {
       res.status(500).json({
         error: 'InternalError',
