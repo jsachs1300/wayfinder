@@ -85,7 +85,9 @@ export class SemanticCache {
 
       const result: SearchResponse = await this.client.search({
         prompt,
-        searchStrategies: [SearchStrategy.Semantic],
+        searchStrategies: (this.config.searchStrategies ?? ['semantic']).map((strategy) =>
+          strategy === 'exact' ? SearchStrategy.Exact : SearchStrategy.Semantic
+        ),
         similarityThreshold: this.config.similarityThreshold,
         ...(attributes && { attributes }),
       }, {

@@ -22,6 +22,8 @@ export interface CacheConfig {
   writeTimeoutMs?: number;
   /** Timeout for cache flush operations in milliseconds (optional, default: 10000ms) */
   flushTimeoutMs?: number;
+  /** Search strategies to use (default: ['semantic']) */
+  searchStrategies?: Array<'exact' | 'semantic'>;
 }
 
 /**
