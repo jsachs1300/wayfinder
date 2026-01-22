@@ -9,6 +9,8 @@ import { z } from 'zod';
 import { UserStore } from './store';
 import { TokenStore } from '../tokens/store';
 import { validateEmail, validatePassword } from './validation';
+import { logTokenEvent, logUserLoggedIn, logUserRegistered } from '../observability/events';
+import { recordTokenCreated, recordUserLoggedIn, recordUserRegistered } from '../observability/metrics';
 import { verifyPassword } from './password';
 import type { User } from './types';
 import type { TokenConfigExtended } from '../tokens/types';
@@ -162,6 +164,8 @@ export function createUserRoutes(
         tier: user.tier,
         timestamp: new Date().toISOString(),
       });
+      logUserRegistered(logger, { user_id: user.id, email: user.email });
+      recordUserRegistered();
 
       res.status(201).json({
         user: sanitizeUser(user),
@@ -172,6 +176,14 @@ export function createUserRoutes(
           is_primary: tokenResult.config.is_primary || true,
         },
       });
+      logTokenEvent(logger, {
+        event_type: 'token_created',
+        token_id: tokenResult.id,
+        user_id: user.id,
+        is_primary: tokenResult.config.is_primary || true,
+        eligible_models: tokenResult.config.eligible_models,
+      });
+      recordTokenCreated();
     } catch (error) {
       logger.error('User registration failed', {
         error: error instanceof Error ? error.message : 'Unknown error',
@@ -267,6 +279,8 @@ export function createUserRoutes(
         email: user.email,
         timestamp: new Date().toISOString(),
       });
+      logUserLoggedIn(logger, { user_id: user.id, email: user.email });
+      recordUserLoggedIn();
 
       res.status(200).json({
         user: sanitizeUser(user),

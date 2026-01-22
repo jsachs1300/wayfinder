@@ -25,9 +25,16 @@ describe('DefaultRouterLLM', () => {
   };
 
   const testConfig: RouterLLMConfig = {
-    provider: 'openai',
-    apiKey: 'test-key',
-    model: 'gpt-4o-mini',
+    openai: {
+      enabled: true,
+      apiKey: 'test-key',
+      model: 'gpt-4o-mini',
+    },
+    gemini: {
+      enabled: false,
+      apiKey: 'unused',
+      model: 'gemini-1.5-flash',
+    },
     timeout: 10000,
     maxRetries: 2,
     temperature: 0.0,
@@ -358,8 +365,8 @@ describe('DefaultRouterLLM', () => {
     const routerLLM = new DefaultRouterLLM(testConfig);
 
     const config = routerLLM.getConfig();
-    expect(config.provider).toBe('openai');
-    expect(config.model).toBe('gpt-4o-mini');
+    expect(config.openai.enabled).toBe(true);
+    expect(config.openai.model).toBe('gpt-4o-mini');
 
     const client = routerLLM.getClient();
     expect(client.getProviderName()).toBe('openai');

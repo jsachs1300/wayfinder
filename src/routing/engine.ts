@@ -19,6 +19,7 @@ import type { Logger } from '../logging/logger';
 import type { SemanticCache } from '../cache';
 import { hashPrompt } from '../cache';
 import type { MultiProviderResult } from './router-llm';
+import { recordCacheHit, recordCacheMiss } from '../observability/metrics';
 
 /**
  * Type guard to check if a value is a MultiProviderResult
@@ -169,7 +170,7 @@ export class DefaultRoutingEngine implements RoutingEngine {
     // Warn if intent-based policy rules are configured (only once per token to avoid spam)
     const hasIntentBasedRules = tokenConfig.policy_rules?.some(
       rule => rule.type === 'ForceModelByIntent' || rule.type === 'RestrictModelsByIntent'
-    );
+    ) ?? false;
     if (hasIntentBasedRules && !this.warnedTokens.has(tokenConfig.id)) {
       this.warnedTokens.add(tokenConfig.id);
       this.deps.logger.warn('Intent-based policy rules present with placeholder intent', {
@@ -267,6 +268,10 @@ export class DefaultRoutingEngine implements RoutingEngine {
       });
 
       if (cachedResponse) {
+        recordCacheHit({
+          router_model_requested: effectiveRouter,
+          router_model_used: cachedResponse.router_model,
+        });
         // Cached response already contains just the requested router model's ranking
         const rankedDecision = cachedResponse.ranking;
         routerModelUsed = cachedResponse.router_model;
@@ -295,6 +300,9 @@ export class DefaultRoutingEngine implements RoutingEngine {
         };
       }
 
+      recordCacheMiss({
+        router_model_requested: effectiveRouter,
+      });
       this.deps.logger.info('Cache miss - invoking router LLM', {
         token_id: tokenConfig.id,
         prompt_hash: hashPrompt(request.prompt),

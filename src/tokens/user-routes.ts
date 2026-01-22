@@ -1,10 +1,19 @@
 import { Router, Request, Response } from 'express';
 import { TokenStore } from './store';
 import { TokenConfigExtended } from './types';
-import { TokenConfig, TokenCreateRequest, TokenUpdateRequest, VALID_ROUTER_MODEL_PREFERENCES } from '../types';
+import {
+  TokenConfig,
+  TokenCreateRequest,
+  TokenUpdateRequest,
+  VALID_ROUTER_MODEL_PREFERENCES,
+  type RouterModelPreference,
+} from '../types';
 import { ModelRegistry, ModelValidationError } from '../models';
 import { User } from '../users/types';
 import { z } from 'zod';
+import { logTokenEvent } from '../observability/events';
+import { recordTokenCreated, recordTokenDeleted, recordTokenRotated } from '../observability/metrics';
+import type { Logger } from '../logging/logger';
 
 interface IdParams {
   id: string;
@@ -17,6 +26,10 @@ const PolicyRuleSchema = z.object({
   priority: z.number().optional(),
 });
 
+const RouterModelPreferenceSchema = z.enum(
+  [...VALID_ROUTER_MODEL_PREFERENCES] as [RouterModelPreference, ...RouterModelPreference[]]
+);
+
 const UserTokenCreateSchema = z.object({
   name: z.string().optional(),
   trusted_anchor_model: z.string().optional(),
@@ -28,7 +41,7 @@ const UserTokenCreateSchema = z.object({
   logging_level: z.enum(['normal', 'verbose']).optional(),
   environment: z.enum(['prod', 'dev']).optional(),
   knowledge_scope: z.enum(['global', 'token', 'org', 'hybrid']).optional(),
-  router_model_preference: z.enum(VALID_ROUTER_MODEL_PREFERENCES as [string, ...string[]]).optional(),
+  router_model_preference: RouterModelPreferenceSchema.optional(),
 });
 
 const MAX_TOKENS_PER_USER = parseInt(process.env.MAX_TOKENS_PER_USER || '10', 10);
@@ -47,6 +60,7 @@ interface AuthenticatedRequest extends Request {
 export function createUserTokenRoutes(
   tokenStore: TokenStore,
   modelRegistry: ModelRegistry,
+  logger: Logger,
   cache?: { clearByScope: (tokenId: string) => Promise<void> }
 ): Router {
   const router = Router();
@@ -126,7 +140,6 @@ export function createUserTokenRoutes(
 
       const request: TokenCreateRequest = {
         ...parsed.data,
-        router_model_preference: parsed.data.router_model_preference as any,
       };
 
       // Validate all model identifiers against the registry
@@ -157,6 +170,14 @@ export function createUserTokenRoutes(
           user_id: undefined, // Don't expose user_id in response
         },
       });
+      logTokenEvent(logger, {
+        event_type: 'token_created',
+        token_id: result.id,
+        user_id: req.user.id,
+        is_primary: result.config.is_primary,
+        eligible_models: result.config.eligible_models,
+      });
+      recordTokenCreated();
     } catch (error) {
       res.status(500).json({
         error: 'InternalError',
@@ -226,6 +247,13 @@ export function createUserTokenRoutes(
 
       await tokenStore.delete(id);
       res.status(204).send();
+      logTokenEvent(logger, {
+        event_type: 'token_deleted',
+        token_id: id,
+        user_id: req.user.id,
+        is_primary: token.is_primary,
+      });
+      recordTokenDeleted();
     } catch (error) {
       res.status(500).json({
         error: 'InternalError',
@@ -288,6 +316,13 @@ export function createUserTokenRoutes(
         token: result.token,
         rotated_at: result.config.rotated_at,
       });
+      logTokenEvent(logger, {
+        event_type: 'token_rotated',
+        token_id: id,
+        user_id: req.user.id,
+        is_primary: token.is_primary,
+      });
+      recordTokenRotated();
     } catch (error) {
       res.status(500).json({
         error: 'InternalError',

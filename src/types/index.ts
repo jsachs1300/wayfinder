@@ -59,16 +59,13 @@ export type KnowledgeScope = 'global' | 'token' | 'org' | 'hybrid';
 // - openai: Use OpenAI's routing recommendation
 // - gemini: Use Gemini's routing recommendation
 // - consensus: Use aggregated consensus from all providers (default)
-export type RouterModelPreference = 'openai' | 'gemini' | 'consensus';
-
-/**
- * Valid router model preference values for validation
- */
-export const VALID_ROUTER_MODEL_PREFERENCES: readonly RouterModelPreference[] = [
+export const VALID_ROUTER_MODEL_PREFERENCES = [
   'openai',
   'gemini',
   'consensus',
 ] as const;
+
+export type RouterModelPreference = (typeof VALID_ROUTER_MODEL_PREFERENCES)[number];
 
 // Token Configuration
 export type LoggingLevel = 'normal' | 'verbose';
@@ -450,7 +447,7 @@ export interface LogEntry {
  * Per REQUIREMENTS.md §12: Must log routing decision, explanation, confidence,
  * inferred intent, applied policy, knowledge scope, and request ID
  */
-export interface RoutingDecisionLogEvent {
+export interface RoutingDecisionLogEvent extends Record<string, unknown> {
   event_type: 'routing_decision';
   timestamp: string;
   request_id: string;
@@ -487,7 +484,7 @@ export interface RoutingDecisionLogEvent {
  * Structured log event for policy evaluation
  * Logs policy constraints applied before routing
  */
-export interface PolicyEvaluationLogEvent {
+export interface PolicyEvaluationLogEvent extends Record<string, unknown> {
   event_type: 'policy_evaluation';
   timestamp: string;
   request_id: string;
@@ -507,7 +504,7 @@ export interface PolicyEvaluationLogEvent {
  * Structured log event for routing errors
  * Logs failures during routing with privacy-safe details
  */
-export interface RoutingErrorLogEvent {
+export interface RoutingErrorLogEvent extends Record<string, unknown> {
   event_type: 'routing_error';
   timestamp: string;
   request_id: string;
@@ -570,7 +567,7 @@ export function getFallbackModel(
     throw new Error('No eligible models available for fallback');
   }
 
-  return eligible[0];
+  return eligible[0]!;
 }
 
 export {};
