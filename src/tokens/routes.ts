@@ -1,6 +1,11 @@
 import { Router, Request, Response } from 'express';
 import { TokenStore } from './store';
-import { TokenCreateRequest, TokenUpdateRequest, VALID_ROUTER_MODEL_PREFERENCES } from '../types';
+import {
+  TokenCreateRequest,
+  TokenUpdateRequest,
+  VALID_ROUTER_MODEL_PREFERENCES,
+  type RouterModelPreference,
+} from '../types';
 import { ModelRegistry, ModelValidationError } from '../models';
 import { z } from 'zod';
 
@@ -15,6 +20,10 @@ const PolicyRuleSchema = z.object({
   priority: z.number().optional(),
 });
 
+const RouterModelPreferenceSchema = z.enum(
+  [...VALID_ROUTER_MODEL_PREFERENCES] as [RouterModelPreference, ...RouterModelPreference[]]
+);
+
 const TokenCreateSchema = z.object({
   trusted_anchor_model: z.string().optional(),
   allowed_models: z.array(z.string()).optional(),
@@ -25,7 +34,7 @@ const TokenCreateSchema = z.object({
   logging_level: z.enum(['normal', 'verbose']).optional(),
   environment: z.enum(['prod', 'dev']).optional(),
   knowledge_scope: z.enum(['global', 'token', 'org', 'hybrid']).optional(),
-  router_model_preference: z.enum(VALID_ROUTER_MODEL_PREFERENCES).optional(),
+  router_model_preference: RouterModelPreferenceSchema.optional(),
 });
 
 const TokenUpdateSchema = TokenCreateSchema.partial();

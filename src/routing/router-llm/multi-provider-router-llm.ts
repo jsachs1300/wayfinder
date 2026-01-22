@@ -175,11 +175,16 @@ export class MultiProviderRouterLLM implements RouterLLM {
     const failedProviders: Array<{ name: string; error: Error }> = [];
 
     results.forEach((result, index) => {
+      const provider = enabledProviders[index];
+      if (!provider) {
+        return;
+      }
+
       if (result.status === 'fulfilled') {
         decisions.push(result.value);
       } else {
         failedProviders.push({
-          name: enabledProviders[index].name,
+          name: provider.name,
           error: result.reason instanceof Error ? result.reason : new Error(String(result.reason)),
         });
       }
@@ -188,9 +193,10 @@ export class MultiProviderRouterLLM implements RouterLLM {
     // If all providers failed, throw the first error
     if (decisions.length === 0) {
       const errorMessages = failedProviders.map(f => `${f.name}: ${f.error.message}`).join('; ');
+      const fallbackError = failedProviders[0]?.error ?? new Error('All router LLM providers failed');
       throw new RouterLLMError(
         `All router LLM providers failed: ${errorMessages}`,
-        failedProviders[0].error
+        fallbackError
       );
     }
 
@@ -208,14 +214,16 @@ export class MultiProviderRouterLLM implements RouterLLM {
 
     // Map decisions to their provider names
     results.forEach((result, index) => {
-      if (result.status === 'fulfilled') {
-        const providerName = enabledProviders[index].name as 'openai' | 'gemini';
-        providerRankings[providerName] = {
-          provider: providerName,
-          decision: result.value,
-          generated_at: now,
-        };
+      const provider = enabledProviders[index];
+      if (!provider || result.status !== 'fulfilled') {
+        return;
       }
+      const providerName = provider.name as 'openai' | 'gemini';
+      providerRankings[providerName] = {
+        provider: providerName,
+        decision: result.value,
+        generated_at: now,
+      };
     });
 
     // Get list of successful providers for logging
@@ -225,33 +233,37 @@ export class MultiProviderRouterLLM implements RouterLLM {
 
     // If only one provider succeeded, use its decision as consensus
     if (decisions.length === 1) {
+      const provider = successfulProviders[0];
+      const decision = decisions[0];
+      if (!provider || !decision) {
+        throw new RouterLLMError('Router LLM consensus unavailable due to missing provider result');
+      }
       this.logger?.log(`[MultiProviderRouterLLM] Single provider response`, {
-        provider: successfulProviders[0].name,
+        provider: provider.name,
         latencyMs: totalLatencyMs,
-        top_model: decisions[0].ranked_models[0]?.model,
-        top_score: decisions[0].ranked_models[0]?.score,
+        top_model: decision.ranked_models[0]?.model,
+        top_score: decision.ranked_models[0]?.score,
       });
 
       return {
         provider_rankings: providerRankings,
-        consensus: decisions[0],
+        consensus: decision,
       };
     }
 
     // Multiple providers - aggregate rankings
+    const decisionsWithProviders = successfulProviders.map((provider, index) => ({
+      decision: decisions[index]!,
+      providerName: provider.name,
+    }));
+
     this.logger?.log(`[MultiProviderRouterLLM] ${decisions.length} providers responded`, {
       totalLatencyMs,
-      providers: successfulProviders.map((p, i) => ({
-        name: p.name,
-        top_model: decisions[i].ranked_models[0]?.model,
+      providers: decisionsWithProviders.map(({ providerName, decision }) => ({
+        name: providerName,
+        top_model: decision.ranked_models[0]?.model,
       })),
     });
-
-    // Pair decisions with provider names for aggregation
-    const decisionsWithProviders = decisions.map((decision, i) => ({
-      decision,
-      providerName: successfulProviders[i].name,
-    }));
 
     // Aggregate rankings by averaging scores
     const aggregatedDecision = this.aggregateRankings(decisionsWithProviders, eligibleModels);
@@ -261,9 +273,9 @@ export class MultiProviderRouterLLM implements RouterLLM {
       ranked_models_count: aggregatedDecision.ranked_models.length,
       top_model: aggregatedDecision.ranked_models[0]?.model,
       top_score: aggregatedDecision.ranked_models[0]?.score,
-      provider_agreements: successfulProviders.map((p, i) => ({
-        provider: p.name,
-        agrees_with_aggregated: decisions[i].ranked_models[0]?.model === aggregatedDecision.ranked_models[0]?.model,
+      provider_agreements: decisionsWithProviders.map(({ providerName, decision }) => ({
+        provider: providerName,
+        agrees_with_aggregated: decision.ranked_models[0]?.model === aggregatedDecision.ranked_models[0]?.model,
       })),
     });
 
@@ -440,11 +452,17 @@ export class MultiProviderRouterLLM implements RouterLLM {
 
     // Assign ranks
     for (let i = 0; i < rankedModels.length; i++) {
-      rankedModels[i].rank = i + 1;
+      const rankedModel = rankedModels[i];
+      if (rankedModel) {
+        rankedModel.rank = i + 1;
+      }
     }
 
     // Use consensus intent (prefer first provider if different)
-    const intent = decisionsWithProviders[0].decision.intent;
+    const intent = decisionsWithProviders[0]?.decision.intent;
+    if (!intent) {
+      throw new RouterLLMError('Missing consensus intent from provider results');
+    }
 
     return {
       intent,

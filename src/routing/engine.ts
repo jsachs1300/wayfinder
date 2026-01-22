@@ -169,7 +169,7 @@ export class DefaultRoutingEngine implements RoutingEngine {
     // Warn if intent-based policy rules are configured (only once per token to avoid spam)
     const hasIntentBasedRules = tokenConfig.policy_rules?.some(
       rule => rule.type === 'ForceModelByIntent' || rule.type === 'RestrictModelsByIntent'
-    );
+    ) ?? false;
     if (hasIntentBasedRules && !this.warnedTokens.has(tokenConfig.id)) {
       this.warnedTokens.add(tokenConfig.id);
       this.deps.logger.warn('Intent-based policy rules present with placeholder intent', {

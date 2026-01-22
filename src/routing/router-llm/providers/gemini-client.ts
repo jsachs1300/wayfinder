@@ -124,7 +124,7 @@ export class GeminiClient implements ProviderClient {
           `Gemini API error: ${errorData.error.message}`,
           'gemini',
           response.status,
-          errorData.error.code?.toString()
+          errorData.error.code !== undefined ? new Error(String(errorData.error.code)) : undefined
         );
       }
 
@@ -139,7 +139,7 @@ export class GeminiClient implements ProviderClient {
         );
       }
 
-      const candidate = data.candidates[0];
+      const candidate = data.candidates[0]!;
       if (!candidate.content?.parts || candidate.content.parts.length === 0) {
         throw new RouterLLMProviderError(
           'Gemini API candidate has no content parts',

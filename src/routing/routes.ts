@@ -26,12 +26,16 @@ function hashPrompt(prompt: string): string {
   return createHash('sha256').update(prompt).digest('hex');
 }
 
+const RouterModelPreferenceSchema = z.enum(
+  [...VALID_ROUTER_MODEL_PREFERENCES] as [RouterModelPreference, ...RouterModelPreference[]]
+);
+
 const RouteRequestSchema = z.object({
   prompt: z.string().min(1, 'Prompt is required'),
   context: z.record(z.unknown()).optional(),
   prefer_model: z.string().optional(),
   metadata: z.record(z.unknown()).optional(),
-  router_model: z.enum(VALID_ROUTER_MODEL_PREFERENCES).optional(),
+  router_model: RouterModelPreferenceSchema.optional(),
 });
 
 /**

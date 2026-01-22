@@ -26,6 +26,7 @@ import {
   RouterLLMTimeoutError,
   RouterLLMPolicyBypassError,
   RouterLLMProviderError,
+  RouterLLMConfigError,
 } from './errors';
 
 /**
@@ -34,6 +35,8 @@ import {
 export class DefaultRouterLLM implements RouterLLM {
   private readonly config: RouterLLMConfig;
   private readonly client: ProviderClient;
+  private readonly providerName: 'openai' | 'gemini';
+  private readonly model: string;
   private readonly logger?: Console;
 
   /**
@@ -44,7 +47,15 @@ export class DefaultRouterLLM implements RouterLLM {
    */
   constructor(config?: RouterLLMConfig, logger?: Console) {
     this.config = config ?? loadRouterLLMConfig();
-    this.client = createProviderClient(this.config.provider, this.config.apiKey);
+    const { providerName, providerConfig } = this.selectProvider(this.config);
+
+    if (!providerConfig.apiKey) {
+      throw new RouterLLMConfigError(`Missing API key for ${providerName} provider`);
+    }
+
+    this.providerName = providerName;
+    this.model = providerConfig.model;
+    this.client = createProviderClient(providerName, providerConfig.apiKey);
     this.logger = logger;
   }
 
@@ -102,8 +113,8 @@ export class DefaultRouterLLM implements RouterLLM {
 
     // Log invocation
     this.logger?.log('[RouterLLM] Invoking router LLM', {
-      provider: this.config.provider,
-      model: this.config.model,
+      provider: this.providerName,
+      model: this.model,
       eligibleModels,
       preferModel: context.preferModel,
     });
@@ -123,7 +134,7 @@ export class DefaultRouterLLM implements RouterLLM {
         const startTime = Date.now();
         const response = await this.client.invoke({
           prompt: routingPrompt,
-          model: this.config.model,
+          model: this.model,
           temperature: this.config.temperature,
           maxTokens: this.config.maxTokens,
           timeout: this.config.timeout,
@@ -249,6 +260,19 @@ export class DefaultRouterLLM implements RouterLLM {
    */
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private selectProvider(config: RouterLLMConfig): {
+    providerName: 'openai' | 'gemini';
+    providerConfig: { apiKey?: string; model: string };
+  } {
+    if (config.openai.enabled) {
+      return { providerName: 'openai', providerConfig: config.openai };
+    }
+    if (config.gemini.enabled) {
+      return { providerName: 'gemini', providerConfig: config.gemini };
+    }
+    throw new RouterLLMConfigError('No router LLM providers enabled');
   }
 
   /**
