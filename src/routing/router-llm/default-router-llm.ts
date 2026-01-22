@@ -19,6 +19,7 @@ import { createProviderClient } from './providers/index';
 import { loadRouterLLMConfig, type RouterLLMConfig } from '../config';
 import { buildRoutingPrompt } from './prompt-builder';
 import { validateRankedRouteDecision } from '../ranked-routing';
+import { recordLlmCall, recordLlmError } from '../../observability/metrics';
 import {
   RouterLLMError,
   RouterLLMParseError,
@@ -141,6 +142,7 @@ export class DefaultRouterLLM implements RouterLLM {
         });
 
         const latencyMs = Date.now() - startTime;
+        recordLlmCall(this.providerName, latencyMs, {});
 
         // Log response metadata
         this.logger?.log('[RouterLLM] Received response', {
@@ -188,6 +190,7 @@ export class DefaultRouterLLM implements RouterLLM {
         return rankedDecision;
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
+        recordLlmError(this.providerName, {});
 
         // Don't retry on timeout errors (they already took the full timeout duration)
         if (error instanceof RouterLLMTimeoutError) {

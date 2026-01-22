@@ -31,6 +31,10 @@ const routingFallbacks = meter.createCounter('routing.fallbacks_total', {
   description: 'Total router model fallbacks',
 });
 
+const routingErrors = meter.createCounter('routing.errors_total', {
+  description: 'Total routing errors',
+});
+
 const usersRegistered = meter.createCounter('users.registered_total', {
   description: 'Total registered users',
 });
@@ -87,6 +91,12 @@ export function recordLlmError(provider: string, attributes: RoutingMetricAttrib
 
 export function recordRoutingFallback(attributes: RoutingMetricAttributes): void {
   routingFallbacks.add(1, attributes);
+}
+
+export function recordRoutingError(
+  attributes: RoutingMetricAttributes & { error_type: string }
+): void {
+  routingErrors.add(1, attributes);
 }
 
 export function recordUserRegistered(): void {

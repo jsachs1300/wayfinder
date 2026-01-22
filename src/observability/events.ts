@@ -50,6 +50,7 @@ export function logRoutingUsage(
     token_id: string;
     user_id?: string;
     token_tier?: string;
+    provider?: string;
     router_model_requested?: string;
     router_model_used?: string;
     cache_hit?: boolean;
@@ -65,6 +66,7 @@ export function logRoutingUsage(
     token_id: data.token_id,
     user_id: data.user_id,
     token_tier: data.token_tier,
+    provider: data.provider,
     router_model_requested: data.router_model_requested,
     router_model_used: data.router_model_used,
     cache_hit: data.cache_hit ?? false,

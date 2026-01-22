@@ -19,7 +19,7 @@ import { VALID_ROUTER_MODEL_PREFERENCES } from '../types/index';
 import type { Logger } from '../logging/logger';
 import { z, ZodError } from 'zod';
 import { logRoutingUsage } from '../observability/events';
-import { recordRoutingFallback, recordRoutingRequest } from '../observability/metrics';
+import { recordRoutingError, recordRoutingFallback, recordRoutingRequest } from '../observability/metrics';
 
 /**
  * Create SHA256 hash of prompt for privacy-safe logging
@@ -142,6 +142,7 @@ export function createRoutingRoutes(
         token_id: req.tokenConfig.id,
         user_id: req.user?.id,
         token_tier: req.userTier,
+        provider: usedRouter,
         router_model_requested: requestedRouter,
         router_model_used: usedRouter,
         cache_hit: result.cache_hit ?? false,
@@ -163,6 +164,10 @@ export function createRoutingRoutes(
 
       res.status(statusCode).json(response);
     } catch (error) {
+      recordRoutingError({
+        error_type: error instanceof ZodError ? 'validation' : 'internal',
+        token_tier: req.userTier,
+      });
       const routeRequest = RouteRequestSchema.safeParse(req.body);
       const prompt = routeRequest.success ? routeRequest.data.prompt : '';
 
