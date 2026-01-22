@@ -1,5 +1,6 @@
 steps:
   - name: 'node:20-bullseye'
+    id: 'run-integration-tests'
     entrypoint: bash
     args:
       - -c
@@ -27,10 +28,16 @@ steps:
       - ROUTER_LLM_GEMINI_API_KEY
       - ADMIN_API_KEY
   - name: 'gcr.io/cloud-builders/docker'
+    id: 'build-image'
+    waitFor: ['run-integration-tests']
     args: ['build', '-t', '${_IMAGE}', '.']
   - name: 'gcr.io/cloud-builders/docker'
+    id: 'push-image'
+    waitFor: ['build-image']
     args: ['push', '${_IMAGE}']
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'deploy-service'
+    waitFor: ['push-image']
     entrypoint: gcloud
     args:
       - run
