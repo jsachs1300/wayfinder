@@ -1,7 +1,13 @@
 import { Router, Request, Response } from 'express';
 import { TokenStore } from './store';
 import { TokenConfigExtended } from './types';
-import { TokenConfig, TokenCreateRequest, TokenUpdateRequest, VALID_ROUTER_MODEL_PREFERENCES } from '../types';
+import {
+  TokenConfig,
+  TokenCreateRequest,
+  TokenUpdateRequest,
+  VALID_ROUTER_MODEL_PREFERENCES,
+  type RouterModelPreference,
+} from '../types';
 import { ModelRegistry, ModelValidationError } from '../models';
 import { User } from '../users/types';
 import { z } from 'zod';
@@ -17,6 +23,10 @@ const PolicyRuleSchema = z.object({
   priority: z.number().optional(),
 });
 
+const RouterModelPreferenceSchema = z.enum(
+  [...VALID_ROUTER_MODEL_PREFERENCES] as [RouterModelPreference, ...RouterModelPreference[]]
+);
+
 const UserTokenCreateSchema = z.object({
   name: z.string().optional(),
   trusted_anchor_model: z.string().optional(),
@@ -28,7 +38,7 @@ const UserTokenCreateSchema = z.object({
   logging_level: z.enum(['normal', 'verbose']).optional(),
   environment: z.enum(['prod', 'dev']).optional(),
   knowledge_scope: z.enum(['global', 'token', 'org', 'hybrid']).optional(),
-  router_model_preference: z.enum(VALID_ROUTER_MODEL_PREFERENCES as [string, ...string[]]).optional(),
+  router_model_preference: RouterModelPreferenceSchema.optional(),
 });
 
 const MAX_TOKENS_PER_USER = parseInt(process.env.MAX_TOKENS_PER_USER || '10', 10);

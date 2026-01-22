@@ -13,7 +13,7 @@
  */
 
 import rateLimit, { Options, ipKeyGenerator } from 'express-rate-limit';
-import { RedisStore } from 'rate-limit-redis';
+import { RedisStore, type RedisReply, type SendCommandFn } from 'rate-limit-redis';
 import type { Request } from 'express';
 import type Redis from 'ioredis';
 
@@ -128,12 +128,13 @@ function createRateLimiterOptions(
 
   // Use Redis store if available (for distributed systems)
   if (redis) {
+    const sendCommand: SendCommandFn = (command, ...args) =>
+      redis.call(command, ...args) as Promise<RedisReply>;
+
     options.store = new RedisStore({
-      // RedisStore expects sendCommand to match ioredis.call signature
-      // The type mismatch is due to rate-limit-redis expecting generic Redis client
-      sendCommand: (...args: Parameters<typeof redis.call>) => redis.call(...args),
+      sendCommand,
       prefix: 'wayfinder:ratelimit:',
-    }) as any; // Cast needed due to rate-limit-redis@4.x type incompatibility with ioredis
+    });
   }
 
   // Custom key generator if provided
@@ -174,7 +175,7 @@ export function createRateLimiters(redis?: Redis) {
             return `token:${token}`;
           }
           // Fallback to IP if no token (use proper IPv6-compatible key generator)
-          return ipKeyGenerator(req);
+          return ipKeyGenerator(req.ip ?? 'unknown');
         },
         '/route'
       )
@@ -201,7 +202,7 @@ export function createRateLimiters(redis?: Redis) {
             return `token:${token}`;
           }
           // Fallback to IP (use proper IPv6-compatible key generator)
-          return ipKeyGenerator(req);
+          return ipKeyGenerator(req.ip ?? 'unknown');
         },
         '/feedback'
       )

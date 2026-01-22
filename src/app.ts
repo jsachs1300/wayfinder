@@ -361,6 +361,14 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
     adminRouter.patch('/users/:userId/tier', async (req: Request, res: Response) => {
       try {
         const { userId } = req.params;
+        if (!userId) {
+          res.status(400).json({
+            error: 'ValidationError',
+            message: 'Missing userId parameter',
+            timestamp: new Date().toISOString(),
+          });
+          return;
+        }
         const { tier } = req.body;
 
         if (!tier || !['free', 'paid_system', 'paid_byollm', 'admin'].includes(tier)) {
@@ -383,6 +391,15 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
         }
 
         const updated = await userStore.update(userId, { tier });
+        if (!updated) {
+          res.status(404).json({
+            error: 'NotFound',
+            message: 'User not found',
+            timestamp: new Date().toISOString(),
+          });
+          return;
+        }
+
         res.json({
           id: updated.id,
           email: updated.email,

@@ -32,7 +32,7 @@ export function toLegacyRouteDecision(ranked: RankedRouteDecision): RouteDecisio
   // Sort by rank to ensure correct ordering (should already be sorted, but be defensive)
   const sorted = [...ranked.ranked_models].sort((a, b) => a.rank - b.rank);
 
-  const first = sorted[0];
+  const first = sorted[0]!;
   const second = sorted[1];
 
   return {
@@ -143,10 +143,14 @@ export function validateRankedRouteDecision(
   // Verify ranks are sequential (1, 2, 3, ..., N)
   const sortedByRank = [...validated].sort((a, b) => a.rank - b.rank);
   for (let i = 0; i < sortedByRank.length; i++) {
-    if (sortedByRank[i].rank !== i + 1) {
+    const current = sortedByRank[i];
+    if (!current) {
+      throw new Error(`Invalid response: missing ranked model at position ${i}`);
+    }
+    if (current.rank !== i + 1) {
       throw new Error(
         `Invalid response: ranks must be sequential starting from 1. ` +
-          `Expected rank ${i + 1}, got ${sortedByRank[i].rank}`
+          `Expected rank ${i + 1}, got ${current.rank}`
       );
     }
   }
