@@ -75,6 +75,24 @@ function buildLargeDecision(numModels: number = 14): RankedRouteDecision {
   };
 }
 
+async function waitForCacheEntry(
+  cache: SemanticCache,
+  prompt: string,
+  options: { scope?: string } = {},
+  timeoutMs: number = 10000,
+  intervalMs: number = 500
+): Promise<SimpleCachedResponse | null> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const result = await cache.get(prompt, options);
+    if (result) {
+      return result;
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  return null;
+}
+
 describe('LangCache Integration Tests', () => {
   let cache: SemanticCache;
 
@@ -380,9 +398,14 @@ describe('LangCache Integration Tests', () => {
 
   describe('Configuration Validation', () => {
     it('should validate similarity threshold range', () => {
-      expect(() =>
-        loadCacheConfig()
-      ).toThrow(); // Missing required env vars
+      const originalEnv = { ...process.env };
+      delete process.env.LANGCACHE_HOST;
+      delete process.env.LANGCACHE_CACHE_ID;
+      delete process.env.LANGCACHE_API_KEY;
+
+      expect(() => loadCacheConfig()).toThrow(); // Missing required env vars
+
+      process.env = originalEnv;
 
       // Test invalid threshold in constructor
       expect(
@@ -560,7 +583,7 @@ describe('LangCache Integration Tests', () => {
         // Give LangCache a moment to index
         await new Promise((resolve) => setTimeout(resolve, 1000));
 
-        const result = await realCache.get(testPrompt);
+        const result = await waitForCacheEntry(realCache, testPrompt, {}, 15000, 1000);
 
         expect(result).not.toBeNull();
         expect(result?.ranking.ranked_models).toHaveLength(5);
@@ -619,8 +642,8 @@ describe('LangCache Integration Tests', () => {
         await new Promise((resolve) => setTimeout(resolve, 2000));
 
         // Verify both entries exist
-        const beforeDelete1 = await realCache.get(prompt1, { scope: token1Id });
-        const beforeDelete2 = await realCache.get(prompt2, { scope: token2Id });
+        const beforeDelete1 = await waitForCacheEntry(realCache, prompt1, { scope: token1Id }, 15000, 1000);
+        const beforeDelete2 = await waitForCacheEntry(realCache, prompt2, { scope: token2Id }, 15000, 1000);
         expect(beforeDelete1).not.toBeNull();
         expect(beforeDelete2).not.toBeNull();
 

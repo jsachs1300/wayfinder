@@ -150,13 +150,14 @@ function createRateLimiterOptions(
  */
 export function createRateLimiters(redis?: Redis) {
   const config = loadRateLimitConfig();
+  const storeRedis = process.env.NODE_ENV === 'test' ? undefined : redis;
 
   return {
     /**
      * Global rate limiter - applies to all endpoints unless overridden
      */
     global: rateLimit(
-      createRateLimiterOptions(config.globalWindowMs, config.globalMaxRequests, redis, undefined, 'global')
+      createRateLimiterOptions(config.globalWindowMs, config.globalMaxRequests, storeRedis, undefined, 'global')
     ),
 
     /**
@@ -167,7 +168,7 @@ export function createRateLimiters(redis?: Redis) {
       createRateLimiterOptions(
         config.routingWindowMs,
         config.routingMaxRequests,
-        redis,
+        storeRedis,
         (req: Request) => {
           // Use Wayfinder token as key for per-token rate limiting
           const token = req.headers['x-wayfinder-token'] as string;
@@ -185,7 +186,7 @@ export function createRateLimiters(redis?: Redis) {
      * Admin endpoints rate limiter - uses IP as key
      */
     admin: rateLimit(
-      createRateLimiterOptions(config.adminWindowMs, config.adminMaxRequests, redis, undefined, '/admin')
+      createRateLimiterOptions(config.adminWindowMs, config.adminMaxRequests, storeRedis, undefined, '/admin')
     ),
 
     /**
@@ -195,7 +196,7 @@ export function createRateLimiters(redis?: Redis) {
       createRateLimiterOptions(
         config.feedbackWindowMs,
         config.feedbackMaxRequests,
-        redis,
+        storeRedis,
         (req: Request) => {
           const token = req.headers['x-wayfinder-token'] as string;
           if (token) {

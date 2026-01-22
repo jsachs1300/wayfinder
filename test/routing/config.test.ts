@@ -46,6 +46,10 @@ describe('loadRouterLLMConfig', () => {
 
   it('should have providers disabled by default', () => {
     process.env.NODE_ENV = 'test'; // Test mode allows no providers
+    delete process.env.ROUTER_LLM_OPENAI_ENABLED;
+    delete process.env.ROUTER_LLM_GEMINI_ENABLED;
+    delete process.env.ROUTER_LLM_OPENAI_API_KEY;
+    delete process.env.ROUTER_LLM_GEMINI_API_KEY;
     const config = loadRouterLLMConfig();
 
     expect(config.openai.enabled).toBe(false);
