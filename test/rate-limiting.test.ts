@@ -9,7 +9,7 @@
  * - Error response format consistency
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import request from 'supertest';
 import { createApp, AppDependencies } from '../src/app';
 import type { Express } from 'express';
@@ -19,11 +19,22 @@ describe('Rate Limiting', () => {
   let deps: AppDependencies;
   let adminApiKey: string;
   let testToken: string;
+  let originalEnv: NodeJS.ProcessEnv;
 
   beforeEach(async () => {
+    originalEnv = { ...process.env };
     // Set admin API key for authentication
     adminApiKey = 'test-admin-key';
     process.env.ADMIN_API_KEY = adminApiKey;
+    process.env.NODE_ENV = 'test';
+    process.env.REDIS_ENABLED = 'false';
+    process.env.LANGCACHE_ENABLED = 'false';
+    process.env.ROUTER_LLM_OPENAI_ENABLED = 'false';
+    process.env.ROUTER_LLM_GEMINI_ENABLED = 'false';
+    process.env.ROUTER_LLM_TIMEOUT = '0';
+    process.env.RATE_LIMIT_ROUTING_MAX = '5';
+    process.env.RATE_LIMIT_ADMIN_MAX = '5';
+    process.env.RATE_LIMIT_FEEDBACK_MAX = '5';
 
     // Create fresh app instance for each test
     const result = await createApp();
@@ -36,6 +47,10 @@ describe('Rate Limiting', () => {
     });
 
     testToken = tokenConfig.token;
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
   });
 
   describe('Rate Limit Headers', () => {

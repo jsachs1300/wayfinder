@@ -583,12 +583,12 @@ describe('LangCache Integration Tests', () => {
         // Give LangCache a moment to index
         await new Promise((resolve) => setTimeout(resolve, 1000));
 
-        const result = await waitForCacheEntry(realCache, testPrompt, {}, 15000, 1000);
+        const result = await waitForCacheEntry(realCache, testPrompt, {}, 25000, 1000);
 
         expect(result).not.toBeNull();
         expect(result?.ranking.ranked_models).toHaveLength(5);
       },
-      15000 // 15 second timeout for real API calls
+      30000 // 30 second timeout for real API calls
     );
 
     it.skipIf(!RUN_INTEGRATION)(
@@ -642,8 +642,8 @@ describe('LangCache Integration Tests', () => {
         await new Promise((resolve) => setTimeout(resolve, 2000));
 
         // Verify both entries exist
-        const beforeDelete1 = await waitForCacheEntry(realCache, prompt1, { scope: token1Id }, 15000, 1000);
-        const beforeDelete2 = await waitForCacheEntry(realCache, prompt2, { scope: token2Id }, 15000, 1000);
+        const beforeDelete1 = await waitForCacheEntry(realCache, prompt1, { scope: token1Id }, 30000, 1000);
+        const beforeDelete2 = await waitForCacheEntry(realCache, prompt2, { scope: token2Id }, 30000, 1000);
         expect(beforeDelete1).not.toBeNull();
         expect(beforeDelete2).not.toBeNull();
 
@@ -663,7 +663,7 @@ describe('LangCache Integration Tests', () => {
         // Cleanup: delete token2's entry
         await realCache.clearByScope(token2Id);
       },
-      30000 // 30 second timeout for multiple API calls
+      60000 // 60 second timeout for multiple API calls
     );
   });
 });
