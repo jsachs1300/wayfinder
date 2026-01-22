@@ -392,9 +392,9 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
 
         const updated = await userStore.update(userId, { tier });
         if (!updated) {
-          res.status(404).json({
-            error: 'NotFound',
-            message: 'User not found',
+          res.status(500).json({
+            error: 'InternalError',
+            message: 'Failed to update user tier',
             timestamp: new Date().toISOString(),
           });
           return;
