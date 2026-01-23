@@ -140,6 +140,9 @@ export class RedisSessionStore implements SessionStore {
       return false;
     }
     const [sessionId, tokenUserId] = tokenValue.split(':');
+    if (!sessionId) {
+      return false;
+    }
     const userId = tokenUserId || await this.redis.get(SESSION_USER_INDEX + sessionId);
     const multi = this.redis.multi();
     multi.del(SESSION_PREFIX + sessionId);
@@ -163,6 +166,9 @@ export class RedisSessionStore implements SessionStore {
       return null;
     }
     const sessionId = tokenValue.split(':')[0];
+    if (!sessionId) {
+      return null;
+    }
     const data = await this.redis.get(SESSION_PREFIX + sessionId);
     if (!data) {
       return null;

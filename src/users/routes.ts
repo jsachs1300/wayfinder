@@ -7,6 +7,7 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { UserStore } from './store';
+import type { User } from './types';
 import { TokenStore } from '../tokens/store';
 import { validateEmail, validatePassword } from './validation';
 import { logTokenEvent, logUserLoggedIn, logUserRegistered } from '../observability/events';
