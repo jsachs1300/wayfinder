@@ -19,7 +19,7 @@ import { SemanticCache, hashPrompt, loadCacheConfig } from '../../src/cache';
 import type { CacheConfig } from '../../src/cache';
 import type { SimpleCachedResponse, RankedRouteDecision, RouterModelPreference } from '../../src/types';
 import { LangCache } from '@redis-ai/langcache';
-import { LangCacheError } from '@redis-ai/langcache/models/errors/langcacheerror';
+import { LangCacheError } from '@redis-ai/langcache/models/errors';
 
 // Check if we should run real integration tests
 const RUN_INTEGRATION = process.env.LANGCACHE_INTEGRATION_TEST === 'true';
