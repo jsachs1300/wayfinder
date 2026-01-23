@@ -308,6 +308,8 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
       status: 'healthy',
       timestamp: new Date().toISOString(),
       redis_connected: redis?.status === 'ready',
+      langcache_enabled: langCacheEnabled,
+      langcache_connected: Boolean(cache),
     });
   });
 

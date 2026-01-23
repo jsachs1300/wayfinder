@@ -16,7 +16,10 @@
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { SemanticCache, hashPrompt, loadCacheConfig } from '../../src/cache';
+import type { CacheConfig } from '../../src/cache';
 import type { SimpleCachedResponse, RankedRouteDecision, RouterModelPreference } from '../../src/types';
+import { LangCache } from '@redis-ai/langcache';
+import { LangCacheError } from '@redis-ai/langcache/models/errors';
 
 // Check if we should run real integration tests
 const RUN_INTEGRATION = process.env.LANGCACHE_INTEGRATION_TEST === 'true';
@@ -73,6 +76,32 @@ function buildLargeDecision(numModels: number = 14): RankedRouteDecision {
     intent: 'code_change',
     ranked_models: rankedModels,
   };
+}
+
+async function assertLangCacheAccessible(config: CacheConfig): Promise<void> {
+  const client = new LangCache({
+    serverURL: config.serverURL,
+    cacheId: config.cacheId,
+    apiKey: config.apiKey,
+  });
+
+  try {
+    await client.search({
+      prompt: `Wayfinder healthcheck ${Date.now()}`,
+      searchStrategies: ['exact'],
+      similarityThreshold: 1.0,
+    });
+  } catch (error) {
+    if (error instanceof LangCacheError) {
+      if (error.statusCode === 401 || error.statusCode === 403 || error.statusCode === 404) {
+        throw new Error(
+          `LangCache access failed (${error.statusCode}). Check LANGCACHE_HOST, LANGCACHE_CACHE_ID, LANGCACHE_API_KEY. ` +
+          `Response: ${error.body}`
+        );
+      }
+    }
+    throw error;
+  }
 }
 
 async function waitForCacheEntry(
@@ -575,6 +604,7 @@ describe('LangCache Integration Tests', () => {
 
         // Load real config from .env
         const config = loadCacheConfig();
+        await assertLangCacheAccessible(config);
         const realCache = new SemanticCache(config);
 
         // Test with a unique prompt to avoid cache pollution
@@ -641,6 +671,7 @@ describe('LangCache Integration Tests', () => {
         // This is a regression test for Issue #56.
 
         const config = loadCacheConfig();
+        await assertLangCacheAccessible(config);
         const realCache = new SemanticCache(config);
 
         // Create unique prompts for two different "tokens"
