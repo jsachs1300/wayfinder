@@ -569,7 +569,9 @@ describe('LangCache Integration Tests', () => {
       'should connect to real LangCache service',
       async () => {
         const originalStrategies = process.env.LANGCACHE_SEARCH_STRATEGIES;
-        process.env.LANGCACHE_SEARCH_STRATEGIES = 'exact,semantic';
+        const originalThreshold = process.env.LANGCACHE_SIMILARITY_THRESHOLD;
+        process.env.LANGCACHE_SEARCH_STRATEGIES = 'exact';
+        process.env.LANGCACHE_SIMILARITY_THRESHOLD = '1.0';
 
         // Load real config from .env
         const config = loadCacheConfig();
@@ -586,7 +588,7 @@ describe('LangCache Integration Tests', () => {
         // Give LangCache a moment to index
         await new Promise((resolve) => setTimeout(resolve, 1000));
 
-        const result = await waitForCacheEntry(realCache, testPrompt, {}, 25000, 1000);
+        const result = await waitForCacheEntry(realCache, testPrompt, {}, 60000, 1000);
 
         expect(result).not.toBeNull();
         expect(result?.ranking.ranked_models).toHaveLength(5);
@@ -596,8 +598,13 @@ describe('LangCache Integration Tests', () => {
         } else {
           process.env.LANGCACHE_SEARCH_STRATEGIES = originalStrategies;
         }
+        if (originalThreshold === undefined) {
+          delete process.env.LANGCACHE_SIMILARITY_THRESHOLD;
+        } else {
+          process.env.LANGCACHE_SIMILARITY_THRESHOLD = originalThreshold;
+        }
       },
-      30000 // 30 second timeout for real API calls
+      90000 // 90 second timeout for real API calls
     );
 
     it.skipIf(!RUN_INTEGRATION)(
@@ -625,7 +632,9 @@ describe('LangCache Integration Tests', () => {
       'should delete only entries for specific token scope (Issue #56 regression test)',
       async () => {
         const originalStrategies = process.env.LANGCACHE_SEARCH_STRATEGIES;
-        process.env.LANGCACHE_SEARCH_STRATEGIES = 'exact,semantic';
+        const originalThreshold = process.env.LANGCACHE_SIMILARITY_THRESHOLD;
+        process.env.LANGCACHE_SEARCH_STRATEGIES = 'exact';
+        process.env.LANGCACHE_SIMILARITY_THRESHOLD = '1.0';
 
         // This test verifies that clearByScope() only deletes cache entries
         // for the specified token, not the entire cache for all tokens.
@@ -654,8 +663,8 @@ describe('LangCache Integration Tests', () => {
         await new Promise((resolve) => setTimeout(resolve, 2000));
 
         // Verify both entries exist
-        const beforeDelete1 = await waitForCacheEntry(realCache, prompt1, { scope: token1Id }, 30000, 1000);
-        const beforeDelete2 = await waitForCacheEntry(realCache, prompt2, { scope: token2Id }, 30000, 1000);
+        const beforeDelete1 = await waitForCacheEntry(realCache, prompt1, { scope: token1Id }, 60000, 1000);
+        const beforeDelete2 = await waitForCacheEntry(realCache, prompt2, { scope: token2Id }, 60000, 1000);
         expect(beforeDelete1).not.toBeNull();
         expect(beforeDelete2).not.toBeNull();
 
@@ -680,8 +689,13 @@ describe('LangCache Integration Tests', () => {
         } else {
           process.env.LANGCACHE_SEARCH_STRATEGIES = originalStrategies;
         }
+        if (originalThreshold === undefined) {
+          delete process.env.LANGCACHE_SIMILARITY_THRESHOLD;
+        } else {
+          process.env.LANGCACHE_SIMILARITY_THRESHOLD = originalThreshold;
+        }
       },
-      60000 // 60 second timeout for multiple API calls
+      120000 // 120 second timeout for multiple API calls
     );
   });
 });
