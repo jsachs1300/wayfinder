@@ -20,7 +20,7 @@ import type { CacheConfig } from '../../src/cache';
 import type { CacheAttributes } from '../../src/cache/types';
 import type { SimpleCachedResponse, RankedRouteDecision, RouterModelPreference } from '../../src/types';
 import { LangCache } from '@redis-ai/langcache';
-import { LangCacheError } from '@redis-ai/langcache/models/errors';
+import * as errors from '@redis-ai/langcache/models/errors';
 
 // Check if we should run real integration tests
 const RUN_INTEGRATION = process.env.LANGCACHE_INTEGRATION_TEST === 'true';
@@ -93,13 +93,44 @@ async function assertLangCacheAccessible(config: CacheConfig): Promise<void> {
       similarityThreshold: 1.0,
     });
   } catch (error) {
-    if (error instanceof LangCacheError) {
-      if (error.statusCode === 401 || error.statusCode === 403 || error.statusCode === 404) {
+    if (error instanceof errors.LangCacheError) {
+      const baseMessage = `LangCache access failed (${error.statusCode}): ${error.message}. Response: ${error.body}`;
+      if (
+        error instanceof errors.AuthenticationErrorResponseContent ||
+        error instanceof errors.ForbiddenErrorResponseContent ||
+        error instanceof errors.NotFoundErrorResponseContent
+      ) {
         throw new Error(
-          `LangCache access failed (${error.statusCode}). Check LANGCACHE_HOST, LANGCACHE_CACHE_ID, LANGCACHE_API_KEY. ` +
-          `Response: ${error.body}`
+          `${baseMessage} Check LANGCACHE_HOST, LANGCACHE_CACHE_ID, LANGCACHE_API_KEY.`
         );
       }
+      if (error instanceof errors.BadRequestErrorResponseContent) {
+        throw new Error(`${baseMessage} Details: ${error.data$?.detail ?? 'unknown'}`);
+      }
+      if (error instanceof errors.PayloadTooLargeErrorResponseContent) {
+        throw new Error(`${baseMessage} Payload too large.`);
+      }
+      if (error instanceof errors.ResourceUnavailableErrorResponseContent) {
+        throw new Error(`${baseMessage} Service unavailable.`);
+      }
+      if (error instanceof errors.TooManyRequestsErrorResponseContent) {
+        throw new Error(`${baseMessage} Rate limited.`);
+      }
+      if (error instanceof errors.UnexpectedErrorResponseContent) {
+        throw new Error(`${baseMessage} Unexpected server error.`);
+      }
+    }
+    if (error instanceof errors.ResponseValidationError) {
+      throw new Error(`LangCache response validation error: ${error.pretty()}`);
+    }
+    if (
+      error instanceof errors.ConnectionError ||
+      error instanceof errors.RequestTimeoutError ||
+      error instanceof errors.RequestAbortedError ||
+      error instanceof errors.InvalidRequestError ||
+      error instanceof errors.UnexpectedClientError
+    ) {
+      throw new Error(`LangCache network/client error: ${error.message}`);
     }
     throw error;
   }
@@ -112,15 +143,85 @@ async function waitForCacheEntry(
   timeoutMs: number = 10000,
   intervalMs: number = 500
 ): Promise<SimpleCachedResponse | null> {
+  const safeJson = (value: unknown) => {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return '[unserializable response]';
+    }
+  };
+
+  const internal = cache as unknown as { client?: LangCache; config?: CacheConfig };
+  const client = internal.client;
+  const config = internal.config;
+  if (!client || !config) {
+    throw new Error('LangCache debug helper could not access client/config on SemanticCache.');
+  }
+
+  let lastResponse: unknown;
+  let lastReason: string | undefined;
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    const result = await cache.get(prompt, attributes);
-    if (result) {
-      return result;
+    let response;
+    try {
+      response = await client.search({
+        prompt,
+        searchStrategies: config.searchStrategies ?? ['semantic'],
+        similarityThreshold: config.similarityThreshold,
+        ...(attributes && { attributes }),
+      });
+    } catch (error) {
+      if (error instanceof errors.LangCacheError) {
+        throw new Error(
+          `LangCache search failed (${error.statusCode}): ${error.message}. Response: ${error.body}`
+        );
+      }
+      if (error instanceof errors.ResponseValidationError) {
+        throw new Error(`LangCache response validation error: ${error.pretty()}`);
+      }
+      if (
+        error instanceof errors.ConnectionError ||
+        error instanceof errors.RequestTimeoutError ||
+        error instanceof errors.RequestAbortedError ||
+        error instanceof errors.InvalidRequestError ||
+        error instanceof errors.UnexpectedClientError
+      ) {
+        throw new Error(`LangCache network/client error: ${error.message}`);
+      }
+      throw error;
     }
-    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+
+    lastResponse = response;
+
+    if (!response || !Array.isArray(response.data)) {
+      throw new Error(`LangCache search returned unexpected payload: ${safeJson(response)}`);
+    }
+
+    if (response.data.length === 0) {
+      lastReason = 'empty data array';
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      continue;
+    }
+
+    if (!response.data[0]?.response) {
+      throw new Error(`LangCache search returned entry without response: ${safeJson(response)}`);
+    }
+
+    try {
+      return JSON.parse(response.data[0].response) as SimpleCachedResponse;
+    } catch (error) {
+      throw new Error(
+        `LangCache response was not valid JSON: ${error instanceof Error ? error.message : String(error)}. ` +
+        `Raw response: ${response.data[0].response}`
+      );
+    }
   }
-  return null;
+
+  throw new Error(
+    `LangCache search did not return cached response within ${timeoutMs}ms. ` +
+    `Last reason: ${lastReason ?? 'no matching response'}. ` +
+    `Last response: ${safeJson(lastResponse)}`
+  );
 }
 
 describe('LangCache Integration Tests', () => {
