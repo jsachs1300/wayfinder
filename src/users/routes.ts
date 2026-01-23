@@ -11,7 +11,7 @@ import { TokenStore } from '../tokens/store';
 import { validateEmail, validatePassword } from './validation';
 import { logTokenEvent, logUserLoggedIn, logUserRegistered } from '../observability/events';
 import { recordTokenCreated, recordUserLoggedIn, recordUserRegistered } from '../observability/metrics';
-import { verifyPassword } from './password';
+import { verifyPassword, DUMMY_PASSWORD_HASH } from './password';
 import type { Logger } from '../logging/logger';
 import { sanitizeUser } from './sanitize';
 import { sanitizeToken } from '../tokens/sanitize';
@@ -196,8 +196,7 @@ export function createUserRoutes(
 
       // Always verify password to prevent timing attacks
       // Use a dummy hash if user doesn't exist (bcrypt hash format with work factor 12)
-      const hashToVerify = user?.password_hash ??
-        '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5jtRBzC3yRqb.'; // "password"
+      const hashToVerify = user?.password_hash ?? DUMMY_PASSWORD_HASH;
       const isValidPassword = await verifyPassword(password, hashToVerify);
 
       // Generic error message for both non-existent user and wrong password

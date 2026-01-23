@@ -137,6 +137,7 @@ export function sessionAuthMiddleware(sessionStore: SessionStore, userStore: Use
     }
 
     if (user.status === 'suspended') {
+      await sessionStore.delete(sessionToken);
       res.status(403).json({
         error: 'Forbidden',
         message: 'Account suspended',
@@ -146,6 +147,7 @@ export function sessionAuthMiddleware(sessionStore: SessionStore, userStore: Use
     }
 
     if (user.status === 'deleted') {
+      await sessionStore.delete(sessionToken);
       res.status(401).json({
         error: 'Unauthorized',
         message: 'Account deleted',
@@ -218,10 +220,18 @@ export function adminAuthMiddleware(sessionStore?: SessionStore, userStore?: Use
       const session = await sessionStore.getByToken(sessionToken);
       if (session?.is_admin) {
         const user = await userStore.getById(session.user_id);
-        if (user) {
+        if (user && user.status === 'active') {
           req.user = user;
           req.userTier = 'admin';
           req.session = session;
+        } else {
+          await sessionStore.delete(sessionToken);
+          res.status(401).json({
+            error: 'Unauthorized',
+            message: 'Invalid or suspended admin session',
+            timestamp: new Date().toISOString(),
+          });
+          return;
         }
         req.requestId = uuidv4();
         next();

@@ -11,11 +11,12 @@ import { Router, Request, Response } from 'express';
 import type { SessionStore } from './store';
 import type { UserStore } from '../users/store';
 import type { TokenStore } from '../tokens/store';
-import { verifyPassword } from '../users/password';
+import { verifyPassword, DUMMY_PASSWORD_HASH } from '../users/password';
 import { sanitizeUser } from '../users/sanitize';
 import { sanitizeToken } from '../tokens/sanitize';
 import { z } from 'zod';
 import type { Logger } from '../logging/logger';
+import { validate as validateUuid } from 'uuid';
 
 const SESSION_TOKEN_HEADER = 'x-session-token';
 
@@ -63,8 +64,7 @@ export function createSessionRoutes(
       const { email, password } = parsed.data;
       const user = await userStore.getByEmail(email);
 
-      const hashToVerify = user?.password_hash ??
-        '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5jtRBzC3yRqb.'; // "password"
+      const hashToVerify = user?.password_hash ?? DUMMY_PASSWORD_HASH;
       const isValidPassword = await verifyPassword(password, hashToVerify);
 
       if (!user || !isValidPassword) {
@@ -112,6 +112,7 @@ export function createSessionRoutes(
     } catch (error) {
       logger.error('Session login failed', {
         error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
         timestamp: new Date().toISOString(),
       });
 
@@ -130,6 +131,14 @@ export function createSessionRoutes(
         res.status(401).json({
           error: 'Unauthorized',
           message: 'Missing X-Session-Token header',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+      if (!validateUuid(sessionToken)) {
+        res.status(401).json({
+          error: 'Unauthorized',
+          message: 'Invalid session token format',
           timestamp: new Date().toISOString(),
         });
         return;
@@ -154,6 +163,15 @@ export function createSessionRoutes(
         });
         return;
       }
+      if (user.status !== 'active') {
+        await sessionStore.delete(sessionToken);
+        res.status(403).json({
+          error: 'Forbidden',
+          message: 'Account is not active',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
 
       const tokens = await tokenStore.listByUser(user.id);
 
@@ -163,6 +181,11 @@ export function createSessionRoutes(
         tokens: tokens.map(sanitizeToken),
       });
     } catch (error) {
+      logger.error('Session validation failed', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        timestamp: new Date().toISOString(),
+      });
       res.status(500).json({
         error: 'InternalError',
         message: 'Failed to validate session',
@@ -182,6 +205,14 @@ export function createSessionRoutes(
         });
         return;
       }
+      if (!validateUuid(sessionToken)) {
+        res.status(401).json({
+          error: 'Unauthorized',
+          message: 'Invalid session token format',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
 
       await sessionStore.delete(sessionToken);
       res.status(200).json({
@@ -189,6 +220,11 @@ export function createSessionRoutes(
         timestamp: new Date().toISOString(),
       });
     } catch (error) {
+      logger.error('Session logout failed', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        timestamp: new Date().toISOString(),
+      });
       res.status(500).json({
         error: 'InternalError',
         message: 'Failed to clear session',
@@ -204,6 +240,14 @@ export function createSessionRoutes(
         res.status(401).json({
           error: 'Unauthorized',
           message: 'Missing X-Session-Token header',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+      if (!validateUuid(sessionToken)) {
+        res.status(401).json({
+          error: 'Unauthorized',
+          message: 'Invalid session token format',
           timestamp: new Date().toISOString(),
         });
         return;
@@ -239,8 +283,8 @@ export function createSessionRoutes(
         return;
       }
 
-      const session = await sessionStore.elevate(sessionToken);
-      if (!session) {
+      const elevated = await sessionStore.elevate(sessionToken);
+      if (!elevated) {
         res.status(401).json({
           error: 'Unauthorized',
           message: 'Invalid or expired session',
@@ -250,10 +294,16 @@ export function createSessionRoutes(
       }
 
       res.status(200).json({
-        session,
+        session_token: elevated.token,
+        session: elevated.session,
         timestamp: new Date().toISOString(),
       });
     } catch (error) {
+      logger.error('Session elevation failed', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        timestamp: new Date().toISOString(),
+      });
       res.status(500).json({
         error: 'InternalError',
         message: 'Failed to elevate session',
