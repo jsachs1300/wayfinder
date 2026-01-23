@@ -14,6 +14,7 @@ const SESSION_PREFIX = 'wayfinder:session:';
 const SESSION_TOKEN_INDEX = 'wayfinder:session:token:';
 const USER_SESSION_INDEX = 'wayfinder:session:user:';
 const SESSION_TOKEN_HASH_INDEX = 'wayfinder:session:tokenhash:';
+const SESSION_USER_INDEX = 'wayfinder:session:userindex:';
 
 function getSessionTTLDays(): number {
   const envValue = process.env.SESSION_TTL_DAYS;
@@ -45,12 +46,18 @@ export interface SessionStore {
 export class RedisSessionStore implements SessionStore {
   constructor(private readonly redis: Redis) {}
 
+  private async cleanupUserIndex(userId: string): Promise<void> {
+    const nowMs = Date.now();
+    await this.redis.zremrangebyscore(USER_SESSION_INDEX + userId, '-inf', nowMs);
+  }
+
   async create(userId: string, options?: { isAdmin?: boolean }): Promise<{ session: UserSession; token: string }> {
     const sessionId = uuidv4();
     const tokenId = uuidv4();
     const now = new Date();
     const ttlDays = getSessionTTLDays();
     const expiresAt = new Date(now.getTime() + ttlDays * 24 * 60 * 60 * 1000);
+    const expiresAtMs = expiresAt.getTime();
 
     const session: UserSession = {
       id: sessionId,
@@ -76,11 +83,17 @@ export class RedisSessionStore implements SessionStore {
       tokenHash
     );
     await this.redis.setex(
+      SESSION_USER_INDEX + sessionId,
+      ttlSeconds,
+      userId
+    );
+    await this.redis.setex(
       SESSION_TOKEN_INDEX + tokenHash,
       ttlSeconds,
-      sessionId
+      `${sessionId}:${userId}`
     );
-    await this.redis.sadd(USER_SESSION_INDEX + userId, sessionId);
+    await this.redis.zadd(USER_SESSION_INDEX + userId, expiresAtMs, sessionId);
+    await this.redis.expire(USER_SESSION_INDEX + userId, ttlSeconds);
 
     return { session, token: tokenId };
   }
@@ -90,10 +103,11 @@ export class RedisSessionStore implements SessionStore {
       return null;
     }
     const tokenHash = hashSessionToken(token);
-    const sessionId = await this.redis.get(SESSION_TOKEN_INDEX + tokenHash);
-    if (!sessionId) {
+    const tokenValue = await this.redis.get(SESSION_TOKEN_INDEX + tokenHash);
+    if (!tokenValue) {
       return null;
     }
+    const sessionId = tokenValue.split(':')[0];
 
     const data = await this.redis.get(SESSION_PREFIX + sessionId);
     if (!data) {
@@ -121,18 +135,21 @@ export class RedisSessionStore implements SessionStore {
       return false;
     }
     const tokenHash = hashSessionToken(token);
-    const sessionId = await this.redis.get(SESSION_TOKEN_INDEX + tokenHash);
-    if (!sessionId) {
+    const tokenValue = await this.redis.get(SESSION_TOKEN_INDEX + tokenHash);
+    if (!tokenValue) {
       return false;
     }
-    const data = await this.redis.get(SESSION_PREFIX + sessionId);
-    await this.redis.del(SESSION_PREFIX + sessionId);
-    await this.redis.del(SESSION_TOKEN_INDEX + tokenHash);
-    await this.redis.del(SESSION_TOKEN_HASH_INDEX + sessionId);
-    if (data) {
-      const session = JSON.parse(data) as UserSession;
-      await this.redis.srem(USER_SESSION_INDEX + session.user_id, sessionId);
+    const [sessionId, tokenUserId] = tokenValue.split(':');
+    const userId = tokenUserId || await this.redis.get(SESSION_USER_INDEX + sessionId);
+    const multi = this.redis.multi();
+    multi.del(SESSION_PREFIX + sessionId);
+    multi.del(SESSION_TOKEN_INDEX + tokenHash);
+    multi.del(SESSION_TOKEN_HASH_INDEX + sessionId);
+    multi.del(SESSION_USER_INDEX + sessionId);
+    if (userId) {
+      multi.zrem(USER_SESSION_INDEX + userId, sessionId);
     }
+    await multi.exec();
     return true;
   }
 
@@ -141,10 +158,11 @@ export class RedisSessionStore implements SessionStore {
       return null;
     }
     const tokenHash = hashSessionToken(token);
-    const sessionId = await this.redis.get(SESSION_TOKEN_INDEX + tokenHash);
-    if (!sessionId) {
+    const tokenValue = await this.redis.get(SESSION_TOKEN_INDEX + tokenHash);
+    if (!tokenValue) {
       return null;
     }
+    const sessionId = tokenValue.split(':')[0];
     const data = await this.redis.get(SESSION_PREFIX + sessionId);
     if (!data) {
       return null;
@@ -157,12 +175,17 @@ export class RedisSessionStore implements SessionStore {
     }
 
     const elevated = await this.create(session.user_id, { isAdmin: true });
-    await this.delete(token);
+    const deleted = await this.delete(token);
+    if (!deleted) {
+      await this.delete(elevated.token);
+      return null;
+    }
     return elevated;
   }
 
   async deleteAllByUserId(userId: string): Promise<void> {
-    const sessionIds = await this.redis.smembers(USER_SESSION_INDEX + userId);
+    await this.cleanupUserIndex(userId);
+    const sessionIds = await this.redis.zrange(USER_SESSION_INDEX + userId, 0, -1);
     if (sessionIds.length === 0) {
       return;
     }
@@ -179,7 +202,8 @@ export class RedisSessionStore implements SessionStore {
       }
       await this.redis.del(SESSION_PREFIX + sessionId);
       await this.redis.del(SESSION_TOKEN_HASH_INDEX + sessionId);
-      await this.redis.srem(USER_SESSION_INDEX + userId, sessionId);
+      await this.redis.del(SESSION_USER_INDEX + sessionId);
+      await this.redis.zrem(USER_SESSION_INDEX + userId, sessionId);
     }
     await this.redis.del(USER_SESSION_INDEX + userId);
   }
