@@ -47,9 +47,9 @@ export interface CacheStats {
  */
 export interface CacheAttributes extends Record<string, string> {
   /** Token ID for cache isolation */
-  scope?: string;
+  scope: string;
   /** Router model variant (openai, gemini, or consensus) */
-  router_model?: 'openai' | 'gemini' | 'consensus';
+  router_model: 'openai' | 'gemini' | 'consensus';
 }
 
 /**

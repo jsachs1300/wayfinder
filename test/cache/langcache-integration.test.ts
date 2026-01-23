@@ -107,7 +107,7 @@ async function assertLangCacheAccessible(config: CacheConfig): Promise<void> {
 async function waitForCacheEntry(
   cache: SemanticCache,
   prompt: string,
-  attributes: CacheAttributes = {},
+  attributes?: CacheAttributes,
   timeoutMs: number = 10000,
   intervalMs: number = 500
 ): Promise<SimpleCachedResponse | null> {
