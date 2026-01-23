@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { TokenStore } from '../tokens/store';
 import { UserStore } from '../users/store';
+import type { SessionStore } from '../sessions/store';
 import { TokenConfigExtended } from '../tokens/types';
 import { UserTier } from '../users/types';
 import { createHash } from 'crypto';
@@ -8,6 +9,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 const WAYFINDER_TOKEN_HEADER = 'x-wayfinder-token';
 const ADMIN_API_KEY_HEADER = 'x-admin-api-key';
+const SESSION_TOKEN_HEADER = 'x-session-token';
 
 /**
  * Hash a token for secure storage comparison
@@ -98,14 +100,97 @@ export function tokenAuthMiddleware(tokenStore: TokenStore, userStore?: UserStor
 }
 
 /**
+ * Middleware to authenticate requests using X-Session-Token header
+ * Attaches user and session context for frontend sessions.
+ */
+export function sessionAuthMiddleware(sessionStore: SessionStore, userStore: UserStore) {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    const sessionToken = req.headers[SESSION_TOKEN_HEADER] as string | undefined;
+
+    if (!sessionToken) {
+      res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Missing X-Session-Token header',
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+
+    const session = await sessionStore.getByToken(sessionToken);
+    if (!session) {
+      res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Invalid or expired session',
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+
+    const user = await userStore.getById(session.user_id);
+    if (!user) {
+      res.status(401).json({
+        error: 'Unauthorized',
+        message: 'User not found for session',
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+
+    if (user.status === 'suspended') {
+      res.status(403).json({
+        error: 'Forbidden',
+        message: 'Account suspended',
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+
+    if (user.status === 'deleted') {
+      res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Account deleted',
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+
+    req.user = user;
+    req.userTier = user.tier;
+    req.session = session;
+    req.requestId = uuidv4();
+
+    next();
+  };
+}
+
+/**
+ * Middleware to authenticate either session or token for user routes
+ */
+export function userAuthMiddleware(
+  tokenStore: TokenStore,
+  userStore: UserStore,
+  sessionStore?: SessionStore
+) {
+  const tokenAuth = tokenAuthMiddleware(tokenStore, userStore);
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    const sessionToken = req.headers[SESSION_TOKEN_HEADER] as string | undefined;
+    if (sessionToken && sessionStore) {
+      return sessionAuthMiddleware(sessionStore, userStore)(req, res, next);
+    }
+    return tokenAuth(req, res, next);
+  };
+}
+
+/**
  * Middleware to authenticate admin requests using ADMIN_API_KEY
  */
-export function adminAuthMiddleware() {
-  return (req: Request, res: Response, next: NextFunction): void => {
+export function adminAuthMiddleware(sessionStore?: SessionStore, userStore?: UserStore) {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     const adminKey = req.headers[ADMIN_API_KEY_HEADER] as string | undefined;
     const expectedKey = process.env.ADMIN_API_KEY;
+    const sessionToken = req.headers[SESSION_TOKEN_HEADER] as string | undefined;
 
-    if (!expectedKey) {
+    if (!expectedKey && !sessionStore) {
       res.status(500).json({
         error: 'ConfigurationError',
         message: 'ADMIN_API_KEY not configured',
@@ -114,27 +199,43 @@ export function adminAuthMiddleware() {
       return;
     }
 
-    if (!adminKey) {
-      res.status(401).json({
-        error: 'Unauthorized',
-        message: 'Missing X-Admin-Api-Key header',
-        timestamp: new Date().toISOString(),
-      });
+    if (adminKey && expectedKey) {
+      if (!timingSafeEqual(adminKey, expectedKey)) {
+        res.status(401).json({
+          error: 'Unauthorized',
+          message: 'Invalid admin key',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      req.requestId = uuidv4();
+      next();
       return;
     }
 
-    // Constant-time comparison to prevent timing attacks
-    if (!timingSafeEqual(adminKey, expectedKey)) {
-      res.status(401).json({
-        error: 'Unauthorized',
-        message: 'Invalid admin key',
-        timestamp: new Date().toISOString(),
-      });
-      return;
+    if (sessionToken && sessionStore && userStore) {
+      const session = await sessionStore.getByToken(sessionToken);
+      if (session?.is_admin) {
+        const user = await userStore.getById(session.user_id);
+        if (user) {
+          req.user = user;
+          req.userTier = 'admin';
+          req.session = session;
+        }
+        req.requestId = uuidv4();
+        next();
+        return;
+      }
     }
 
-    req.requestId = uuidv4();
-    next();
+    res.status(401).json({
+      error: 'Unauthorized',
+      message: adminKey
+        ? 'Invalid admin key'
+        : 'Missing X-Admin-Api-Key or X-Session-Token header',
+      timestamp: new Date().toISOString(),
+    });
   };
 }
 

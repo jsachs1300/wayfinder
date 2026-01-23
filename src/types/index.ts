@@ -538,6 +538,7 @@ declare global {
       requestId?: string;
       user?: import('../users/types').User;
       userTier?: import('../users/types').UserTier;
+      session?: import('../sessions/types').UserSession;
     }
   }
 }

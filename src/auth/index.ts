@@ -3,5 +3,7 @@ export {
   adminAuthMiddleware,
   requestIdMiddleware,
   requireUserAuthMiddleware,
+  userAuthMiddleware,
+  sessionAuthMiddleware,
   hashToken
 } from './middleware';

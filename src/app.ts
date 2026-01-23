@@ -3,7 +3,7 @@ import Redis from 'ioredis';
 import helmet from 'helmet';
 import cors from 'cors';
 
-import { tokenAuthMiddleware, adminAuthMiddleware, requestIdMiddleware } from './auth';
+import { tokenAuthMiddleware, adminAuthMiddleware, requestIdMiddleware, userAuthMiddleware } from './auth';
 import { createTokenStore, createAdminRoutes, TokenStore } from './tokens';
 import { createPolicyEngine, PolicyEngine } from './policy';
 import { createKnowledgeStore, KnowledgeStore } from './knowledge';
@@ -19,6 +19,7 @@ import { createUserStore, type UserStore } from './users';
 import { createAnonymousSessionStore, type AnonymousSessionStore } from './users/anonymous';
 import { createUserLLMKeyStore, type UserLLMKeyStore } from './users/llm-keys';
 import { validateEncryptionKeyAtStartup } from './users/llm-keys/encryption';
+import { createSessionStore, type SessionStore } from './sessions';
 
 /**
  * Application dependencies container
@@ -29,6 +30,7 @@ export interface AppDependencies {
   userStore?: UserStore;
   userLLMKeyStore?: UserLLMKeyStore;
   anonymousSessionStore?: AnonymousSessionStore;
+  sessionStore?: SessionStore;
   policyEngine: PolicyEngine;
   knowledgeStore: KnowledgeStore;
   modelRegistry: DefaultModelRegistry;
@@ -183,6 +185,7 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
   let userStore: UserStore | undefined;
   let userLLMKeyStore: UserLLMKeyStore | undefined;
   let anonymousSessionStore: AnonymousSessionStore | undefined;
+  let sessionStore: SessionStore | undefined;
 
   if (FEATURE_FLAGS.USER_SELF_SERVICE) {
     // Validate encryption key at startup
@@ -199,11 +202,13 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
     userStore = deps?.userStore ?? createUserStore(redis);
     userLLMKeyStore = deps?.userLLMKeyStore ?? createUserLLMKeyStore(redis);
     anonymousSessionStore = deps?.anonymousSessionStore ?? createAnonymousSessionStore(tokenStore, redis);
+    sessionStore = deps?.sessionStore ?? createSessionStore(redis);
 
     logger.info('User self-service features enabled', {
       userStore: userStore ? 'initialized' : 'not available',
       userLLMKeyStore: userLLMKeyStore ? 'initialized' : 'not available',
       anonymousSessionStore: anonymousSessionStore ? 'initialized' : 'not available',
+      sessionStore: sessionStore ? 'initialized' : 'not available',
     });
   }
 
@@ -265,6 +270,7 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
     userStore,
     userLLMKeyStore,
     anonymousSessionStore,
+    sessionStore,
     policyEngine,
     knowledgeStore,
     modelRegistry,
@@ -316,7 +322,7 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
   // Admin routes (require admin auth + rate limiting)
   const adminRouter = express.Router();
   adminRouter.use(rateLimiters.admin);
-  adminRouter.use(adminAuthMiddleware());
+  adminRouter.use(adminAuthMiddleware(sessionStore, userStore));
   adminRouter.use(createAdminRoutes(tokenStore, modelRegistry, cache));
 
   // Knowledge stats endpoint (admin only)
@@ -510,19 +516,25 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
       const { createAnonymousRoutes } = require('./users/anonymous/routes');
       const { createUserTokenRoutes } = require('./tokens/user-routes');
       const { createLLMKeyRoutes } = require('./users/llm-keys/routes');
+      const { createSessionRoutes } = require('./sessions/routes');
 
       // Public routes (no auth required)
-      app.use('/api/users', createUserRoutes(userStore, tokenStore, logger));
+      app.use('/api/users', createUserRoutes(userStore, tokenStore, logger, userAuthMiddleware(tokenStore, userStore, sessionStore)));
+      if (sessionStore) {
+        app.use('/api/sessions', createSessionRoutes(sessionStore, userStore, tokenStore, logger));
+      } else {
+        logger.warn('Session routes not mounted because Redis is unavailable');
+      }
       app.use('/api/anonymous', createAnonymousRoutes(anonymousSessionStore, tokenStore, userStore, logger));
 
       // Protected routes (require user auth)
       app.use('/api/tokens',
-        tokenAuthMiddleware(tokenStore, userStore),
+        userAuthMiddleware(tokenStore, userStore, sessionStore),
         createUserTokenRoutes(tokenStore, modelRegistry, logger, cache)
       );
 
       app.use('/api/llm-keys',
-        tokenAuthMiddleware(tokenStore, userStore),
+        userAuthMiddleware(tokenStore, userStore, sessionStore),
         createLLMKeyRoutes(userLLMKeyStore)
       );
 
