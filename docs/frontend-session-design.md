@@ -83,6 +83,7 @@ Elevate a user session to admin privileges.
 **Response**
 ```json
 {
+  "session_token": "uuid-v4",
   "session": { "...": "session fields (is_admin: true)" },
   "timestamp": "2026-01-01T00:00:00.000Z"
 }

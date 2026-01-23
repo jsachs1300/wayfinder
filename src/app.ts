@@ -513,6 +513,7 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
     // Import route creators dynamically to avoid errors if modules don't exist
     try {
       const { createUserRoutes } = require('./users/routes');
+      const { createAdminUserRoutes } = require('./users/admin-routes');
       const { createAnonymousRoutes } = require('./users/anonymous/routes');
       const { createUserTokenRoutes } = require('./tokens/user-routes');
       const { createLLMKeyRoutes } = require('./users/llm-keys/routes');
@@ -521,7 +522,7 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
       // Public routes (no auth required)
       app.use('/api/users', createUserRoutes(userStore, tokenStore, logger, userAuthMiddleware(tokenStore, userStore, sessionStore)));
       if (sessionStore) {
-        app.use('/api/sessions', createSessionRoutes(sessionStore, userStore, tokenStore, logger));
+        app.use('/api/sessions', rateLimiters.auth, createSessionRoutes(sessionStore, userStore, tokenStore, logger));
       } else {
         logger.warn('Session routes not mounted because Redis is unavailable');
       }
@@ -539,6 +540,9 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
       );
 
       logger.info('User self-service routes mounted successfully');
+
+      // Admin user routes (require admin auth)
+      adminRouter.use('/users', createAdminUserRoutes(userStore, sessionStore, logger));
     } catch (error) {
       logger.error('Failed to mount user self-service routes', {
         error: error instanceof Error ? error.message : String(error),
