@@ -36,6 +36,10 @@ interface RateLimitConfig {
   // Feedback endpoint
   feedbackWindowMs: number;
   feedbackMaxRequests: number;
+
+  // Auth/session endpoints
+  authWindowMs: number;
+  authMaxRequests: number;
 }
 
 /**
@@ -89,6 +93,10 @@ function loadRateLimitConfig(): RateLimitConfig {
     // Feedback: 100 requests per 15 minutes (default)
     feedbackWindowMs: parsePositiveInt(process.env.RATE_LIMIT_FEEDBACK_WINDOW_MS, 900000, 1000, 86400000),
     feedbackMaxRequests: parsePositiveInt(process.env.RATE_LIMIT_FEEDBACK_MAX, 100, 1, 10000),
+
+    // Auth: 20 requests per 15 minutes (default)
+    authWindowMs: parsePositiveInt(process.env.RATE_LIMIT_AUTH_WINDOW_MS, 900000, 1000, 86400000),
+    authMaxRequests: parsePositiveInt(process.env.RATE_LIMIT_AUTH_MAX, 20, 1, 10000),
   };
 }
 
@@ -208,6 +216,13 @@ export function createRateLimiters(redis?: Redis) {
         '/feedback'
       )
     ),
+
+    /**
+     * Auth/session endpoints rate limiter
+     */
+    auth: rateLimit(
+      createRateLimiterOptions(config.authWindowMs, config.authMaxRequests, storeRedis, undefined, '/api/sessions')
+    ),
   };
 }
 
@@ -233,6 +248,10 @@ export function getRateLimitConfigSummary(): Record<string, unknown> {
     feedback: {
       window_seconds: config.feedbackWindowMs / 1000,
       max_requests: config.feedbackMaxRequests,
+    },
+    auth: {
+      window_seconds: config.authWindowMs / 1000,
+      max_requests: config.authMaxRequests,
     },
   };
 }

@@ -119,6 +119,10 @@ RATE_LIMIT_ADMIN_MAX=50              # 50 requests
 RATE_LIMIT_FEEDBACK_WINDOW_MS=900000 # 15 minutes
 RATE_LIMIT_FEEDBACK_MAX=100          # 100 requests
 
+# Session/auth endpoints (per IP)
+RATE_LIMIT_AUTH_WINDOW_MS=900000     # 15 minutes
+RATE_LIMIT_AUTH_MAX=20               # 20 requests
+
 # Global fallback (per IP)
 RATE_LIMIT_GLOBAL_WINDOW_MS=900000   # 15 minutes
 RATE_LIMIT_GLOBAL_MAX=100            # 100 requests

@@ -355,6 +355,10 @@ describe('Cache Configuration', () => {
   });
 
   describe('Complete Configuration', () => {
+    beforeEach(() => {
+      delete process.env.LANGCACHE_SEARCH_STRATEGIES;
+    });
+
     it('should return complete config with all fields', () => {
       process.env.LANGCACHE_HOST = 'aws-us-east-1.langcache.redis.io';
       process.env.LANGCACHE_CACHE_ID = '1234567890abcdef';

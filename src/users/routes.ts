@@ -11,10 +11,10 @@ import { TokenStore } from '../tokens/store';
 import { validateEmail, validatePassword } from './validation';
 import { logTokenEvent, logUserLoggedIn, logUserRegistered } from '../observability/events';
 import { recordTokenCreated, recordUserLoggedIn, recordUserRegistered } from '../observability/metrics';
-import { verifyPassword } from './password';
-import type { User } from './types';
-import type { TokenConfigExtended } from '../tokens/types';
+import { verifyPassword, DUMMY_PASSWORD_HASH } from './password';
 import type { Logger } from '../logging/logger';
+import { sanitizeUser } from './sanitize';
+import { sanitizeToken } from '../tokens/sanitize';
 
 /**
  * Zod schema for user registration
@@ -43,41 +43,13 @@ const UserUpdateSchema = z.object({
 });
 
 /**
- * Sanitize user object for API response (remove password_hash)
- */
-function sanitizeUser(user: User) {
-  return {
-    id: user.id,
-    email: user.email,
-    tier: user.tier,
-    status: user.status,
-    created_at: user.created_at,
-    updated_at: user.updated_at,
-    last_login_at: user.last_login_at,
-  };
-}
-
-/**
- * Sanitize token for API response (remove token_hash and sensitive fields)
- */
-function sanitizeToken(token: TokenConfigExtended) {
-  return {
-    id: token.id,
-    name: token.name || null,
-    is_primary: token.is_primary || false,
-    environment: token.environment,
-    created_at: token.created_at,
-    updated_at: token.updated_at,
-  };
-}
-
-/**
  * Create user routes
  */
 export function createUserRoutes(
   userStore: UserStore,
   tokenStore: TokenStore,
-  logger: Logger
+  logger: Logger,
+  userAuth?: (req: Request, res: Response, next: () => void) => void
 ): Router {
   const router = Router();
 
@@ -224,8 +196,7 @@ export function createUserRoutes(
 
       // Always verify password to prevent timing attacks
       // Use a dummy hash if user doesn't exist (bcrypt hash format with work factor 12)
-      const hashToVerify = user?.password_hash ??
-        '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5jtRBzC3yRqb.'; // "password"
+      const hashToVerify = user?.password_hash ?? DUMMY_PASSWORD_HASH;
       const isValidPassword = await verifyPassword(password, hashToVerify);
 
       // Generic error message for both non-existent user and wrong password
@@ -304,7 +275,7 @@ export function createUserRoutes(
    * GET /api/users/me
    * Get current user profile (requires authentication)
    */
-  router.get('/me', async (req: Request, res: Response): Promise<void> => {
+  router.get('/me', userAuth ?? ((_req, _res, next) => next()), async (req: Request, res: Response): Promise<void> => {
     try {
       // User should be attached by auth middleware
       const userId = (req as any).user?.id;
@@ -350,7 +321,7 @@ export function createUserRoutes(
    * PATCH /api/users/me
    * Update current user profile (requires authentication)
    */
-  router.patch('/me', async (req: Request, res: Response): Promise<void> => {
+  router.patch('/me', userAuth ?? ((_req, _res, next) => next()), async (req: Request, res: Response): Promise<void> => {
     try {
       // User should be attached by auth middleware
       const userId = (req as any).user?.id;
