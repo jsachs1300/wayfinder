@@ -71,6 +71,22 @@ export function loadCacheConfig(): CacheConfig {
     ? parseInt(process.env.LANGCACHE_TIMEOUT_MS, 10)
     : 5000; // Default 5 second timeout for reads
 
+  const searchStrategiesEnv = process.env.LANGCACHE_SEARCH_STRATEGIES;
+  const searchStrategies: Array<'exact' | 'semantic'> = searchStrategiesEnv
+    ? searchStrategiesEnv
+      .split(',')
+      .map((strategy) => strategy.trim().toLowerCase())
+      .filter((strategy): strategy is 'exact' | 'semantic' =>
+        strategy === 'exact' || strategy === 'semantic'
+      )
+    : ['semantic'];
+
+  if (searchStrategiesEnv && searchStrategies.length === 0) {
+    throw new Error(
+      `LANGCACHE_SEARCH_STRATEGIES must be a comma-separated list of "exact" and/or "semantic". Got: ${searchStrategiesEnv}`
+    );
+  }
+
   const writeTimeoutMs = process.env.LANGCACHE_WRITE_TIMEOUT_MS
     ? parseInt(process.env.LANGCACHE_WRITE_TIMEOUT_MS, 10)
     : 3000; // Default 3 second timeout for writes
@@ -133,5 +149,6 @@ export function loadCacheConfig(): CacheConfig {
     timeoutMs,
     writeTimeoutMs,
     flushTimeoutMs,
+    searchStrategies,
   };
 }

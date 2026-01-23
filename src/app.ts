@@ -224,7 +224,14 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
     if (config.openai.enabled) enabledProviders.push('OpenAI');
     if (config.gemini.enabled) enabledProviders.push('Gemini');
 
-    logger.info(`Router LLM initialized with providers: ${enabledProviders.join(' + ')}`);
+    if (enabledProviders.length === 0 && isTestMode) {
+      logger.warn('No router LLM providers enabled in test/dev mode, using stub router', {
+        message: 'Set ROUTER_LLM_*_ENABLED=true to exercise real providers in tests.',
+      });
+      routerLLM = new StubRouterLLM();
+    } else {
+      logger.info(`Router LLM initialized with providers: ${enabledProviders.join(' + ')}`);
+    }
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
 

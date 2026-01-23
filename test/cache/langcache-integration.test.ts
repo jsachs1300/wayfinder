@@ -568,6 +568,9 @@ describe('LangCache Integration Tests', () => {
     it.skipIf(!RUN_INTEGRATION)(
       'should connect to real LangCache service',
       async () => {
+        const originalStrategies = process.env.LANGCACHE_SEARCH_STRATEGIES;
+        process.env.LANGCACHE_SEARCH_STRATEGIES = 'exact,semantic';
+
         // Load real config from .env
         const config = loadCacheConfig();
         const realCache = new SemanticCache(config);
@@ -587,6 +590,12 @@ describe('LangCache Integration Tests', () => {
 
         expect(result).not.toBeNull();
         expect(result?.ranking.ranked_models).toHaveLength(5);
+
+        if (originalStrategies === undefined) {
+          delete process.env.LANGCACHE_SEARCH_STRATEGIES;
+        } else {
+          process.env.LANGCACHE_SEARCH_STRATEGIES = originalStrategies;
+        }
       },
       30000 // 30 second timeout for real API calls
     );
@@ -615,6 +624,9 @@ describe('LangCache Integration Tests', () => {
     it.skipIf(!RUN_INTEGRATION)(
       'should delete only entries for specific token scope (Issue #56 regression test)',
       async () => {
+        const originalStrategies = process.env.LANGCACHE_SEARCH_STRATEGIES;
+        process.env.LANGCACHE_SEARCH_STRATEGIES = 'exact,semantic';
+
         // This test verifies that clearByScope() only deletes cache entries
         // for the specified token, not the entire cache for all tokens.
         // This is a regression test for Issue #56.
@@ -662,6 +674,12 @@ describe('LangCache Integration Tests', () => {
 
         // Cleanup: delete token2's entry
         await realCache.clearByScope(token2Id);
+
+        if (originalStrategies === undefined) {
+          delete process.env.LANGCACHE_SEARCH_STRATEGIES;
+        } else {
+          process.env.LANGCACHE_SEARCH_STRATEGIES = originalStrategies;
+        }
       },
       60000 // 60 second timeout for multiple API calls
     );
