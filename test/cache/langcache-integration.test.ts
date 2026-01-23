@@ -17,6 +17,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { SemanticCache, hashPrompt, loadCacheConfig } from '../../src/cache';
 import type { CacheConfig } from '../../src/cache';
+import type { CacheAttributes } from '../../src/cache/types';
 import type { SimpleCachedResponse, RankedRouteDecision, RouterModelPreference } from '../../src/types';
 import { LangCache } from '@redis-ai/langcache';
 import { LangCacheError } from '@redis-ai/langcache/models/errors';
@@ -107,13 +108,13 @@ async function assertLangCacheAccessible(config: CacheConfig): Promise<void> {
 async function waitForCacheEntry(
   cache: SemanticCache,
   prompt: string,
-  options: { scope?: string } = {},
+  attributes?: CacheAttributes,
   timeoutMs: number = 10000,
   intervalMs: number = 500
 ): Promise<SimpleCachedResponse | null> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    const result = await cache.get(prompt, options);
+    const result = await cache.get(prompt, attributes);
     if (result) {
       return result;
     }
@@ -613,12 +614,18 @@ describe('LangCache Integration Tests', () => {
         const cachedResponse = buildCachedResponse(decision, testPrompt);
 
         // Store and retrieve
-        await realCache.set(testPrompt, cachedResponse);
+        await realCache.set(testPrompt, cachedResponse, {
+          scope: 'integration-test',
+          router_model: 'consensus',
+        });
 
         // Give LangCache a moment to index
         await new Promise((resolve) => setTimeout(resolve, 1000));
 
-        const result = await waitForCacheEntry(realCache, testPrompt, {}, 60000, 1000);
+        const result = await waitForCacheEntry(realCache, testPrompt, {
+          scope: 'integration-test',
+          router_model: 'consensus',
+        }, 60000, 1000);
 
         expect(result).not.toBeNull();
         expect(result?.ranking.ranked_models).toHaveLength(5);
@@ -687,15 +694,21 @@ describe('LangCache Integration Tests', () => {
         const response2 = buildCachedResponse(decision, prompt2);
 
         // Store both entries
-        await realCache.set(prompt1, response1, { scope: token1Id });
-        await realCache.set(prompt2, response2, { scope: token2Id });
+        await realCache.set(prompt1, response1, { scope: token1Id, router_model: 'consensus' });
+        await realCache.set(prompt2, response2, { scope: token2Id, router_model: 'consensus' });
 
         // Give LangCache time to index
         await new Promise((resolve) => setTimeout(resolve, 2000));
 
         // Verify both entries exist
-        const beforeDelete1 = await waitForCacheEntry(realCache, prompt1, { scope: token1Id }, 60000, 1000);
-        const beforeDelete2 = await waitForCacheEntry(realCache, prompt2, { scope: token2Id }, 60000, 1000);
+        const beforeDelete1 = await waitForCacheEntry(realCache, prompt1, {
+          scope: token1Id,
+          router_model: 'consensus',
+        }, 60000, 1000);
+        const beforeDelete2 = await waitForCacheEntry(realCache, prompt2, {
+          scope: token2Id,
+          router_model: 'consensus',
+        }, 60000, 1000);
         expect(beforeDelete1).not.toBeNull();
         expect(beforeDelete2).not.toBeNull();
 
@@ -706,8 +719,8 @@ describe('LangCache Integration Tests', () => {
         await new Promise((resolve) => setTimeout(resolve, 2000));
 
         // Verify token1's entry is deleted but token2's entry still exists
-        const afterDelete1 = await realCache.get(prompt1, { scope: token1Id });
-        const afterDelete2 = await realCache.get(prompt2, { scope: token2Id });
+        const afterDelete1 = await realCache.get(prompt1, { scope: token1Id, router_model: 'consensus' });
+        const afterDelete2 = await realCache.get(prompt2, { scope: token2Id, router_model: 'consensus' });
 
         expect(afterDelete1).toBeNull(); // Token1's cache should be cleared
         expect(afterDelete2).not.toBeNull(); // Token2's cache should still exist
