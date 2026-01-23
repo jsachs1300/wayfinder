@@ -17,6 +17,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { SemanticCache, hashPrompt, loadCacheConfig } from '../../src/cache';
 import type { CacheConfig } from '../../src/cache';
+import type { CacheAttributes } from '../../src/cache/types';
 import type { SimpleCachedResponse, RankedRouteDecision, RouterModelPreference } from '../../src/types';
 import { LangCache } from '@redis-ai/langcache';
 import { LangCacheError } from '@redis-ai/langcache/models/errors';
