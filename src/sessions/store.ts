@@ -111,12 +111,7 @@ export class RedisSessionStore implements SessionStore {
     if (now.getTime() - lastSeenAt.getTime() > 5 * 60 * 1000) {
       session.last_seen_at = now.toISOString();
     }
-    const ttl = await this.redis.ttl(SESSION_PREFIX + sessionId);
-    if (ttl > 0) {
-      await this.redis.setex(SESSION_PREFIX + sessionId, ttl, JSON.stringify(session));
-    } else {
-      await this.redis.set(SESSION_PREFIX + sessionId, JSON.stringify(session));
-    }
+    await this.redis.set(SESSION_PREFIX + sessionId, JSON.stringify(session), 'KEEPTTL', 'XX');
 
     return session;
   }
