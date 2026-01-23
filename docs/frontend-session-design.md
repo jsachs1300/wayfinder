@@ -90,7 +90,7 @@ Elevate a user session to admin privileges.
 ```
 
 ## Admin Access via Session
-Once elevated, admin-only endpoints can be accessed using the same `X-Session-Token` header.
+Session elevation returns a **new** `session_token`. The frontend must replace the stored token with the new one before calling admin endpoints.
 
 Examples:
 - `GET /admin/tokens`

@@ -75,7 +75,6 @@ export class RedisSessionStore implements SessionStore {
       sessionId
     );
     await this.redis.sadd(USER_SESSION_INDEX + userId, sessionId);
-    await this.redis.expire(USER_SESSION_INDEX + userId, ttlSeconds);
 
     return { session, token: tokenId };
   }
