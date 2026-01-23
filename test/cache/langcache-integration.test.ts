@@ -33,18 +33,19 @@ const mockLangCacheClient = {
   deleteQuery: vi.fn(),
 };
 
-// Conditionally mock LangCache only in mock mode
-if (!RUN_INTEGRATION) {
-  vi.mock('@redis-ai/langcache', () => {
-    return {
-      LangCache: vi.fn().mockImplementation(() => mockLangCacheClient),
-      SearchStrategy: {
-        Exact: 'exact',
-        Semantic: 'semantic',
-      },
-    };
-  });
-}
+vi.mock('@redis-ai/langcache', async () => {
+  if (process.env.LANGCACHE_INTEGRATION_TEST === 'true') {
+    return await vi.importActual<typeof import('@redis-ai/langcache')>('@redis-ai/langcache');
+  }
+
+  return {
+    LangCache: vi.fn().mockImplementation(() => mockLangCacheClient),
+    SearchStrategy: {
+      Exact: 'exact',
+      Semantic: 'semantic',
+    },
+  };
+});
 
 // Helper to build SimpleCachedResponse (for testing)
 function buildCachedResponse(
@@ -159,17 +160,32 @@ async function waitForCacheEntry(
   }
 
   let lastResponse: unknown;
+  let lastCall: { status: string; responseStatus?: number } | undefined;
   let lastReason: string | undefined;
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     let response;
     try {
-      response = await client.search({
+      const request = client.search({
         prompt,
         searchStrategies: config.searchStrategies ?? ['semantic'],
         similarityThreshold: config.similarityThreshold,
         ...(attributes && { attributes }),
       });
+      if (request && typeof (request as { $inspect?: () => Promise<[unknown, { status: string; response?: Response }]> }).$inspect === 'function') {
+        const [value, call] = await (request as { $inspect: () => Promise<[unknown, { status: string; response?: Response }]> }).$inspect();
+        response = value;
+        lastCall = {
+          status: call.status,
+          responseStatus: call.status === 'complete' ? call.response?.status : undefined,
+        };
+      } else {
+        response = await request;
+        lastCall = {
+          status: 'complete',
+          responseStatus: undefined,
+        };
+      }
     } catch (error) {
       if (error instanceof errors.LangCacheError) {
         throw new Error(
@@ -194,7 +210,10 @@ async function waitForCacheEntry(
     lastResponse = response;
 
     if (!response || !Array.isArray(response.data)) {
-      throw new Error(`LangCache search returned unexpected payload: ${safeJson(response)}`);
+      throw new Error(
+        `LangCache search returned unexpected payload: ${safeJson(response)}. ` +
+        `Last call: ${safeJson(lastCall)}`
+      );
     }
 
     if (response.data.length === 0) {
@@ -220,7 +239,8 @@ async function waitForCacheEntry(
   throw new Error(
     `LangCache search did not return cached response within ${timeoutMs}ms. ` +
     `Last reason: ${lastReason ?? 'no matching response'}. ` +
-    `Last response: ${safeJson(lastResponse)}`
+    `Last response: ${safeJson(lastResponse)}. ` +
+    `Last call: ${safeJson(lastCall)}`
   );
 }
 
