@@ -374,6 +374,7 @@ describe('Cache Configuration', () => {
         timeoutMs: 8000,
         writeTimeoutMs: 3000, // Default
         flushTimeoutMs: 10000, // Default
+        searchStrategies: ['semantic'],
       });
     });
 
@@ -396,6 +397,7 @@ describe('Cache Configuration', () => {
         timeoutMs: 5000, // Default
         writeTimeoutMs: 3000, // Default
         flushTimeoutMs: 10000, // Default
+        searchStrategies: ['semantic'],
       });
     });
   });
