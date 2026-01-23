@@ -107,13 +107,13 @@ async function assertLangCacheAccessible(config: CacheConfig): Promise<void> {
 async function waitForCacheEntry(
   cache: SemanticCache,
   prompt: string,
-  options: { scope?: string } = {},
+  attributes: CacheAttributes = {},
   timeoutMs: number = 10000,
   intervalMs: number = 500
 ): Promise<SimpleCachedResponse | null> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    const result = await cache.get(prompt, options);
+    const result = await cache.get(prompt, attributes);
     if (result) {
       return result;
     }
