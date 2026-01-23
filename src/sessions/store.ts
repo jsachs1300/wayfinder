@@ -13,6 +13,7 @@ import { createHash } from 'crypto';
 const SESSION_PREFIX = 'wayfinder:session:';
 const SESSION_TOKEN_INDEX = 'wayfinder:session:token:';
 const USER_SESSION_INDEX = 'wayfinder:session:user:';
+const SESSION_TOKEN_HASH_INDEX = 'wayfinder:session:tokenhash:';
 
 function getSessionTTLDays(): number {
   const envValue = process.env.SESSION_TTL_DAYS;
@@ -68,6 +69,11 @@ export class RedisSessionStore implements SessionStore {
       SESSION_PREFIX + sessionId,
       ttlSeconds,
       JSON.stringify(session)
+    );
+    await this.redis.setex(
+      SESSION_TOKEN_HASH_INDEX + sessionId,
+      ttlSeconds,
+      tokenHash
     );
     await this.redis.setex(
       SESSION_TOKEN_INDEX + tokenHash,
@@ -127,6 +133,7 @@ export class RedisSessionStore implements SessionStore {
     const data = await this.redis.get(SESSION_PREFIX + sessionId);
     await this.redis.del(SESSION_PREFIX + sessionId);
     await this.redis.del(SESSION_TOKEN_INDEX + tokenHash);
+    await this.redis.del(SESSION_TOKEN_HASH_INDEX + sessionId);
     if (data) {
       const session = JSON.parse(data) as UserSession;
       await this.redis.srem(USER_SESSION_INDEX + session.user_id, sessionId);
@@ -165,14 +172,18 @@ export class RedisSessionStore implements SessionStore {
       return;
     }
     for (const sessionId of sessionIds) {
-      const data = await this.redis.get(SESSION_PREFIX + sessionId);
-      if (!data) {
-        continue;
+      const tokenHash = await this.redis.get(SESSION_TOKEN_HASH_INDEX + sessionId);
+      if (tokenHash) {
+        await this.redis.del(SESSION_TOKEN_INDEX + tokenHash);
+      } else {
+        const data = await this.redis.get(SESSION_PREFIX + sessionId);
+        if (data) {
+          const session = JSON.parse(data) as UserSession;
+          await this.redis.del(SESSION_TOKEN_INDEX + hashSessionToken(session.token_id));
+        }
       }
-      const session = JSON.parse(data) as UserSession;
-      const tokenHash = hashSessionToken(session.token_id);
       await this.redis.del(SESSION_PREFIX + sessionId);
-      await this.redis.del(SESSION_TOKEN_INDEX + tokenHash);
+      await this.redis.del(SESSION_TOKEN_HASH_INDEX + sessionId);
       await this.redis.srem(USER_SESSION_INDEX + userId, sessionId);
     }
     await this.redis.del(USER_SESSION_INDEX + userId);
