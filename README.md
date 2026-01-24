@@ -215,6 +215,8 @@ Per REQUIREMENTS.md §8 step 8, cache is queried:
    # LangCache API configuration
    LANGCACHE_HOST=your-cache-id.langcache.redis.io
    LANGCACHE_CACHE_ID=your-cache-id
+   # Note: LANGCACHE_HOST and LANGCACHE_CACHE_ID must be set at runtime
+   # (Cloud Run or env file). They are not injected by Cloud Build.
    LANGCACHE_API_KEY=your-langcache-api-key
 
    # Optional: tune similarity threshold (default: 0.9)
@@ -237,8 +239,8 @@ Per REQUIREMENTS.md §8 step 8, cache is queried:
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `LANGCACHE_ENABLED` | No | `false` | Enable/disable semantic caching |
-| `LANGCACHE_HOST` | Yes* | - | LangCache API hostname |
-| `LANGCACHE_CACHE_ID` | Yes* | - | Cache ID from LangCache console |
+| `LANGCACHE_HOST` | Yes* | - | LangCache API hostname (set at runtime, not in Cloud Build) |
+| `LANGCACHE_CACHE_ID` | Yes* | - | Cache ID from LangCache console (set at runtime, not in Cloud Build) |
 | `LANGCACHE_API_KEY` | Yes* | - | LangCache API authentication key |
 | `LANGCACHE_SIMILARITY_THRESHOLD` | No | `0.9` | Semantic similarity threshold (0.0 - 1.0) |
 | `LANGCACHE_TTL` | No | `3600` | Cache entry TTL in seconds |
@@ -314,6 +316,7 @@ After policy change:  eligible_models = ["gpt-4", "gpt-4-turbo"]
 Error: LANGCACHE_HOST environment variable is required
 ```
 → Set all required environment variables (`LANGCACHE_HOST`, `LANGCACHE_CACHE_ID`, `LANGCACHE_API_KEY`)
+  in your runtime environment (Cloud Run or local .env), not Cloud Build.
 
 **Low cache hit rate (<20%):**
 - Prompts are too diverse (expected for low-volume traffic)

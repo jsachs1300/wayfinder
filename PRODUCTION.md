@@ -580,6 +580,8 @@ ROUTER_LLM_OPENAI_API_KEY=your-openai-key
 LANGCACHE_ENABLED=true
 LANGCACHE_HOST=your-cache.langcache.redis.io
 LANGCACHE_CACHE_ID=your-cache-id
+NOTE: LANGCACHE_HOST and LANGCACHE_CACHE_ID must be set in the Cloud Run
+service environment (or local .env). Cloud Build no longer injects them.
 LANGCACHE_API_KEY=your-langcache-key
 NODE_ENV=production
 
