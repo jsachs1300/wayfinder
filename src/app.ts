@@ -24,6 +24,23 @@ import { createSessionStore, type SessionStore } from './sessions';
 let sharedRedis: Redis | undefined;
 let sharedRedisPromise: Promise<Redis | undefined> | undefined;
 
+export async function cleanupSharedRedis(): Promise<void> {
+  if (!sharedRedis) {
+    sharedRedisPromise = undefined;
+    return;
+  }
+  try {
+    await sharedRedis.quit();
+  } catch (error) {
+    console.warn('Failed to close shared Redis connection', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  } finally {
+    sharedRedis = undefined;
+    sharedRedisPromise = undefined;
+  }
+}
+
 async function getSharedRedis(logger: Logger): Promise<Redis | undefined> {
   if (sharedRedis) {
     return sharedRedis;
