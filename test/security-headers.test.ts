@@ -158,7 +158,13 @@ describe('Security Headers', () => {
     it('should expose rate limiting headers in CORS', async () => {
       // Explicitly set ALLOWED_ORIGINS to ensure CORS is active
       process.env.ALLOWED_ORIGINS = '*';
-      const { app: testApp, dependencies: testDeps } = await createApp();
+      const routingEngine = createRoutingEngine({
+        routerLLM: new StubRouterLLM(),
+        policyEngine,
+        modelRegistry,
+        logger,
+      });
+      const { app: testApp, dependencies: testDeps } = await createApp({ routingEngine });
 
       const tokenConfig = await testDeps.tokenStore.create({
         trusted_anchor_model: 'claude-3-5-sonnet',
