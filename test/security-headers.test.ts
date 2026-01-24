@@ -12,12 +12,24 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import request from 'supertest';
 import { createApp, AppDependencies } from '../src/app';
 import type { Express } from 'express';
+import { createRoutingEngine, StubRouterLLM } from '../src/routing';
+import { createPolicyEngine } from '../src/policy';
+import { createModelRegistry } from '../src/models';
+import type { Logger } from '../src/logging/logger';
 
 describe('Security Headers', () => {
   let app: Express;
   let deps: AppDependencies;
   let adminApiKey: string;
   let originalNodeEnv: string | undefined;
+  const policyEngine = createPolicyEngine();
+  const modelRegistry = createModelRegistry();
+  const logger: Logger = {
+    debug: () => {},
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+  };
 
   beforeEach(async () => {
     // Save original NODE_ENV
@@ -27,8 +39,15 @@ describe('Security Headers', () => {
     adminApiKey = 'test-admin-key';
     process.env.ADMIN_API_KEY = adminApiKey;
 
+    const routingEngine = createRoutingEngine({
+      routerLLM: new StubRouterLLM(),
+      policyEngine,
+      modelRegistry,
+      logger,
+    });
+
     // Create fresh app instance for each test
-    const result = await createApp();
+    const result = await createApp({ routingEngine });
     app = result.app;
     deps = result.dependencies;
   });

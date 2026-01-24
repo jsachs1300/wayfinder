@@ -178,6 +178,8 @@ describe('API Integration Tests', () => {
 
   describe('Knowledge Admin Endpoints', () => {
     it('should return knowledge stats', async () => {
+      await deps.knowledgeStore.clear({ scope: 'global' });
+
       // Add some knowledge first
       await deps.knowledgeStore.recordVote('coding', 'gpt-4-turbo', { scope: "global" });
       await deps.knowledgeStore.recordVote('legal', 'claude-3-opus', { scope: "global" });
