@@ -5,9 +5,19 @@ import { PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { MetricExporter } from '@google-cloud/opentelemetry-cloud-monitoring-exporter';
 import { TraceExporter } from '@google-cloud/opentelemetry-cloud-trace-exporter';
 
+const runningInGcp = Boolean(
+  process.env.K_SERVICE ||
+  process.env.CLOUD_RUN_JOB ||
+  process.env.GOOGLE_CLOUD_PROJECT ||
+  process.env.GCP_PROJECT ||
+  process.env.GCLOUD_PROJECT ||
+  process.env.GAE_SERVICE
+);
+
 const enabled =
   process.env.OBSERVABILITY_ENABLED !== 'false' &&
-  process.env.NODE_ENV !== 'test';
+  process.env.NODE_ENV !== 'test' &&
+  runningInGcp;
 
 if (enabled) {
   diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.ERROR);
