@@ -52,6 +52,12 @@ export class SemanticCache {
     misses: number;
     stores: number;
   };
+  private connectionStatus: {
+    connected: boolean;
+    lastError?: string;
+    lastErrorAt?: string;
+    lastSuccessAt?: string;
+  };
 
   constructor(config: CacheConfig) {
     this.config = config;
@@ -64,6 +70,9 @@ export class SemanticCache {
       hits: 0,
       misses: 0,
       stores: 0,
+    };
+    this.connectionStatus = {
+      connected: false,
     };
   }
 
@@ -94,6 +103,8 @@ export class SemanticCache {
         timeoutMs: this.config.timeoutMs ?? 5000, // Configurable timeout to prevent cache from blocking routing
       });
 
+      this.markCacheSuccess();
+
       // LangCache returns { data: [{ response, similarity, ... }] } structure
       // Check if we have data array with at least one result
       if (!result?.data || result.data.length === 0 || !result.data[0]?.response) {
@@ -120,6 +131,7 @@ export class SemanticCache {
     } catch (error) {
       // Graceful degradation: log error and return null
       // Cache failures should never block routing
+      this.markCacheError(error);
       logger.error('Cache get failed', {
         error: error instanceof Error ? error.message : String(error),
         prompt_hash: this.hashPrompt(prompt),
@@ -159,8 +171,10 @@ export class SemanticCache {
         prompt_hash: this.hashPrompt(prompt),
       });
 
+      this.markCacheSuccess();
       this.stats.stores++;
     } catch (error) {
+      this.markCacheError(error);
       logger.error('Cache set failed', {
         error: error instanceof Error ? error.message : String(error),
         prompt_hash: this.hashPrompt(prompt),
@@ -210,10 +224,12 @@ export class SemanticCache {
         timeoutMs: this.config.flushTimeoutMs ?? 10000,
       });
 
+      this.markCacheSuccess();
       logger.info('Cache cleared for token scope', {
         token_id: tokenId,
       });
     } catch (error) {
+      this.markCacheError(error);
       logger.error('Cache clear by scope failed', {
         error: error instanceof Error ? error.message : String(error),
         token_id: tokenId,
@@ -232,8 +248,10 @@ export class SemanticCache {
       await this.client.flush(undefined, {
         timeoutMs: this.config.flushTimeoutMs ?? 10000, // Configurable timeout for flush operation
       });
+      this.markCacheSuccess();
     } catch (error) {
       // Log error and re-throw for admin endpoint to handle
+      this.markCacheError(error);
       logger.error('Cache clear failed', {
         error: error instanceof Error ? error.message : String(error),
       });
@@ -250,6 +268,20 @@ export class SemanticCache {
     return this.config.ttl ?? 3600; // Default 1 hour if not configured
   }
 
+  getConnectionStatus(): {
+    connected: boolean;
+    last_error?: string;
+    last_error_at?: string;
+    last_success_at?: string;
+  } {
+    return {
+      connected: this.connectionStatus.connected,
+      last_error: this.connectionStatus.lastError,
+      last_error_at: this.connectionStatus.lastErrorAt,
+      last_success_at: this.connectionStatus.lastSuccessAt,
+    };
+  }
+
   /**
    * Create SHA256 hash of prompt for privacy-safe logging
    *
@@ -258,6 +290,18 @@ export class SemanticCache {
    */
   private hashPrompt(prompt: string): string {
     return createHash('sha256').update(prompt).digest('hex').substring(0, 16);
+  }
+
+  private markCacheSuccess(): void {
+    this.connectionStatus.connected = true;
+    this.connectionStatus.lastSuccessAt = new Date().toISOString();
+  }
+
+  private markCacheError(error: unknown): void {
+    this.connectionStatus.connected = false;
+    this.connectionStatus.lastError =
+      error instanceof Error ? error.message : String(error);
+    this.connectionStatus.lastErrorAt = new Date().toISOString();
   }
 }
 

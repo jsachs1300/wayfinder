@@ -294,12 +294,16 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
   // Do not move it after route-specific rate limiters or health checks may be rate limited,
   // which would break monitoring and alerting systems.
   app.get('/health', (_req: Request, res: Response) => {
+    const cacheStatus = cache?.getConnectionStatus();
     res.json({
       status: 'healthy',
       timestamp: new Date().toISOString(),
       redis_connected: redis?.status === 'ready',
       langcache_enabled: langCacheEnabled,
-      langcache_connected: Boolean(cache),
+      langcache_connected: cacheStatus?.connected ?? false,
+      ...(cacheStatus?.last_error ? { langcache_last_error: cacheStatus.last_error } : {}),
+      ...(cacheStatus?.last_error_at ? { langcache_last_error_at: cacheStatus.last_error_at } : {}),
+      ...(cacheStatus?.last_success_at ? { langcache_last_success_at: cacheStatus.last_success_at } : {}),
     });
   });
 
