@@ -21,6 +21,67 @@ import { createUserLLMKeyStore, type UserLLMKeyStore } from './users/llm-keys';
 import { validateEncryptionKeyAtStartup } from './users/llm-keys/encryption';
 import { createSessionStore, type SessionStore } from './sessions';
 
+let sharedRedis: Redis | undefined;
+let sharedRedisPromise: Promise<Redis | undefined> | undefined;
+
+export async function cleanupSharedRedis(): Promise<void> {
+  if (!sharedRedis) {
+    sharedRedisPromise = undefined;
+    return;
+  }
+  try {
+    await sharedRedis.quit();
+  } catch (error) {
+    console.warn('Failed to close shared Redis connection', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  } finally {
+    sharedRedis = undefined;
+    sharedRedisPromise = undefined;
+  }
+}
+
+async function getSharedRedis(logger: Logger): Promise<Redis | undefined> {
+  if (sharedRedis) {
+    return sharedRedis;
+  }
+  if (sharedRedisPromise) {
+    return sharedRedisPromise;
+  }
+  if (process.env.REDIS_ENABLED !== 'true' || !process.env.REDIS_URL) {
+    return undefined;
+  }
+
+  const redisClient = new Redis(process.env.REDIS_URL, {
+    maxRetriesPerRequest: 3,
+    lazyConnect: true,
+  });
+
+  sharedRedisPromise = (async () => {
+    try {
+      await redisClient.connect();
+      sharedRedis = redisClient;
+      logger.info('Connected to Redis');
+      return redisClient;
+    } catch (error) {
+      logger.warn('Failed to connect to Redis, using in-memory stores', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+      try {
+        redisClient.disconnect();
+      } catch {
+        // Ignore disconnect errors
+      }
+      sharedRedis = undefined;
+      return undefined;
+    } finally {
+      sharedRedisPromise = undefined;
+    }
+  })();
+
+  return sharedRedisPromise;
+}
+
 /**
  * Application dependencies container
  */
@@ -114,24 +175,7 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
 
   // Initialize Redis connection if enabled
   // Connect immediately to prevent auto-connection later (Issue #53)
-  let redis: Redis | undefined;
-  if (process.env.REDIS_ENABLED === 'true' && process.env.REDIS_URL) {
-    const redisClient = new Redis(process.env.REDIS_URL, {
-      maxRetriesPerRequest: 3,
-      lazyConnect: true,
-    });
-
-    try {
-      await redisClient.connect();
-      redis = redisClient;
-      logger.info('Connected to Redis');
-    } catch (error) {
-      logger.warn('Failed to connect to Redis, using in-memory stores', {
-        error: error instanceof Error ? error.message : 'Unknown error',
-      });
-      redis = undefined; // Fall back to in-memory stores
-    }
-  }
+  const redis = deps?.redis ?? await getSharedRedis(logger);
 
   // Check if we're in test/dev mode (allows bypassing requirements for testing)
   const isTestMode = process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development';
