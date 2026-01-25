@@ -67,7 +67,16 @@ export function tokenAuthMiddleware(tokenStore: TokenStore, userStore?: UserStor
         return;
       }
 
-      // Check if user account is suspended
+      // Check if user account is suspended or pending
+      if (user.status === 'pending') {
+        res.status(403).json({
+          error: 'Forbidden',
+          message: 'Email not verified',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
       if (user.status === 'suspended') {
         res.status(403).json({
           error: 'Forbidden',
@@ -131,6 +140,16 @@ export function sessionAuthMiddleware(sessionStore: SessionStore, userStore: Use
       res.status(401).json({
         error: 'Unauthorized',
         message: 'User not found for session',
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+
+    if (user.status === 'pending') {
+      await sessionStore.delete(sessionToken);
+      res.status(403).json({
+        error: 'Forbidden',
+        message: 'Email not verified',
         timestamp: new Date().toISOString(),
       });
       return;

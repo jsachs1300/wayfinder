@@ -582,6 +582,11 @@ LANGCACHE_HOST=your-cache.langcache.redis.io
 LANGCACHE_CACHE_ID=your-cache-id
 NOTE: LANGCACHE_HOST and LANGCACHE_CACHE_ID must be set in the Cloud Run
 service environment (or local .env). Cloud Build no longer injects them.
+
+# Email (Postmark)
+POSTMARK_API_KEY=your-postmark-server-token
+EMAIL_FROM=Wayfinder <user-ops@wyfndr.ai>
+EMAIL_REPLY_TO=support@yourdomain.com
 LANGCACHE_API_KEY=your-langcache-key
 NODE_ENV=production
 

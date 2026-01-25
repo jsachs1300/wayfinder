@@ -10,7 +10,7 @@ export type UserTier = 'free' | 'paid_system' | 'paid_byollm' | 'admin';
 /**
  * User account status
  */
-export type UserStatus = 'active' | 'suspended' | 'deleted';
+export type UserStatus = 'active' | 'pending' | 'suspended' | 'deleted';
 
 /**
  * User account model
@@ -53,6 +53,10 @@ export interface User {
 export interface UserCreateRequest {
   email: string;
   password: string;
+}
+
+export interface UserPendingCreateRequest {
+  email: string;
 }
 
 /**

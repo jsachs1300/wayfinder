@@ -76,6 +76,15 @@ export function createSessionRoutes(
         return;
       }
 
+      if (user.status === 'pending') {
+        res.status(403).json({
+          error: 'ForbiddenError',
+          message: 'Email not verified',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
       if (user.status === 'suspended') {
         res.status(403).json({
           error: 'ForbiddenError',
