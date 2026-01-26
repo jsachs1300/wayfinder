@@ -110,7 +110,7 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
       }
     },
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'X-Wayfinder-Token', 'X-Admin-Api-Key', 'X-Request-Id'],
+    allowedHeaders: ['Content-Type', 'X-Wayfinder-Token', 'X-Admin-Api-Key', 'X-Session-Token', 'X-Request-Id'],
     exposedHeaders: ['X-Request-Id', 'RateLimit-Limit', 'RateLimit-Remaining', 'RateLimit-Reset'],
     credentials: true,
     maxAge: 86400, // 24 hours - how long browsers cache preflight responses
