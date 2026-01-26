@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { TokenStore } from './store';
+import type { TokenMetricsStore } from './metrics';
 import { TokenConfigExtended } from './types';
 import {
   TokenConfig,
@@ -61,6 +62,7 @@ export function createUserTokenRoutes(
   tokenStore: TokenStore,
   modelRegistry: ModelRegistry,
   logger: Logger,
+  metricsStore?: TokenMetricsStore,
   cache?: { clearByScope: (tokenId: string) => Promise<void> }
 ): Router {
   const router = Router();
@@ -79,6 +81,9 @@ export function createUserTokenRoutes(
       }
 
       const tokens = await tokenStore.listByUser(req.user.id);
+      const metrics = metricsStore
+        ? await metricsStore.getMetricsBulk(tokens.map((t) => t.id))
+        : {};
 
       res.json({
         tokens: tokens.map((t) => ({
@@ -89,6 +94,7 @@ export function createUserTokenRoutes(
           created_at: t.created_at,
           updated_at: t.updated_at,
           rotated_at: t.rotated_at,
+          metrics: metrics[t.id] ?? { route_requests: 0, cache_hits: 0 },
         })),
         count: tokens.length,
       });

@@ -4,7 +4,8 @@ import helmet from 'helmet';
 import cors from 'cors';
 
 import { tokenAuthMiddleware, adminAuthMiddleware, requestIdMiddleware, userAuthMiddleware } from './auth';
-import { createTokenStore, createAdminRoutes, TokenStore } from './tokens';
+import { createTokenStore, createAdminRoutes, createTokenMetricsStore, TokenStore } from './tokens';
+import type { TokenMetricsStore } from './tokens/metrics';
 import { createPolicyEngine, PolicyEngine } from './policy';
 import { createKnowledgeStore, KnowledgeStore } from './knowledge';
 import { createModelRegistry, DefaultModelRegistry } from './models';
@@ -30,6 +31,7 @@ import { getSharedRedis } from './redis/shared';
 export interface AppDependencies {
   redis?: Redis;
   tokenStore: TokenStore;
+  tokenMetricsStore?: TokenMetricsStore;
   userStore?: UserStore;
   userLLMKeyStore?: UserLLMKeyStore;
   anonymousSessionStore?: AnonymousSessionStore;
@@ -168,6 +170,7 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
     logger.warn('Running in test/dev mode without semantic cache - this is not suitable for production');
   }
   const tokenStore = deps?.tokenStore ?? createTokenStore(redis);
+  const tokenMetricsStore = deps?.tokenMetricsStore ?? createTokenMetricsStore(redis);
 
   // Initialize user-related stores if user self-service feature is enabled
   let userStore: UserStore | undefined;
@@ -334,7 +337,7 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
   const adminRouter = express.Router();
   adminRouter.use(rateLimiters.admin);
   adminRouter.use(adminAuthMiddleware(sessionStore, userStore));
-  adminRouter.use(createAdminRoutes(tokenStore, modelRegistry, cache));
+  adminRouter.use(createAdminRoutes(tokenStore, modelRegistry, tokenMetricsStore, cache));
 
   // Knowledge stats endpoint (admin only)
   // Optional query params: ?scope=global|token&token_id=xxx
@@ -508,7 +511,7 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
     rateLimiters.routing,
     tokenAuthMiddleware(tokenStore, userStore),
     tierRateLimiter,
-    createRoutingRoutes(routingEngine, logger)
+    createRoutingRoutes(routingEngine, logger, tokenMetricsStore)
   );
 
   app.use('/feedback',
@@ -550,7 +553,7 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
       // Protected routes (require user auth)
       app.use('/api/tokens',
         userAuthMiddleware(tokenStore, userStore, sessionStore),
-        createUserTokenRoutes(tokenStore, modelRegistry, logger, cache)
+        createUserTokenRoutes(tokenStore, modelRegistry, logger, tokenMetricsStore, cache)
       );
 
       app.use('/api/llm-keys',
