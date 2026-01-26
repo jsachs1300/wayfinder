@@ -20,6 +20,8 @@ import { createAnonymousSessionStore, type AnonymousSessionStore } from './users
 import { createUserLLMKeyStore, type UserLLMKeyStore } from './users/llm-keys';
 import { validateEncryptionKeyAtStartup } from './users/llm-keys/encryption';
 import { createSessionStore, type SessionStore } from './sessions';
+import { createUserVerificationStore, type UserVerificationStore } from './users/verification-store';
+import { ConsoleMailer, PostmarkMailer, type Mailer } from './email';
 import { getSharedRedis } from './redis/shared';
 
 /**
@@ -32,6 +34,8 @@ export interface AppDependencies {
   userLLMKeyStore?: UserLLMKeyStore;
   anonymousSessionStore?: AnonymousSessionStore;
   sessionStore?: SessionStore;
+  verificationStore?: UserVerificationStore;
+  mailer?: Mailer;
   policyEngine: PolicyEngine;
   knowledgeStore: KnowledgeStore;
   modelRegistry: DefaultModelRegistry;
@@ -170,6 +174,21 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
   let userLLMKeyStore: UserLLMKeyStore | undefined;
   let anonymousSessionStore: AnonymousSessionStore | undefined;
   let sessionStore: SessionStore | undefined;
+  let verificationStore: UserVerificationStore | undefined;
+  const mailer = (() => {
+    if (deps?.mailer) {
+      return deps.mailer;
+    }
+    if (process.env.POSTMARK_API_KEY) {
+      const emailFrom = process.env.EMAIL_FROM || 'user-ops@wyfndr.ai';
+      return new PostmarkMailer({
+        apiKey: process.env.POSTMARK_API_KEY,
+        from: emailFrom,
+        replyTo: process.env.EMAIL_REPLY_TO,
+      }, logger);
+    }
+    return new ConsoleMailer(logger);
+  })();
 
   if (FEATURE_FLAGS.USER_SELF_SERVICE) {
     // Validate encryption key at startup
@@ -187,12 +206,14 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
     userLLMKeyStore = deps?.userLLMKeyStore ?? createUserLLMKeyStore(redis);
     anonymousSessionStore = deps?.anonymousSessionStore ?? createAnonymousSessionStore(tokenStore, redis);
     sessionStore = deps?.sessionStore ?? createSessionStore(redis);
+    verificationStore = deps?.verificationStore ?? createUserVerificationStore(redis);
 
     logger.info('User self-service features enabled', {
       userStore: userStore ? 'initialized' : 'not available',
       userLLMKeyStore: userLLMKeyStore ? 'initialized' : 'not available',
       anonymousSessionStore: anonymousSessionStore ? 'initialized' : 'not available',
       sessionStore: sessionStore ? 'initialized' : 'not available',
+      verificationStore: verificationStore ? 'initialized' : 'not available',
     });
   }
 
@@ -255,6 +276,8 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
     userLLMKeyStore,
     anonymousSessionStore,
     sessionStore,
+    verificationStore,
+    mailer,
     policyEngine,
     knowledgeStore,
     modelRegistry,
@@ -508,7 +531,15 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
       const { createSessionRoutes } = require('./sessions/routes');
 
       // Public routes (no auth required)
-      app.use('/api/users', createUserRoutes(userStore, tokenStore, logger, userAuthMiddleware(tokenStore, userStore, sessionStore)));
+      app.use('/api/users', createUserRoutes(
+        userStore,
+        tokenStore,
+        logger,
+        verificationStore,
+        sessionStore,
+        userAuthMiddleware(tokenStore, userStore, sessionStore),
+        mailer
+      ));
       if (sessionStore) {
         app.use('/api/sessions', rateLimiters.auth, createSessionRoutes(sessionStore, userStore, tokenStore, logger));
       } else {

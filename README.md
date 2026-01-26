@@ -72,11 +72,18 @@ curl -X POST http://localhost:3000/route \
 If user self-service features are enabled (`FEATURE_USER_SELF_SERVICE=true`), users can register and manage their own tokens:
 
 ```bash
-# Register a new user account
+# Register with email only (verification link is sent)
 curl -X POST http://localhost:3000/api/users/register \
   -H "Content-Type: application/json" \
   -d '{
-    "email": "user@example.com",
+    "email": "user@example.com"
+  }'
+
+# Complete registration after verification to set a password
+curl -X POST http://localhost:3000/api/users/complete-registration \
+  -H "Content-Type: application/json" \
+  -d '{
+    "token": "verification-token",
     "password": "SecurePass123!"
   }'
 
@@ -489,8 +496,13 @@ Every routing request follows this deterministic flow:
 When `FEATURE_USER_SELF_SERVICE=true`:
 
 **Authentication (No Auth Required)**
-- `POST /api/users/register` - Create a new user account
+- `POST /api/users/register` - Email-only registration (sends verification link)
+- `POST /api/users/verify-email` - Validate verification token
+- `POST /api/users/complete-registration` - Set password and activate account
 - `POST /api/users/login` - Authenticate and get user data
+- `POST /api/users/password/forgot` - Request password reset
+- `POST /api/users/password/validate` - Validate reset token
+- `POST /api/users/password/reset` - Reset password
 - `POST /api/anonymous/session` - Create anonymous session
 - `POST /api/anonymous/convert` - Convert anonymous to registered user
 
@@ -1254,7 +1266,17 @@ When user self-service is enabled (`FEATURE_USER_SELF_SERVICE=true`):
 curl -X POST http://localhost:3000/api/users/register \
   -H "Content-Type: application/json" \
   -d '{
-    "email": "user@example.com",
+    "email": "user@example.com"
+  }'
+```
+
+#### Complete Registration (Verify Email + Set Password)
+
+```bash
+curl -X POST http://localhost:3000/api/users/complete-registration \
+  -H "Content-Type: application/json" \
+  -d '{
+    "token": "verification-token",
     "password": "SecurePass123!"
   }'
 ```
@@ -2019,16 +2041,24 @@ curl "http://localhost:3000/admin/knowledge/stats?scope=token&token_id=$TOKEN_ID
 Register a user, create tokens, and manage LLM keys:
 
 ```bash
-# Register a new user
+# Register (email-only)
 REGISTER_RESPONSE=$(curl -s -X POST http://localhost:3000/api/users/register \
   -H "Content-Type: application/json" \
   -d '{
-    "email": "developer@example.com",
-    "password": "SecurePass123!"
+    "email": "developer@example.com"
   }')
 
-# Extract the token from registration response
-TOKEN=$(echo $REGISTER_RESPONSE | jq -r '.token.token')
+# Complete registration (use verification token from email or debug response)
+VERIFY_TOKEN=$(echo $REGISTER_RESPONSE | jq -r '.verification_token')
+COMPLETE_RESPONSE=$(curl -s -X POST http://localhost:3000/api/users/complete-registration \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"token\": \"${VERIFY_TOKEN}\",
+    \"password\": \"SecurePass123!\"
+  }")
+
+# Extract the token from completion response
+TOKEN=$(echo $COMPLETE_RESPONSE | jq -r '.token.token')
 
 # Use the token to route a request
 curl -X POST http://localhost:3000/route \

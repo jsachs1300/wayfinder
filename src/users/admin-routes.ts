@@ -11,7 +11,7 @@ import type { UserStatus, UserTier } from './types';
 import { sanitizeUser } from './sanitize';
 
 const StatusSchema = z.object({
-  status: z.enum(['active', 'suspended', 'deleted']),
+  status: z.enum(['active', 'pending', 'suspended', 'deleted']),
 });
 
 const TierSchema = z.object({

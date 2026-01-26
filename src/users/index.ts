@@ -7,3 +7,4 @@ export * from './store';
 export * from './routes';
 export * from './validation';
 export * from './password';
+export * from './verification-store';

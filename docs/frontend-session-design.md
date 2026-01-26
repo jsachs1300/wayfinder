@@ -3,6 +3,24 @@
 ## Overview
 Frontend sessions are required for user login, session validation, logout, and admin elevation. All session data is stored in Redis on the backend. Sessions are represented by a session token returned on login and sent with subsequent requests.
 
+## Registration + Verification (Email-First)
+Registration is email-only. The backend sends a verification link; the user completes verification and sets a password before login.
+
+Key endpoints:
+- `POST /api/users/register` (email only)
+- `POST /api/users/verify-email` (token validation)
+- `POST /api/users/complete-registration` (token + password)
+
+In non-production environments, the API may return a `verification_token` to enable local testing without email delivery.
+
+## Forgot Password
+Password reset is token-based and does not reveal whether the email exists.
+
+Key endpoints:
+- `POST /api/users/password/forgot`
+- `POST /api/users/password/validate`
+- `POST /api/users/password/reset`
+
 ## Headers
 - `X-Session-Token`: session token issued by `POST /api/sessions/login`
 - `X-Admin-Api-Key`: admin key (only used for session elevation)

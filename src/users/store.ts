@@ -2,11 +2,11 @@
  * User storage interface and implementations
  */
 
-import { User, UserCreateRequest, UserUpdateRequest, UserTier, UserStatus } from './types';
+import { User, UserCreateRequest, UserPendingCreateRequest, UserUpdateRequest, UserTier, UserStatus } from './types';
 import { v4 as uuidv4 } from 'uuid';
 import * as crypto from 'crypto';
 import Redis from 'ioredis';
-import { verifyPassword, hashPassword } from './password';
+import { verifyPassword, hashPassword, DUMMY_PASSWORD_HASH } from './password';
 
 const USER_PREFIX = 'wayfinder:user:';
 const USER_EMAIL_INDEX = 'wayfinder:user:email:';
@@ -29,6 +29,11 @@ export interface UserStore {
    * Create a new user
    */
   create(request: UserCreateRequest): Promise<User>;
+
+  /**
+   * Create a new pending user (email-only registration)
+   */
+  createPending(request: UserPendingCreateRequest): Promise<User>;
 
   /**
    * Get user by ID
@@ -93,6 +98,36 @@ export class InMemoryUserStore implements UserStore {
       password_hash,
       tier: 'free',
       status: 'active',
+      org_id: null,
+      billing_customer_id: null,
+      created_at: now,
+      updated_at: now,
+      last_login_at: null,
+    };
+
+    this.users.set(id, user);
+    this.emailIndex.set(emailHash, id);
+
+    return user;
+  }
+
+  async createPending(request: UserPendingCreateRequest): Promise<User> {
+    const id = uuidv4();
+    const emailHash = hashEmail(request.email);
+    const now = new Date().toISOString();
+
+    if (this.emailIndex.has(emailHash)) {
+      throw new Error('Email already registered');
+    }
+
+    const password_hash = DUMMY_PASSWORD_HASH;
+
+    const user: User = {
+      id,
+      email: request.email.toLowerCase().trim(),
+      password_hash,
+      tier: 'free',
+      status: 'pending',
       org_id: null,
       billing_customer_id: null,
       created_at: now,
@@ -219,6 +254,40 @@ export class RedisUserStore implements UserStore {
     };
 
     // Store user and indexes atomically using MULTI/EXEC
+    const pipeline = this.redis.multi();
+    pipeline.set(USER_PREFIX + id, JSON.stringify(user));
+    pipeline.set(USER_EMAIL_INDEX + emailHash, id);
+    pipeline.sadd(USER_INDEX_KEY, id);
+    await pipeline.exec();
+
+    return user;
+  }
+
+  async createPending(request: UserPendingCreateRequest): Promise<User> {
+    const id = uuidv4();
+    const emailHash = hashEmail(request.email);
+    const now = new Date().toISOString();
+
+    const existingId = await this.redis.get(USER_EMAIL_INDEX + emailHash);
+    if (existingId) {
+      throw new Error('Email already registered');
+    }
+
+    const password_hash = DUMMY_PASSWORD_HASH;
+
+    const user: User = {
+      id,
+      email: request.email.toLowerCase().trim(),
+      password_hash,
+      tier: 'free',
+      status: 'pending',
+      org_id: null,
+      billing_customer_id: null,
+      created_at: now,
+      updated_at: now,
+      last_login_at: null,
+    };
+
     const pipeline = this.redis.multi();
     pipeline.set(USER_PREFIX + id, JSON.stringify(user));
     pipeline.set(USER_EMAIL_INDEX + emailHash, id);

@@ -16,13 +16,14 @@ import { verifyPassword, DUMMY_PASSWORD_HASH } from './password';
 import type { Logger } from '../logging/logger';
 import { sanitizeUser } from './sanitize';
 import { sanitizeToken } from '../tokens/sanitize';
+import type { UserVerificationStore } from './verification-store';
+import type { Mailer } from '../email';
 
 /**
  * Zod schema for user registration
  */
 const UserRegisterSchema = z.object({
   email: z.string().min(1, 'Email is required'),
-  password: z.string().min(1, 'Password is required'),
 });
 
 /**
@@ -32,6 +33,48 @@ const UserLoginSchema = z.object({
   email: z.string().min(1, 'Email is required'),
   password: z.string().min(1, 'Password is required'),
 });
+
+const EmailTokenSchema = z.object({
+  token: z.string().min(1, 'Token is required'),
+});
+
+const CompleteRegistrationSchema = z.object({
+  token: z.string().min(1, 'Token is required'),
+  password: z.string().min(1, 'Password is required'),
+});
+
+const ForgotPasswordSchema = z.object({
+  email: z.string().min(1, 'Email is required'),
+});
+
+const ResetPasswordSchema = z.object({
+  token: z.string().min(1, 'Token is required'),
+  password: z.string().min(1, 'Password is required'),
+});
+
+function getFrontendBaseUrl(): string {
+  return process.env.FRONTEND_BASE_URL ?? 'http://localhost:3000';
+}
+
+function shouldReturnDebugToken(): boolean {
+  return process.env.NODE_ENV !== 'production';
+}
+
+function getVerificationTtlSeconds(): number {
+  const value = Number(process.env.EMAIL_VERIFICATION_TTL_HOURS ?? 24);
+  if (Number.isNaN(value) || value <= 0) {
+    return 24 * 60 * 60;
+  }
+  return Math.floor(value * 60 * 60);
+}
+
+function getResetTtlSeconds(): number {
+  const value = Number(process.env.PASSWORD_RESET_TTL_MINUTES ?? 30);
+  if (Number.isNaN(value) || value <= 0) {
+    return 30 * 60;
+  }
+  return Math.floor(value * 60);
+}
 
 /**
  * Zod schema for user profile update
@@ -50,7 +93,10 @@ export function createUserRoutes(
   userStore: UserStore,
   tokenStore: TokenStore,
   logger: Logger,
-  userAuth?: (req: Request, res: Response, next: () => void) => void
+  verificationStore?: UserVerificationStore,
+  sessionStore?: { deleteAllByUserId: (userId: string) => Promise<void> },
+  userAuth?: (req: Request, res: Response, next: () => void) => void,
+  mailer?: Mailer
 ): Router {
   const router = Router();
 
@@ -73,7 +119,7 @@ export function createUserRoutes(
         return;
       }
 
-      const { email, password } = parsed.data;
+      const { email } = parsed.data;
 
       // Validate email format
       if (!validateEmail(email)) {
@@ -86,26 +132,56 @@ export function createUserRoutes(
         return;
       }
 
-      // Validate password requirements
-      const passwordValidation = validatePassword(password);
-      if (!passwordValidation.valid) {
-        res.status(400).json({
-          error: 'ValidationError',
-          code: 'VAL_002',
-          message: 'Password does not meet requirements',
-          details: passwordValidation.errors,
+      if (!verificationStore) {
+        res.status(500).json({
+          error: 'ConfigurationError',
+          message: 'Email verification is not configured',
           timestamp: new Date().toISOString(),
         });
         return;
       }
 
-      // Create user (password will be hashed internally by store)
+      const existing = await userStore.getByEmail(email);
+      if (existing) {
+        if (existing.status === 'active') {
+          res.status(200).json({
+            message: 'If an account exists, a verification email has been sent.',
+            timestamp: new Date().toISOString(),
+          });
+          return;
+        }
+
+        const verificationToken = await verificationStore.createEmailVerification(
+          existing.id,
+          existing.email,
+          getVerificationTtlSeconds()
+        );
+        const verifyLink = `${getFrontendBaseUrl()}/verify-email?token=${verificationToken}`;
+        logger.info('User verification resend requested', {
+          user_id: existing.id,
+          email: existing.email,
+          timestamp: new Date().toISOString(),
+        });
+        try {
+          await mailer?.sendEmailVerification(existing.email, verifyLink);
+        } catch (emailError) {
+          logger.error('Failed to send verification email', {
+            user_id: existing.id,
+            error: emailError instanceof Error ? emailError.message : String(emailError),
+          });
+        }
+
+        res.status(200).json({
+          message: 'If an account exists, a verification email has been sent.',
+          ...(shouldReturnDebugToken() ? { verification_token: verificationToken } : {}),
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
       let user: User;
       try {
-        user = await userStore.create({
-          email,
-          password,
-        });
+        user = await userStore.createPending({ email });
       } catch (error) {
         if (error instanceof Error && error.message === 'Email already registered') {
           res.status(409).json({
@@ -119,44 +195,31 @@ export function createUserRoutes(
         throw error;
       }
 
-      // Create primary token for user
-      const tokenResult = await tokenStore.createForUser(
+      const verificationToken = await verificationStore.createEmailVerification(
         user.id,
-        'Default Token',
-        {
-          environment: 'dev',
-          confidence_threshold: 0.6,
-          logging_level: 'normal',
-          knowledge_scope: 'global',
-        }
+        user.email,
+        getVerificationTtlSeconds()
       );
-
-      logger.info('User registered', {
+      const verifyLink = `${getFrontendBaseUrl()}/verify-email?token=${verificationToken}`;
+      logger.info('User registration initiated', {
         user_id: user.id,
         email: user.email,
-        tier: user.tier,
         timestamp: new Date().toISOString(),
       });
-      logUserRegistered(logger, { user_id: user.id, email: user.email });
-      recordUserRegistered();
+      try {
+        await mailer?.sendEmailVerification(user.email, verifyLink);
+      } catch (emailError) {
+        logger.error('Failed to send verification email', {
+          user_id: user.id,
+          error: emailError instanceof Error ? emailError.message : String(emailError),
+        });
+      }
 
-      res.status(201).json({
-        user: sanitizeUser(user),
-        token: {
-          id: tokenResult.id,
-          token: tokenResult.token,
-          name: tokenResult.config.name || 'Default Token',
-          is_primary: tokenResult.config.is_primary || true,
-        },
+      res.status(200).json({
+        message: 'If an account exists, a verification email has been sent.',
+        ...(shouldReturnDebugToken() ? { verification_token: verificationToken } : {}),
+        timestamp: new Date().toISOString(),
       });
-      logTokenEvent(logger, {
-        event_type: 'token_created',
-        token_id: tokenResult.id,
-        user_id: user.id,
-        is_primary: tokenResult.config.is_primary || true,
-        eligible_models: tokenResult.config.eligible_models,
-      });
-      recordTokenCreated();
     } catch (error) {
       logger.error('User registration failed', {
         error: error instanceof Error ? error.message : 'Unknown error',
@@ -224,6 +287,16 @@ export function createUserRoutes(
         return;
       }
 
+      if (user.status === 'pending') {
+        res.status(403).json({
+          error: 'Forbidden',
+          code: 'AUTH_002',
+          message: 'Email not verified',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
       // Check if account is suspended
       if (user.status === 'suspended') {
         logger.warn('Login attempt for suspended account', {
@@ -267,6 +340,423 @@ export function createUserRoutes(
       res.status(500).json({
         error: 'InternalError',
         message: 'Failed to login',
+        timestamp: new Date().toISOString(),
+      });
+    }
+  });
+
+  /**
+   * POST /api/users/verify-email
+   * Validate an email verification token (non-consuming).
+   */
+  router.post('/verify-email', async (req: Request, res: Response): Promise<void> => {
+    try {
+      const parsed = EmailTokenSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          error: 'ValidationError',
+          message: 'Invalid request body',
+          details: parsed.error.errors,
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      if (!verificationStore) {
+        res.status(500).json({
+          error: 'ConfigurationError',
+          message: 'Email verification is not configured',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      const record = await verificationStore.getEmailVerification(parsed.data.token);
+      if (!record) {
+        res.status(400).json({
+          error: 'InvalidToken',
+          message: 'Verification token is invalid or expired',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      res.status(200).json({
+        valid: true,
+        email: record.email,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      logger.error('Email verification check failed', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString(),
+      });
+      res.status(500).json({
+        error: 'InternalError',
+        message: 'Failed to verify email',
+        timestamp: new Date().toISOString(),
+      });
+    }
+  });
+
+  /**
+   * POST /api/users/complete-registration
+   * Consume verification token, set password, and activate user.
+   */
+  router.post('/complete-registration', async (req: Request, res: Response): Promise<void> => {
+    try {
+      const parsed = CompleteRegistrationSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          error: 'ValidationError',
+          message: 'Invalid request body',
+          details: parsed.error.errors,
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      const passwordValidation = validatePassword(parsed.data.password);
+      if (!passwordValidation.valid) {
+        res.status(400).json({
+          error: 'ValidationError',
+          code: 'VAL_002',
+          message: 'Password does not meet requirements',
+          details: passwordValidation.errors,
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      if (!verificationStore) {
+        res.status(500).json({
+          error: 'ConfigurationError',
+          message: 'Email verification is not configured',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      const record = await verificationStore.consumeEmailVerification(parsed.data.token);
+      if (!record) {
+        res.status(400).json({
+          error: 'InvalidToken',
+          message: 'Verification token is invalid or expired',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      const user = await userStore.getById(record.user_id);
+      if (!user) {
+        res.status(404).json({
+          error: 'NotFound',
+          message: 'User not found',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      if (user.status === 'active') {
+        res.status(409).json({
+          error: 'ConflictError',
+          message: 'Email is already verified',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      const updated = await userStore.update(user.id, {
+        password: parsed.data.password,
+        status: 'active',
+      });
+      if (!updated) {
+        res.status(500).json({
+          error: 'InternalError',
+          message: 'Failed to activate user',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      const tokenResult = await tokenStore.createForUser(
+        updated.id,
+        'Default Token',
+        {
+          environment: 'dev',
+          confidence_threshold: 0.6,
+          logging_level: 'normal',
+          knowledge_scope: 'global',
+        }
+      );
+
+      logger.info('User registration completed', {
+        user_id: updated.id,
+        email: updated.email,
+        tier: updated.tier,
+        timestamp: new Date().toISOString(),
+      });
+      logUserRegistered(logger, { user_id: updated.id, email: updated.email });
+      recordUserRegistered();
+
+      res.status(201).json({
+        user: sanitizeUser(updated),
+        token: {
+          id: tokenResult.id,
+          token: tokenResult.token,
+          name: tokenResult.config.name || 'Default Token',
+          is_primary: tokenResult.config.is_primary || true,
+        },
+      });
+      logTokenEvent(logger, {
+        event_type: 'token_created',
+        token_id: tokenResult.id,
+        user_id: updated.id,
+        is_primary: tokenResult.config.is_primary || true,
+        eligible_models: tokenResult.config.eligible_models,
+      });
+      recordTokenCreated();
+    } catch (error) {
+      logger.error('Complete registration failed', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString(),
+      });
+      res.status(500).json({
+        error: 'InternalError',
+        message: 'Failed to complete registration',
+        timestamp: new Date().toISOString(),
+      });
+    }
+  });
+
+  /**
+   * POST /api/users/password/forgot
+   * Request a password reset link (always 200).
+   */
+  router.post('/password/forgot', async (req: Request, res: Response): Promise<void> => {
+    try {
+      const parsed = ForgotPasswordSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          error: 'ValidationError',
+          message: 'Invalid request body',
+          details: parsed.error.errors,
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      const { email } = parsed.data;
+      if (!validateEmail(email)) {
+        res.status(400).json({
+          error: 'ValidationError',
+          message: 'Invalid email format',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      if (!verificationStore) {
+        res.status(500).json({
+          error: 'ConfigurationError',
+          message: 'Password reset is not configured',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      const user = await userStore.getByEmail(email);
+      if (user && user.status === 'active') {
+        const resetToken = await verificationStore.createPasswordReset(
+          user.id,
+          user.email,
+          getResetTtlSeconds()
+        );
+        const resetLink = `${getFrontendBaseUrl()}/reset-password?token=${resetToken}`;
+        logger.info('Password reset requested', {
+          user_id: user.id,
+          email: user.email,
+          timestamp: new Date().toISOString(),
+        });
+        try {
+          await mailer?.sendPasswordReset(user.email, resetLink);
+        } catch (emailError) {
+          logger.error('Failed to send password reset email', {
+            user_id: user.id,
+            error: emailError instanceof Error ? emailError.message : String(emailError),
+          });
+        }
+
+        res.status(200).json({
+          message: 'If an account exists, a reset link has been sent.',
+          ...(shouldReturnDebugToken() ? { reset_token: resetToken } : {}),
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      res.status(200).json({
+        message: 'If an account exists, a reset link has been sent.',
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      logger.error('Password reset request failed', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString(),
+      });
+      res.status(500).json({
+        error: 'InternalError',
+        message: 'Failed to request password reset',
+        timestamp: new Date().toISOString(),
+      });
+    }
+  });
+
+  /**
+   * POST /api/users/password/validate
+   * Validate a password reset token.
+   */
+  router.post('/password/validate', async (req: Request, res: Response): Promise<void> => {
+    try {
+      const parsed = EmailTokenSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          error: 'ValidationError',
+          message: 'Invalid request body',
+          details: parsed.error.errors,
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      if (!verificationStore) {
+        res.status(500).json({
+          error: 'ConfigurationError',
+          message: 'Password reset is not configured',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      const record = await verificationStore.getPasswordReset(parsed.data.token);
+      if (!record) {
+        res.status(400).json({
+          error: 'InvalidToken',
+          message: 'Reset token is invalid or expired',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      res.status(200).json({
+        valid: true,
+        email: record.email,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      logger.error('Password reset token validation failed', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString(),
+      });
+      res.status(500).json({
+        error: 'InternalError',
+        message: 'Failed to validate reset token',
+        timestamp: new Date().toISOString(),
+      });
+    }
+  });
+
+  /**
+   * POST /api/users/password/reset
+   * Reset password using a valid token.
+   */
+  router.post('/password/reset', async (req: Request, res: Response): Promise<void> => {
+    try {
+      const parsed = ResetPasswordSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          error: 'ValidationError',
+          message: 'Invalid request body',
+          details: parsed.error.errors,
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      const passwordValidation = validatePassword(parsed.data.password);
+      if (!passwordValidation.valid) {
+        res.status(400).json({
+          error: 'ValidationError',
+          code: 'VAL_002',
+          message: 'Password does not meet requirements',
+          details: passwordValidation.errors,
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      if (!verificationStore) {
+        res.status(500).json({
+          error: 'ConfigurationError',
+          message: 'Password reset is not configured',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      const record = await verificationStore.consumePasswordReset(parsed.data.token);
+      if (!record) {
+        res.status(400).json({
+          error: 'InvalidToken',
+          message: 'Reset token is invalid or expired',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      const user = await userStore.getById(record.user_id);
+      if (!user) {
+        res.status(404).json({
+          error: 'NotFound',
+          message: 'User not found',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      if (user.status !== 'active') {
+        res.status(403).json({
+          error: 'Forbidden',
+          message: 'Account is not active',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      const updated = await userStore.update(user.id, { password: parsed.data.password });
+      if (!updated) {
+        res.status(500).json({
+          error: 'InternalError',
+          message: 'Failed to reset password',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      await sessionStore?.deleteAllByUserId(user.id);
+
+      res.status(200).json({
+        message: 'Password updated.',
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      logger.error('Password reset failed', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString(),
+      });
+      res.status(500).json({
+        error: 'InternalError',
+        message: 'Failed to reset password',
         timestamp: new Date().toISOString(),
       });
     }
