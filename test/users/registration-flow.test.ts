@@ -1,32 +1,34 @@
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import request from 'supertest';
-
-let createApp: typeof import('../../src/app').createApp;
-
-const encryptionKey = 'a7bc6b8ade99c80ff7e4bb1cecb2d391615630556c0b2a0317c53cf4e45ff91d';
-
-async function setupApp() {
-  const result = await createApp();
-  return result.app;
-}
+import express from 'express';
+import { createUserRoutes } from '../../src/users/routes';
+import { InMemoryUserStore } from '../../src/users/store';
+import { InMemoryTokenStore } from '../../src/tokens/store';
+import { InMemoryUserVerificationStore } from '../../src/users/verification-store';
+import { createLogger } from '../../src/logging';
 
 describe('User Registration Verification Flow', () => {
-  beforeAll(async () => {
-    process.env.FEATURE_USER_SELF_SERVICE = 'true';
-    process.env.LLM_KEY_ENCRYPTION_KEY = encryptionKey;
-    process.env.NODE_ENV = 'test';
-    vi.resetModules();
-    ({ createApp } = await import('../../src/app'));
-  });
+  let app: express.Express;
 
-  afterAll(() => {
-    delete process.env.FEATURE_USER_SELF_SERVICE;
-    delete process.env.LLM_KEY_ENCRYPTION_KEY;
-    delete process.env.NODE_ENV;
+  beforeEach(() => {
+    const logger = createLogger('error');
+    const userStore = new InMemoryUserStore();
+    const tokenStore = new InMemoryTokenStore();
+    const verificationStore = new InMemoryUserVerificationStore();
+
+    const router = createUserRoutes(
+      userStore,
+      tokenStore,
+      logger,
+      verificationStore
+    );
+
+    app = express();
+    app.use(express.json());
+    app.use('/api/users', router);
   });
 
   it('should register, verify, complete, and login', async () => {
-    const app = await setupApp();
     const email = `user-${Date.now()}@example.com`;
 
     const register = await request(app)
@@ -64,7 +66,6 @@ describe('User Registration Verification Flow', () => {
   });
 
   it('should allow password reset after verification', async () => {
-    const app = await setupApp();
     const email = `reset-${Date.now()}@example.com`;
 
     const register = await request(app)
