@@ -110,9 +110,6 @@ export function createSessionRoutes(
       const metrics = metricsStore
         ? await metricsStore.getMetricsBulk(tokens.map((t) => t.id))
         : {};
-      const metrics = metricsStore
-        ? await metricsStore.getMetricsBulk(tokens.map((t) => t.id))
-        : {};
 
       logger.info('User session created', {
         user_id: user.id,
