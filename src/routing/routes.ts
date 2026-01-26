@@ -19,6 +19,7 @@ import { VALID_ROUTER_MODEL_PREFERENCES } from '../types/index';
 import type { Logger } from '../logging/logger';
 import { z, ZodError } from 'zod';
 import { logRoutingUsage } from '../observability/events';
+import type { TokenMetricsStore } from '../tokens/metrics';
 import { recordRoutingError, recordRoutingFallback, recordRoutingRequest } from '../observability/metrics';
 
 /**
@@ -45,7 +46,8 @@ const RouteRequestSchema = z.object({
  */
 export function createRoutingRoutes(
   routingEngine: RoutingEngine,
-  logger: Logger
+  logger: Logger,
+  metricsStore?: TokenMetricsStore
 ): Router {
   const router = Router();
 
@@ -150,6 +152,17 @@ export function createRoutingRoutes(
         llm_latency_ms: result.cache_hit ? undefined : routingDurationMs,
         eligible_models_count: result.policyMetadata.eligibleModelsCount,
       });
+
+      if (metricsStore) {
+        try {
+          await metricsStore.incrementRouteRequest(req.tokenConfig.id, result.cache_hit ?? false);
+        } catch (metricsError) {
+          logger.warn('Failed to update token metrics', {
+            token_id: req.tokenConfig.id,
+            error: metricsError instanceof Error ? metricsError.message : String(metricsError),
+          });
+        }
+      }
 
       // HTTP status: 200 for success, 203 for fallback to different provider
       const statusCode = didFallback ? 203 : 200;

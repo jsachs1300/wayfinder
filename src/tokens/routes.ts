@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { TokenStore } from './store';
+import type { TokenMetricsStore } from './metrics';
 import {
   TokenCreateRequest,
   TokenUpdateRequest,
@@ -45,6 +46,7 @@ const TokenUpdateSchema = TokenCreateSchema.partial();
 export function createAdminRoutes(
   tokenStore: TokenStore,
   modelRegistry: ModelRegistry,
+  metricsStore?: TokenMetricsStore,
   cache?: { clearByScope: (tokenId: string) => Promise<void> }
 ): Router {
   const router = Router();
@@ -114,9 +116,14 @@ export function createAdminRoutes(
         return;
       }
 
+      const metrics = metricsStore
+        ? await metricsStore.getMetrics(config.id)
+        : { route_requests: 0, cache_hits: 0 };
+
       res.json({
         ...config,
         token_hash: undefined, // Never expose hash
+        metrics,
       });
     } catch (error) {
       res.status(500).json({
@@ -243,10 +250,14 @@ export function createAdminRoutes(
   router.get('/tokens', async (_req: Request, res: Response): Promise<void> => {
     try {
       const tokens = await tokenStore.list();
+      const metrics = metricsStore
+        ? await metricsStore.getMetricsBulk(tokens.map((t) => t.id))
+        : {};
       res.json({
         tokens: tokens.map((t) => ({
           ...t,
           token_hash: undefined, // Never expose hash
+          metrics: metrics[t.id] ?? { route_requests: 0, cache_hits: 0 },
         })),
         count: tokens.length,
       });
