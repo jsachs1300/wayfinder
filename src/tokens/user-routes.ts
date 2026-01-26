@@ -68,7 +68,7 @@ export function createUserTokenRoutes(
   const router = Router();
 
   // List user's tokens
-  router.get('/tokens', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  router.get('/', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       if (!req.user) {
         res.status(401).json({
@@ -108,7 +108,7 @@ export function createUserTokenRoutes(
   });
 
   // Create new token for user
-  router.post('/tokens', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  router.post('/', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       if (!req.user) {
         res.status(401).json({
@@ -194,7 +194,7 @@ export function createUserTokenRoutes(
   });
 
   // Delete user's token
-  router.delete('/tokens/:id', async (req: Request<IdParams> & AuthenticatedRequest, res: Response): Promise<void> => {
+  router.delete('/:id', async (req: Request<IdParams> & AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       if (!req.user) {
         res.status(401).json({
@@ -270,7 +270,7 @@ export function createUserTokenRoutes(
   });
 
   // Rotate token
-  router.post('/tokens/:id/rotate', async (req: Request<IdParams> & AuthenticatedRequest, res: Response): Promise<void> => {
+  router.post('/:id/rotate', async (req: Request<IdParams> & AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       if (!req.user) {
         res.status(401).json({

@@ -161,7 +161,7 @@ describe.skip('User Authentication Integration', () => {
 
     it('should list user tokens', async () => {
       const res = await request(app)
-        .get('/api/tokens/tokens')
+        .get('/api/tokens')
         .set('X-Wayfinder-Token', authToken);
 
       expect(res.status).toBe(200);
@@ -172,7 +172,7 @@ describe.skip('User Authentication Integration', () => {
 
     it('should create additional token', async () => {
       const res = await request(app)
-        .post('/api/tokens/tokens')
+        .post('/api/tokens')
         .set('X-Wayfinder-Token', authToken)
         .send({
           name: 'Additional Token',
@@ -191,14 +191,14 @@ describe.skip('User Authentication Integration', () => {
       // Create max - 1 tokens (1 already exists from registration)
       for (let i = 0; i < maxTokens - 1; i++) {
         await request(app)
-          .post('/api/tokens/tokens')
+          .post('/api/tokens')
           .set('X-Wayfinder-Token', authToken)
           .send({ name: `Token ${i}` });
       }
 
       // Next one should fail
       const res = await request(app)
-        .post('/api/tokens/tokens')
+        .post('/api/tokens')
         .set('X-Wayfinder-Token', authToken)
         .send({ name: 'Over limit' });
 
@@ -209,13 +209,13 @@ describe.skip('User Authentication Integration', () => {
 
     it('should rotate token', async () => {
       const listRes = await request(app)
-        .get('/api/tokens/tokens')
+        .get('/api/tokens')
         .set('X-Wayfinder-Token', authToken);
 
       const tokenId = listRes.body.tokens[0].id;
 
       const res = await request(app)
-        .post(`/api/tokens/tokens/${tokenId}/rotate`)
+        .post(`/api/tokens/${tokenId}/rotate`)
         .set('X-Wayfinder-Token', authToken);
 
       expect(res.status).toBe(200);
@@ -227,14 +227,14 @@ describe.skip('User Authentication Integration', () => {
     it('should delete non-primary token', async () => {
       // Create additional token
       const createRes = await request(app)
-        .post('/api/tokens/tokens')
+        .post('/api/tokens')
         .set('X-Wayfinder-Token', authToken)
         .send({ name: 'To Delete' });
 
       const tokenId = createRes.body.id;
 
       const res = await request(app)
-        .delete(`/api/tokens/tokens/${tokenId}`)
+        .delete(`/api/tokens/${tokenId}`)
         .set('X-Wayfinder-Token', authToken);
 
       expect(res.status).toBe(204);
@@ -242,13 +242,13 @@ describe.skip('User Authentication Integration', () => {
 
     it('should prevent deleting primary token', async () => {
       const listRes = await request(app)
-        .get('/api/tokens/tokens')
+        .get('/api/tokens')
         .set('X-Wayfinder-Token', authToken);
 
       const primaryTokenId = listRes.body.tokens[0].id;
 
       const res = await request(app)
-        .delete(`/api/tokens/tokens/${primaryTokenId}`)
+        .delete(`/api/tokens/${primaryTokenId}`)
         .set('X-Wayfinder-Token', authToken);
 
       expect(res.status).toBe(403);
@@ -468,7 +468,7 @@ describe.skip('User Authentication Integration', () => {
 
       // Original token should still work after conversion
       const res = await request(app)
-        .get('/api/tokens/tokens')
+        .get('/api/tokens')
         .set('X-Wayfinder-Token', originalToken);
 
       expect(res.status).toBe(200);
