@@ -154,17 +154,36 @@ export class RedisUserVerificationStore implements UserVerificationStore {
     const tokenHash = hashToken(token);
     const data = await this.redis.get(VERIFY_TOKEN_PREFIX + tokenHash);
     if (!data) return null;
-    return JSON.parse(data) as VerificationRecord;
+    const record = JSON.parse(data) as VerificationRecord;
+    if (Date.parse(record.expires_at) <= Date.now()) {
+      return null;
+    }
+    return record;
   }
 
   async consumeEmailVerification(token: string): Promise<VerificationRecord | null> {
     const tokenHash = hashToken(token);
-    const record = await this.getEmailVerification(token);
-    if (!record) return null;
-    const pipeline = this.redis.multi();
-    pipeline.del(VERIFY_TOKEN_PREFIX + tokenHash);
-    pipeline.del(VERIFY_USER_PREFIX + record.user_id);
-    await pipeline.exec();
+    const script = `
+      local record = redis.call('GET', KEYS[1])
+      if not record then
+        return nil
+      end
+      local decoded = cjson.decode(record)
+      if decoded and decoded.user_id then
+        redis.call('DEL', ARGV[1] .. decoded.user_id)
+      end
+      redis.call('DEL', KEYS[1])
+      return record
+    `;
+    const tokenKey = VERIFY_TOKEN_PREFIX + tokenHash;
+    const recordJson = await this.redis.eval(script, 1, tokenKey, VERIFY_USER_PREFIX);
+    if (!recordJson || typeof recordJson !== 'string') {
+      return null;
+    }
+    const record = JSON.parse(recordJson) as VerificationRecord;
+    if (Date.parse(record.expires_at) <= Date.now()) {
+      return null;
+    }
     return record;
   }
 
@@ -196,17 +215,36 @@ export class RedisUserVerificationStore implements UserVerificationStore {
     const tokenHash = hashToken(token);
     const data = await this.redis.get(RESET_TOKEN_PREFIX + tokenHash);
     if (!data) return null;
-    return JSON.parse(data) as VerificationRecord;
+    const record = JSON.parse(data) as VerificationRecord;
+    if (Date.parse(record.expires_at) <= Date.now()) {
+      return null;
+    }
+    return record;
   }
 
   async consumePasswordReset(token: string): Promise<VerificationRecord | null> {
     const tokenHash = hashToken(token);
-    const record = await this.getPasswordReset(token);
-    if (!record) return null;
-    const pipeline = this.redis.multi();
-    pipeline.del(RESET_TOKEN_PREFIX + tokenHash);
-    pipeline.del(RESET_USER_PREFIX + record.user_id);
-    await pipeline.exec();
+    const script = `
+      local record = redis.call('GET', KEYS[1])
+      if not record then
+        return nil
+      end
+      local decoded = cjson.decode(record)
+      if decoded and decoded.user_id then
+        redis.call('DEL', ARGV[1] .. decoded.user_id)
+      end
+      redis.call('DEL', KEYS[1])
+      return record
+    `;
+    const tokenKey = RESET_TOKEN_PREFIX + tokenHash;
+    const recordJson = await this.redis.eval(script, 1, tokenKey, RESET_USER_PREFIX);
+    if (!recordJson || typeof recordJson !== 'string') {
+      return null;
+    }
+    const record = JSON.parse(recordJson) as VerificationRecord;
+    if (Date.parse(record.expires_at) <= Date.now()) {
+      return null;
+    }
     return record;
   }
 }
