@@ -18,9 +18,6 @@ export interface TokenConfigExtended extends TokenConfig {
   /** Token name/label for user identification */
   name?: string | null;
 
-  /** Whether this is the user's primary/default token */
-  is_primary?: boolean;
-
   /** Anonymous session ID (for progressive registration) */
   anonymous_session_id?: string | null;
 }

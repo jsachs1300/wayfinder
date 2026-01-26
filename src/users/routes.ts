@@ -513,14 +513,12 @@ export function createUserRoutes(
           id: tokenResult.id,
           token: tokenResult.token,
           name: tokenResult.config.name || 'Default Token',
-          is_primary: tokenResult.config.is_primary || true,
         },
       });
       logTokenEvent(logger, {
         event_type: 'token_created',
         token_id: tokenResult.id,
         user_id: updated.id,
-        is_primary: tokenResult.config.is_primary || true,
         eligible_models: tokenResult.config.eligible_models,
       });
       recordTokenCreated();

@@ -89,8 +89,8 @@ export function createUserTokenRoutes(
         tokens: tokens.map((t) => ({
           id: t.id,
           name: t.name,
-          is_primary: t.is_primary,
           environment: t.environment,
+          eligible_models: t.eligible_models,
           created_at: t.created_at,
           updated_at: t.updated_at,
           rotated_at: t.rotated_at,
@@ -180,7 +180,6 @@ export function createUserTokenRoutes(
         event_type: 'token_created',
         token_id: result.id,
         user_id: req.user.id,
-        is_primary: result.config.is_primary,
         eligible_models: result.config.eligible_models,
       });
       recordTokenCreated();
@@ -230,12 +229,12 @@ export function createUserTokenRoutes(
         return;
       }
 
-      // Cannot delete primary token
-      if (token.is_primary) {
+      const userTokens = await tokenStore.listByUser(req.user.id);
+      if (userTokens.length <= 1) {
         res.status(403).json({
           error: 'Forbidden',
           code: 'TOKEN_002',
-          message: 'Cannot delete primary token',
+          message: 'Cannot delete the last remaining token',
           timestamp: new Date().toISOString(),
         });
         return;
@@ -257,7 +256,6 @@ export function createUserTokenRoutes(
         event_type: 'token_deleted',
         token_id: id,
         user_id: req.user.id,
-        is_primary: token.is_primary,
       });
       recordTokenDeleted();
     } catch (error) {
@@ -326,7 +324,6 @@ export function createUserTokenRoutes(
         event_type: 'token_rotated',
         token_id: id,
         user_id: req.user.id,
-        is_primary: token.is_primary,
       });
       recordTokenRotated();
     } catch (error) {

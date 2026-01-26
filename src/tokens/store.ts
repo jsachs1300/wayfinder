@@ -168,16 +168,11 @@ export class InMemoryTokenStore implements TokenStore {
     const tokenHash = hashToken(token);
     const now = new Date().toISOString();
 
-    // Check if this is the user's first token (make it primary)
-    const userTokens = this.userTokenIndex.get(userId);
-    const isPrimary = !userTokens || userTokens.size === 0;
-
     const config: TokenConfigExtended = {
       id,
       token_hash: tokenHash,
       user_id: userId,
       name,
-      is_primary: isPrimary,
       anonymous_session_id: null,
       trusted_anchor_model: request.trusted_anchor_model,
       allowed_models: request.allowed_models,
@@ -375,17 +370,13 @@ export class RedisTokenStore implements TokenStore {
     const tokenHash = hashToken(token);
     const now = new Date().toISOString();
 
-    // Check if this is the user's first token (make it primary)
     const userTokensKey = USER_TOKENS_PREFIX + userId + ':tokens';
-    const existingTokens = await this.redis.smembers(userTokensKey);
-    const isPrimary = existingTokens.length === 0;
 
     const config: TokenConfigExtended = {
       id,
       token_hash: tokenHash,
       user_id: userId,
       name,
-      is_primary: isPrimary,
       anonymous_session_id: null,
       trusted_anchor_model: request.trusted_anchor_model,
       allowed_models: request.allowed_models,

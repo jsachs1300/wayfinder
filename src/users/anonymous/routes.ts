@@ -152,7 +152,6 @@ export function createAnonymousRoutes(
         token: {
           id: tokenConfig.id,
           name: 'Converted from anonymous',
-          is_primary: true,
         },
         message: 'Account created. Your existing token has been linked to your account.',
       });
