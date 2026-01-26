@@ -11,5 +11,6 @@ export function sanitizeToken(token: TokenConfigExtended) {
     eligible_models: token.eligible_models,
     created_at: token.created_at,
     updated_at: token.updated_at,
+    rotated_at: token.rotated_at,
   };
 }

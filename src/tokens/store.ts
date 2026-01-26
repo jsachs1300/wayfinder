@@ -39,8 +39,12 @@ export interface TokenStore {
    * Delete a token belonging to a user
    * Returns false if token doesn't exist or doesn't belong to user
    */
-  deleteUserToken(userId: string, tokenId: string): Promise<boolean>;
+  deleteUserToken(userId: string, tokenId: string): Promise<DeleteUserTokenResult>;
 }
+
+export type DeleteUserTokenResult =
+  | { deleted: true }
+  | { deleted: false; reason: 'not_found' | 'not_owner' | 'last_token' };
 
 /**
  * Generate a secure random token
@@ -215,18 +219,22 @@ export class InMemoryTokenStore implements TokenStore {
     return tokens;
   }
 
-  async deleteUserToken(userId: string, tokenId: string): Promise<boolean> {
+  async deleteUserToken(userId: string, tokenId: string): Promise<DeleteUserTokenResult> {
     const existing = this.tokens.get(tokenId);
-    if (!existing) return false;
+    if (!existing) return { deleted: false, reason: 'not_found' };
 
     // Verify token belongs to user
-    if (existing.user_id !== userId) return false;
+    if (existing.user_id !== userId) return { deleted: false, reason: 'not_owner' };
+
+    const userTokens = this.userTokenIndex.get(userId);
+    if (!userTokens || userTokens.size <= 1) {
+      return { deleted: false, reason: 'last_token' };
+    }
 
     this.hashIndex.delete(existing.token_hash);
     this.tokens.delete(tokenId);
 
     // Remove from user index
-    const userTokens = this.userTokenIndex.get(userId);
     if (userTokens) {
       userTokens.delete(tokenId);
       if (userTokens.size === 0) {
@@ -234,7 +242,7 @@ export class InMemoryTokenStore implements TokenStore {
       }
     }
 
-    return true;
+    return { deleted: true };
   }
 }
 
@@ -424,20 +432,52 @@ export class RedisTokenStore implements TokenStore {
     return configs;
   }
 
-  async deleteUserToken(userId: string, tokenId: string): Promise<boolean> {
-    const existing = await this.getById(tokenId);
-    if (!existing) return false;
+  async deleteUserToken(userId: string, tokenId: string): Promise<DeleteUserTokenResult> {
+    const userTokensKey = USER_TOKENS_PREFIX + userId + ':tokens';
+    const tokenKey = TOKEN_PREFIX + tokenId;
 
-    // Verify token belongs to user (cast to TokenConfigExtended to check user_id)
-    const extendedConfig = existing as TokenConfigExtended;
-    if (extendedConfig.user_id !== userId) return false;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await this.redis.watch(userTokensKey, tokenKey);
 
-    await this.redis.del(TOKEN_HASH_INDEX + existing.token_hash);
-    await this.redis.del(TOKEN_PREFIX + tokenId);
-    await this.redis.srem(TOKEN_INDEX_KEY, tokenId);
-    await this.redis.srem(USER_TOKENS_PREFIX + userId + ':tokens', tokenId);
+      const isMember = await this.redis.sismember(userTokensKey, tokenId);
+      if (!isMember) {
+        await this.redis.unwatch();
+        return { deleted: false, reason: 'not_owner' };
+      }
 
-    return true;
+      const count = await this.redis.scard(userTokensKey);
+      if (count <= 1) {
+        await this.redis.unwatch();
+        return { deleted: false, reason: 'last_token' };
+      }
+
+      const data = await this.redis.get(tokenKey);
+      if (!data) {
+        await this.redis.multi()
+          .srem(userTokensKey, tokenId)
+          .exec();
+        return { deleted: false, reason: 'not_found' };
+      }
+
+      const config = JSON.parse(data) as TokenConfigExtended;
+      if (config.user_id !== userId) {
+        await this.redis.unwatch();
+        return { deleted: false, reason: 'not_owner' };
+      }
+
+      const result = await this.redis.multi()
+        .del(TOKEN_HASH_INDEX + config.token_hash)
+        .del(tokenKey)
+        .srem(TOKEN_INDEX_KEY, tokenId)
+        .srem(userTokensKey, tokenId)
+        .exec();
+
+      if (result) {
+        return { deleted: true };
+      }
+    }
+
+    throw new Error('Failed to delete user token due to concurrent modification');
   }
 }
 

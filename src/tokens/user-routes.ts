@@ -206,41 +206,38 @@ export function createUserTokenRoutes(
       }
 
       const { id } = req.params;
-      const token = await tokenStore.getById(id) as TokenConfigExtended | null;
-
-      if (!token) {
-        res.status(404).json({
-          error: 'NotFound',
-          code: 'TOKEN_001',
-          message: 'Token not found',
-          timestamp: new Date().toISOString(),
-        });
-        return;
+      const result = await tokenStore.deleteUserToken(req.user.id, id);
+      if (!result.deleted) {
+        if (result.reason === 'not_found') {
+          res.status(404).json({
+            error: 'NotFound',
+            code: 'TOKEN_001',
+            message: 'Token not found',
+            timestamp: new Date().toISOString(),
+          });
+          return;
+        }
+        if (result.reason === 'not_owner') {
+          res.status(403).json({
+            error: 'Forbidden',
+            code: 'TOKEN_003',
+            message: 'Token does not belong to user',
+            timestamp: new Date().toISOString(),
+          });
+          return;
+        }
+        if (result.reason === 'last_token') {
+          res.status(403).json({
+            error: 'Forbidden',
+            code: 'TOKEN_005',
+            message: 'Cannot delete the last remaining token',
+            timestamp: new Date().toISOString(),
+          });
+          return;
+        }
       }
 
-      // Verify user owns the token
-      if (token.user_id !== req.user.id) {
-        res.status(403).json({
-          error: 'Forbidden',
-          code: 'TOKEN_003',
-          message: 'Token does not belong to user',
-          timestamp: new Date().toISOString(),
-        });
-        return;
-      }
-
-      const userTokens = await tokenStore.listByUser(req.user.id);
-      if (userTokens.length <= 1) {
-        res.status(403).json({
-          error: 'Forbidden',
-          code: 'TOKEN_002',
-          message: 'Cannot delete the last remaining token',
-          timestamp: new Date().toISOString(),
-        });
-        return;
-      }
-
-      // Clear cache for this token before deletion
+      // Clear cache for this token after deletion
       if (cache) {
         try {
           await cache.clearByScope(id);
@@ -250,7 +247,6 @@ export function createUserTokenRoutes(
         }
       }
 
-      await tokenStore.delete(id);
       res.status(204).send();
       logTokenEvent(logger, {
         event_type: 'token_deleted',
