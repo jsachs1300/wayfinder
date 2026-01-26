@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { UserStore } from './store';
 import type { User } from './types';
 import { TokenStore } from '../tokens/store';
+import type { TokenMetricsStore } from '../tokens/metrics';
 import { validateEmail, validatePassword } from './validation';
 import { logTokenEvent, logUserLoggedIn, logUserRegistered } from '../observability/events';
 import { recordTokenCreated, recordUserLoggedIn, recordUserRegistered } from '../observability/metrics';
@@ -96,7 +97,8 @@ export function createUserRoutes(
   verificationStore?: UserVerificationStore,
   sessionStore?: { deleteAllByUserId: (userId: string) => Promise<void> },
   userAuth?: (req: Request, res: Response, next: () => void) => void,
-  mailer?: Mailer
+  mailer?: Mailer,
+  metricsStore?: TokenMetricsStore
 ): Router {
   const router = Router();
 
@@ -318,6 +320,9 @@ export function createUserRoutes(
 
       // Get user's tokens
       const tokens = await tokenStore.listByUser(user.id);
+      const metrics = metricsStore
+        ? await metricsStore.getMetricsBulk(tokens.map((t) => t.id))
+        : {};
 
       logger.info('User logged in', {
         user_id: user.id,
@@ -329,7 +334,10 @@ export function createUserRoutes(
 
       res.status(200).json({
         user: sanitizeUser(user),
-        tokens: tokens.map(sanitizeToken),
+        tokens: tokens.map((token) => ({
+          ...sanitizeToken(token),
+          metrics: metrics[token.id] ?? { route_requests: 0, cache_hits: 0, throttled_requests: 0 },
+        })),
       });
     } catch (error) {
       logger.error('User login failed', {

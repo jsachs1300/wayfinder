@@ -94,7 +94,7 @@ export function createUserTokenRoutes(
           created_at: t.created_at,
           updated_at: t.updated_at,
           rotated_at: t.rotated_at,
-          metrics: metrics[t.id] ?? { route_requests: 0, cache_hits: 0 },
+          metrics: metrics[t.id] ?? { route_requests: 0, cache_hits: 0, throttled_requests: 0 },
         })),
         count: tokens.length,
       });
