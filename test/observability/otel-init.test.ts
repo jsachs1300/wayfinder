@@ -28,6 +28,8 @@ describe('Observability bootstrap', () => {
     startSpy.mockClear();
     process.env.OBSERVABILITY_ENABLED = 'true';
     process.env.NODE_ENV = 'production';
+    process.env.GOOGLE_CLOUD_PROJECT = 'test-project';
+    vi.resetModules();
   });
 
   afterEach(() => {
