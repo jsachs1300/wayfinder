@@ -6,6 +6,7 @@ export interface VerificationRecord {
   email: string;
   created_at: string;
   expires_at: string;
+  expires_at_epoch: number;
 }
 
 export interface UserVerificationStore {
@@ -30,10 +31,14 @@ function generateToken(): string {
   return randomBytes(32).toString('hex');
 }
 
-function computeExpiry(ttlSeconds: number): { createdAt: string; expiresAt: string } {
+function computeExpiry(ttlSeconds: number): { createdAt: string; expiresAt: string; expiresAtEpoch: number } {
   const createdAt = new Date();
   const expiresAt = new Date(createdAt.getTime() + ttlSeconds * 1000);
-  return { createdAt: createdAt.toISOString(), expiresAt: expiresAt.toISOString() };
+  return {
+    createdAt: createdAt.toISOString(),
+    expiresAt: expiresAt.toISOString(),
+    expiresAtEpoch: Math.floor(expiresAt.getTime() / 1000),
+  };
 }
 
 export class InMemoryUserVerificationStore implements UserVerificationStore {
@@ -45,7 +50,7 @@ export class InMemoryUserVerificationStore implements UserVerificationStore {
   async createEmailVerification(userId: string, email: string, ttlSeconds = 86400): Promise<string> {
     const token = generateToken();
     const tokenHash = hashToken(token);
-    const { createdAt, expiresAt } = computeExpiry(ttlSeconds);
+    const { createdAt, expiresAt, expiresAtEpoch } = computeExpiry(ttlSeconds);
 
     const existing = this.userVerifyIndex.get(userId);
     if (existing) {
@@ -57,6 +62,7 @@ export class InMemoryUserVerificationStore implements UserVerificationStore {
       email,
       created_at: createdAt,
       expires_at: expiresAt,
+      expires_at_epoch: expiresAtEpoch,
     };
 
     this.verifyTokens.set(tokenHash, record);
@@ -65,9 +71,12 @@ export class InMemoryUserVerificationStore implements UserVerificationStore {
   }
 
   async getEmailVerification(token: string): Promise<VerificationRecord | null> {
-    const record = this.verifyTokens.get(hashToken(token));
+    const tokenHash = hashToken(token);
+    const record = this.verifyTokens.get(tokenHash);
     if (!record) return null;
     if (Date.parse(record.expires_at) <= Date.now()) {
+      this.verifyTokens.delete(tokenHash);
+      this.userVerifyIndex.delete(record.user_id);
       return null;
     }
     return record;
@@ -85,7 +94,7 @@ export class InMemoryUserVerificationStore implements UserVerificationStore {
   async createPasswordReset(userId: string, email: string, ttlSeconds = 1800): Promise<string> {
     const token = generateToken();
     const tokenHash = hashToken(token);
-    const { createdAt, expiresAt } = computeExpiry(ttlSeconds);
+    const { createdAt, expiresAt, expiresAtEpoch } = computeExpiry(ttlSeconds);
 
     const existing = this.userResetIndex.get(userId);
     if (existing) {
@@ -97,6 +106,7 @@ export class InMemoryUserVerificationStore implements UserVerificationStore {
       email,
       created_at: createdAt,
       expires_at: expiresAt,
+      expires_at_epoch: expiresAtEpoch,
     };
 
     this.resetTokens.set(tokenHash, record);
@@ -105,9 +115,12 @@ export class InMemoryUserVerificationStore implements UserVerificationStore {
   }
 
   async getPasswordReset(token: string): Promise<VerificationRecord | null> {
-    const record = this.resetTokens.get(hashToken(token));
+    const tokenHash = hashToken(token);
+    const record = this.resetTokens.get(tokenHash);
     if (!record) return null;
     if (Date.parse(record.expires_at) <= Date.now()) {
+      this.resetTokens.delete(tokenHash);
+      this.userResetIndex.delete(record.user_id);
       return null;
     }
     return record;
@@ -129,12 +142,13 @@ export class RedisUserVerificationStore implements UserVerificationStore {
   async createEmailVerification(userId: string, email: string, ttlSeconds = 86400): Promise<string> {
     const token = generateToken();
     const tokenHash = hashToken(token);
-    const { createdAt, expiresAt } = computeExpiry(ttlSeconds);
+    const { createdAt, expiresAt, expiresAtEpoch } = computeExpiry(ttlSeconds);
     const record: VerificationRecord = {
       user_id: userId,
       email,
       created_at: createdAt,
       expires_at: expiresAt,
+      expires_at_epoch: expiresAtEpoch,
     };
 
     const existing = await this.redis.get(VERIFY_USER_PREFIX + userId);
@@ -156,6 +170,8 @@ export class RedisUserVerificationStore implements UserVerificationStore {
     if (!data) return null;
     const record = JSON.parse(data) as VerificationRecord;
     if (Date.parse(record.expires_at) <= Date.now()) {
+      await this.redis.del(VERIFY_TOKEN_PREFIX + tokenHash);
+      await this.redis.del(VERIFY_USER_PREFIX + record.user_id);
       return null;
     }
     return record;
@@ -169,6 +185,15 @@ export class RedisUserVerificationStore implements UserVerificationStore {
         return nil
       end
       local decoded = cjson.decode(record)
+      local now = redis.call('TIME')
+      local nowEpoch = tonumber(now[1])
+      if decoded and decoded.expires_at_epoch and nowEpoch >= tonumber(decoded.expires_at_epoch) then
+        redis.call('DEL', KEYS[1])
+        if decoded.user_id then
+          redis.call('DEL', ARGV[1] .. decoded.user_id)
+        end
+        return nil
+      end
       if decoded and decoded.user_id then
         redis.call('DEL', ARGV[1] .. decoded.user_id)
       end
@@ -181,21 +206,19 @@ export class RedisUserVerificationStore implements UserVerificationStore {
       return null;
     }
     const record = JSON.parse(recordJson) as VerificationRecord;
-    if (Date.parse(record.expires_at) <= Date.now()) {
-      return null;
-    }
     return record;
   }
 
   async createPasswordReset(userId: string, email: string, ttlSeconds = 1800): Promise<string> {
     const token = generateToken();
     const tokenHash = hashToken(token);
-    const { createdAt, expiresAt } = computeExpiry(ttlSeconds);
+    const { createdAt, expiresAt, expiresAtEpoch } = computeExpiry(ttlSeconds);
     const record: VerificationRecord = {
       user_id: userId,
       email,
       created_at: createdAt,
       expires_at: expiresAt,
+      expires_at_epoch: expiresAtEpoch,
     };
 
     const existing = await this.redis.get(RESET_USER_PREFIX + userId);
@@ -217,6 +240,8 @@ export class RedisUserVerificationStore implements UserVerificationStore {
     if (!data) return null;
     const record = JSON.parse(data) as VerificationRecord;
     if (Date.parse(record.expires_at) <= Date.now()) {
+      await this.redis.del(RESET_TOKEN_PREFIX + tokenHash);
+      await this.redis.del(RESET_USER_PREFIX + record.user_id);
       return null;
     }
     return record;
@@ -230,6 +255,15 @@ export class RedisUserVerificationStore implements UserVerificationStore {
         return nil
       end
       local decoded = cjson.decode(record)
+      local now = redis.call('TIME')
+      local nowEpoch = tonumber(now[1])
+      if decoded and decoded.expires_at_epoch and nowEpoch >= tonumber(decoded.expires_at_epoch) then
+        redis.call('DEL', KEYS[1])
+        if decoded.user_id then
+          redis.call('DEL', ARGV[1] .. decoded.user_id)
+        end
+        return nil
+      end
       if decoded and decoded.user_id then
         redis.call('DEL', ARGV[1] .. decoded.user_id)
       end
@@ -242,9 +276,6 @@ export class RedisUserVerificationStore implements UserVerificationStore {
       return null;
     }
     const record = JSON.parse(recordJson) as VerificationRecord;
-    if (Date.parse(record.expires_at) <= Date.now()) {
-      return null;
-    }
     return record;
   }
 }
