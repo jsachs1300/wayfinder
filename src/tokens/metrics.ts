@@ -3,10 +3,12 @@ import type Redis from 'ioredis';
 export interface TokenUsageMetrics {
   route_requests: number;
   cache_hits: number;
+  throttled_requests: number;
 }
 
 export interface TokenMetricsStore {
   incrementRouteRequest(tokenId: string, cacheHit: boolean): Promise<void>;
+  incrementThrottled(tokenId: string): Promise<void>;
   getMetrics(tokenId: string): Promise<TokenUsageMetrics>;
   getMetricsBulk(tokenIds: string[]): Promise<Record<string, TokenUsageMetrics>>;
 }
@@ -19,6 +21,10 @@ function routeRequestsKey(tokenId: string): string {
 
 function cacheHitsKey(tokenId: string): string {
   return `${METRICS_PREFIX}${tokenId}:cache_hits`;
+}
+
+function throttledRequestsKey(tokenId: string): string {
+  return `${METRICS_PREFIX}${tokenId}:throttled_requests`;
 }
 
 export class RedisTokenMetricsStore implements TokenMetricsStore {
@@ -41,10 +47,25 @@ export class RedisTokenMetricsStore implements TokenMetricsStore {
     }
   }
 
+  async incrementThrottled(tokenId: string): Promise<void> {
+    const pipeline = this.redis.multi();
+    pipeline.incr(throttledRequestsKey(tokenId));
+    const results = await pipeline.exec();
+    if (!results) {
+      throw new Error('Redis pipeline execution failed');
+    }
+    for (const [error] of results) {
+      if (error) {
+        throw error;
+      }
+    }
+  }
+
   async getMetrics(tokenId: string): Promise<TokenUsageMetrics> {
     const pipeline = this.redis.multi();
     pipeline.get(routeRequestsKey(tokenId));
     pipeline.get(cacheHitsKey(tokenId));
+    pipeline.get(throttledRequestsKey(tokenId));
     const result = await pipeline.exec();
     if (!result) {
       throw new Error('Redis pipeline execution failed');
@@ -56,9 +77,11 @@ export class RedisTokenMetricsStore implements TokenMetricsStore {
     }
     const routeRequests = Number(result?.[0]?.[1] ?? 0);
     const cacheHits = Number(result?.[1]?.[1] ?? 0);
+    const throttledRequests = Number(result?.[2]?.[1] ?? 0);
     return {
       route_requests: Number.isNaN(routeRequests) ? 0 : routeRequests,
       cache_hits: Number.isNaN(cacheHits) ? 0 : cacheHits,
+      throttled_requests: Number.isNaN(throttledRequests) ? 0 : throttledRequests,
     };
   }
 
@@ -70,6 +93,7 @@ export class RedisTokenMetricsStore implements TokenMetricsStore {
     tokenIds.forEach((tokenId) => {
       pipeline.get(routeRequestsKey(tokenId));
       pipeline.get(cacheHitsKey(tokenId));
+      pipeline.get(throttledRequestsKey(tokenId));
     });
     const result = await pipeline.exec();
     if (!result) {
@@ -82,13 +106,16 @@ export class RedisTokenMetricsStore implements TokenMetricsStore {
     }
     const metrics: Record<string, TokenUsageMetrics> = {};
     tokenIds.forEach((tokenId, index) => {
-      const routeIdx = index * 2;
+      const routeIdx = index * 3;
       const cacheIdx = routeIdx + 1;
+      const throttledIdx = routeIdx + 2;
       const routeRequests = Number(result?.[routeIdx]?.[1] ?? 0);
       const cacheHits = Number(result?.[cacheIdx]?.[1] ?? 0);
+      const throttledRequests = Number(result?.[throttledIdx]?.[1] ?? 0);
       metrics[tokenId] = {
         route_requests: Number.isNaN(routeRequests) ? 0 : routeRequests,
         cache_hits: Number.isNaN(cacheHits) ? 0 : cacheHits,
+        throttled_requests: Number.isNaN(throttledRequests) ? 0 : throttledRequests,
       };
     });
     return metrics;

@@ -118,7 +118,7 @@ export function createAdminRoutes(
 
       const metrics = metricsStore
         ? await metricsStore.getMetrics(config.id)
-        : { route_requests: 0, cache_hits: 0 };
+        : { route_requests: 0, cache_hits: 0, throttled_requests: 0 };
 
       res.json({
         ...config,
@@ -257,7 +257,7 @@ export function createAdminRoutes(
         tokens: tokens.map((t) => ({
           ...t,
           token_hash: undefined, // Never expose hash
-          metrics: metrics[t.id] ?? { route_requests: 0, cache_hits: 0 },
+          metrics: metrics[t.id] ?? { route_requests: 0, cache_hits: 0, throttled_requests: 0 },
         })),
         count: tokens.length,
       });
