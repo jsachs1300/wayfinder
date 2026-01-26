@@ -319,7 +319,7 @@ describe('API Integration Tests', () => {
       );
 
       const response = await request(userApp)
-        .get('/api/tokens/tokens')
+        .get('/api/tokens')
         .set('X-Wayfinder-Token', tokenResult.token);
 
       expect(response.status).toBe(200);
