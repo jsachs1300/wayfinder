@@ -1,7 +1,42 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import request from 'supertest';
-import { createApp, AppDependencies } from '../src/app';
-import { Express } from 'express';
+import type { AppDependencies } from '../src/app';
+import type { Express } from 'express';
+import type { RoutingEngine } from '../src/routing';
+import type { RouteRequest, RouteResult, TokenConfig } from '../src/types';
+import Redis from 'ioredis-mock';
+import express from 'express';
+import { createUserTokenRoutes } from '../src/tokens/user-routes';
+import { userAuthMiddleware } from '../src/auth';
+import { createModelRegistry } from '../src/models';
+import { createTokenMetricsStore } from '../src/tokens/metrics';
+
+class StubRoutingEngine implements RoutingEngine {
+  async route(request: RouteRequest, tokenConfig: TokenConfig): Promise<RouteResult> {
+    const cacheHit = request.prompt.toLowerCase().includes('cache');
+    return {
+      decision: {
+        intent: 'other',
+        primary: {
+          model: 'gpt-4-turbo',
+          score: 9,
+          reason: 'Stub decision for tests',
+        },
+        alternate: {
+          model: 'gemini-2.5-flash',
+          score: 7,
+          reason: 'Stub alternate for tests',
+        },
+      },
+      policyMetadata: {
+        forcedModel: null,
+        eligibleModelsCount: tokenConfig.eligible_models?.length ?? 0,
+      },
+      cache_hit: cacheHit,
+      router_model_used: 'consensus',
+    };
+  }
+}
 
 describe('API Integration Tests', () => {
   let app: Express;
@@ -12,8 +47,15 @@ describe('API Integration Tests', () => {
   beforeEach(async () => {
     adminApiKey = 'test-admin-key';
     process.env.ADMIN_API_KEY = adminApiKey;
+    process.env.FEATURE_USER_SELF_SERVICE = 'true';
+    process.env.LLM_KEY_ENCRYPTION_KEY = 'a'.repeat(64);
 
-    const result = await createApp();
+    vi.resetModules();
+    const { createApp } = await import('../src/app');
+    const redis = new Redis();
+    const routingEngine = new StubRoutingEngine();
+
+    const result = await createApp({ redis, routingEngine });
     app = result.app;
     deps = result.dependencies;
 
@@ -26,6 +68,8 @@ describe('API Integration Tests', () => {
 
   afterEach(() => {
     delete process.env.ADMIN_API_KEY;
+    delete process.env.FEATURE_USER_SELF_SERVICE;
+    delete process.env.LLM_KEY_ENCRYPTION_KEY;
   });
 
   describe('Health Endpoint', () => {
@@ -215,6 +259,149 @@ describe('API Integration Tests', () => {
       expect(response.body.models).toBeInstanceOf(Array);
       expect(response.body.count).toBeGreaterThan(0);
       expect(response.body.default).toBeDefined();
+    });
+  });
+
+  describe('Token Metrics Integration', () => {
+    it('should include metrics for admin token list', async () => {
+      const createResponse = await request(app)
+        .post('/admin/tokens')
+        .set('X-Admin-Api-Key', adminApiKey)
+        .send({ eligible_models: ['gpt-4-turbo'] });
+
+      const tokenId = createResponse.body.id;
+
+      const response = await request(app)
+        .get('/admin/tokens')
+        .set('X-Admin-Api-Key', adminApiKey);
+
+      expect(response.status).toBe(200);
+      const token = response.body.tokens.find((t: { id: string }) => t.id === tokenId);
+      expect(token).toBeDefined();
+      expect(token.metrics).toEqual({ route_requests: 0, cache_hits: 0 });
+    });
+
+    it('should include metrics for admin token detail', async () => {
+      const createResponse = await request(app)
+        .post('/admin/tokens')
+        .set('X-Admin-Api-Key', adminApiKey)
+        .send({ eligible_models: ['gpt-4-turbo'] });
+
+      const tokenId = createResponse.body.id;
+
+      const response = await request(app)
+        .get(`/admin/tokens/${tokenId}`)
+        .set('X-Admin-Api-Key', adminApiKey);
+
+      expect(response.status).toBe(200);
+      expect(response.body.metrics).toEqual({ route_requests: 0, cache_hits: 0 });
+    });
+
+    it('should include metrics for user token list', async () => {
+      const userApp = express();
+      userApp.use(express.json());
+      const modelRegistry = createModelRegistry();
+      const metricsStore = createTokenMetricsStore(deps.redis);
+      userApp.use(
+        '/api/tokens',
+        userAuthMiddleware(deps.tokenStore, deps.userStore!, deps.sessionStore),
+        createUserTokenRoutes(deps.tokenStore, modelRegistry, deps.logger, metricsStore)
+      );
+
+      const user = await deps.userStore!.create({
+        email: 'metrics@example.com',
+        password: 'Password123!',
+      });
+      const tokenResult = await deps.tokenStore.createForUser(
+        user.id,
+        null,
+        { eligible_models: ['gpt-4-turbo'] }
+      );
+
+      const response = await request(userApp)
+        .get('/api/tokens/tokens')
+        .set('X-Wayfinder-Token', tokenResult.token);
+
+      expect(response.status).toBe(200);
+      expect(response.body.tokens).toHaveLength(1);
+      expect(response.body.tokens[0].metrics).toEqual({ route_requests: 0, cache_hits: 0 });
+    });
+
+    it('should increment metrics on route requests', async () => {
+      const createResponse = await request(app)
+        .post('/admin/tokens')
+        .set('X-Admin-Api-Key', adminApiKey)
+        .send({ eligible_models: ['gpt-4-turbo'] });
+
+      const tokenId = createResponse.body.id;
+      const token = createResponse.body.token;
+
+      const routeResponse = await request(app)
+        .post('/route')
+        .set('X-Wayfinder-Token', token)
+        .send({ prompt: 'Route this request' });
+
+      expect(routeResponse.status).toBe(200);
+
+      const metricsResponse = await request(app)
+        .get(`/admin/tokens/${tokenId}`)
+        .set('X-Admin-Api-Key', adminApiKey);
+
+      expect(metricsResponse.body.metrics).toEqual({ route_requests: 1, cache_hits: 0 });
+    });
+
+    it('should increment cache hit metrics on cached routes', async () => {
+      const createResponse = await request(app)
+        .post('/admin/tokens')
+        .set('X-Admin-Api-Key', adminApiKey)
+        .send({ eligible_models: ['gpt-4-turbo'] });
+
+      const tokenId = createResponse.body.id;
+      const token = createResponse.body.token;
+
+      const routeResponse = await request(app)
+        .post('/route')
+        .set('X-Wayfinder-Token', token)
+        .send({ prompt: 'cache this request' });
+
+      expect(routeResponse.status).toBe(200);
+
+      const metricsResponse = await request(app)
+        .get(`/admin/tokens/${tokenId}`)
+        .set('X-Admin-Api-Key', adminApiKey);
+
+      expect(metricsResponse.body.metrics).toEqual({ route_requests: 1, cache_hits: 1 });
+    });
+
+    it('should accumulate metrics across multiple requests', async () => {
+      const createResponse = await request(app)
+        .post('/admin/tokens')
+        .set('X-Admin-Api-Key', adminApiKey)
+        .send({ eligible_models: ['gpt-4-turbo'] });
+
+      const tokenId = createResponse.body.id;
+      const token = createResponse.body.token;
+
+      await request(app)
+        .post('/route')
+        .set('X-Wayfinder-Token', token)
+        .send({ prompt: 'first request' });
+
+      await request(app)
+        .post('/route')
+        .set('X-Wayfinder-Token', token)
+        .send({ prompt: 'cache second request' });
+
+      await request(app)
+        .post('/route')
+        .set('X-Wayfinder-Token', token)
+        .send({ prompt: 'third request' });
+
+      const metricsResponse = await request(app)
+        .get(`/admin/tokens/${tokenId}`)
+        .set('X-Admin-Api-Key', adminApiKey);
+
+      expect(metricsResponse.body.metrics).toEqual({ route_requests: 3, cache_hits: 1 });
     });
   });
 
