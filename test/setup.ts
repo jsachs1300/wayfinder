@@ -1,6 +1,8 @@
 import { afterAll } from 'vitest';
 import { cleanupSharedRedis } from '../src/redis/shared';
 
+// Cloud Build exposes trigger substitutions with underscore-prefixed names.
+// Map them to the LangCache env vars used by tests.
 if (!process.env.LANGCACHE_HOST && process.env._LANGCACHE_HOST) {
   process.env.LANGCACHE_HOST = process.env._LANGCACHE_HOST;
 }

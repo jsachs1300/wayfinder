@@ -80,5 +80,5 @@ substitutions:
   _MAX_INSTANCES: '20'
   # Add additional origins (e.g., https://www.wyfndr.ai, https://staging.wyfndr.ai) as needed.
   _ALLOWED_ORIGINS: 'https://wyfndr.ai'
-  _LANGCACHE_HOST: ''
-  _LANGCACHE_CACHE_ID: ''
+  _LANGCACHE_HOST: 'UNSET_LANGCACHE_HOST'
+  _LANGCACHE_CACHE_ID: 'UNSET_LANGCACHE_CACHE_ID'

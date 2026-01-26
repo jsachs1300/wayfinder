@@ -23,12 +23,14 @@ import { LangCache } from '@redis-ai/langcache';
 import * as errors from '@redis-ai/langcache/models/errors';
 
 // Check if we should run real integration tests
-const hasLangCacheEnv = Boolean(
-  process.env.LANGCACHE_HOST &&
-  process.env.LANGCACHE_CACHE_ID &&
-  process.env.LANGCACHE_API_KEY
-);
-const RUN_INTEGRATION = process.env.LANGCACHE_INTEGRATION_TEST === 'true' && hasLangCacheEnv;
+function shouldRunIntegration(): boolean {
+  return process.env.LANGCACHE_INTEGRATION_TEST === 'true' && Boolean(
+    process.env.LANGCACHE_HOST &&
+    process.env.LANGCACHE_CACHE_ID &&
+    process.env.LANGCACHE_API_KEY
+  );
+}
+const RUN_INTEGRATION = shouldRunIntegration();
 
 // Create mock LangCache client
 const mockLangCacheClient = {
