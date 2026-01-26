@@ -157,7 +157,19 @@ export function createUserRoutes(
           getVerificationTtlSeconds()
         );
         const verifyLink = `${getFrontendBaseUrl()}/verify-email?token=${verificationToken}`;
-        await mailer?.sendEmailVerification(existing.email, verifyLink);
+        logger.info('User verification resend requested', {
+          user_id: existing.id,
+          email: existing.email,
+          timestamp: new Date().toISOString(),
+        });
+        try {
+          await mailer?.sendEmailVerification(existing.email, verifyLink);
+        } catch (emailError) {
+          logger.error('Failed to send verification email', {
+            user_id: existing.id,
+            error: emailError instanceof Error ? emailError.message : String(emailError),
+          });
+        }
 
         res.status(200).json({
           message: 'If an account exists, a verification email has been sent.',
@@ -189,7 +201,19 @@ export function createUserRoutes(
         getVerificationTtlSeconds()
       );
       const verifyLink = `${getFrontendBaseUrl()}/verify-email?token=${verificationToken}`;
-      await mailer?.sendEmailVerification(user.email, verifyLink);
+      logger.info('User registration initiated', {
+        user_id: user.id,
+        email: user.email,
+        timestamp: new Date().toISOString(),
+      });
+      try {
+        await mailer?.sendEmailVerification(user.email, verifyLink);
+      } catch (emailError) {
+        logger.error('Failed to send verification email', {
+          user_id: user.id,
+          error: emailError instanceof Error ? emailError.message : String(emailError),
+        });
+      }
 
       res.status(200).json({
         message: 'If an account exists, a verification email has been sent.',
@@ -549,7 +573,19 @@ export function createUserRoutes(
           getResetTtlSeconds()
         );
         const resetLink = `${getFrontendBaseUrl()}/reset-password?token=${resetToken}`;
-        await mailer?.sendPasswordReset(user.email, resetLink);
+        logger.info('Password reset requested', {
+          user_id: user.id,
+          email: user.email,
+          timestamp: new Date().toISOString(),
+        });
+        try {
+          await mailer?.sendPasswordReset(user.email, resetLink);
+        } catch (emailError) {
+          logger.error('Failed to send password reset email', {
+            user_id: user.id,
+            error: emailError instanceof Error ? emailError.message : String(emailError),
+          });
+        }
 
         res.status(200).json({
           message: 'If an account exists, a reset link has been sent.',

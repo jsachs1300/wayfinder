@@ -6,7 +6,7 @@ import { User, UserCreateRequest, UserPendingCreateRequest, UserUpdateRequest, U
 import { v4 as uuidv4 } from 'uuid';
 import * as crypto from 'crypto';
 import Redis from 'ioredis';
-import { verifyPassword, hashPassword } from './password';
+import { verifyPassword, hashPassword, DUMMY_PASSWORD_HASH } from './password';
 
 const USER_PREFIX = 'wayfinder:user:';
 const USER_EMAIL_INDEX = 'wayfinder:user:email:';
@@ -120,7 +120,7 @@ export class InMemoryUserStore implements UserStore {
       throw new Error('Email already registered');
     }
 
-    const password_hash = await hashPassword(crypto.randomBytes(32).toString('hex'));
+    const password_hash = DUMMY_PASSWORD_HASH;
 
     const user: User = {
       id,
@@ -273,7 +273,7 @@ export class RedisUserStore implements UserStore {
       throw new Error('Email already registered');
     }
 
-    const password_hash = await hashPassword(crypto.randomBytes(32).toString('hex'));
+    const password_hash = DUMMY_PASSWORD_HASH;
 
     const user: User = {
       id,
