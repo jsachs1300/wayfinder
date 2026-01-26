@@ -210,6 +210,21 @@ describe('Security Headers', () => {
       expect(response.status).toBe(204);
       expect(response.headers['access-control-allow-methods']).toBeDefined();
     });
+
+    it('should allow required authentication headers in CORS', async () => {
+      process.env.ALLOWED_ORIGINS = '*';
+      const { app: testApp } = await createApp();
+
+      const response = await request(testApp)
+        .options('/api/sessions/validate')
+        .set('Origin', 'https://example.com')
+        .set('Access-Control-Request-Method', 'POST')
+        .set('Access-Control-Request-Headers', 'X-Session-Token');
+
+      const allowedHeaders = response.headers['access-control-allow-headers'];
+      expect(allowedHeaders).toBeDefined();
+      expect(allowedHeaders).toContain('X-Session-Token');
+    });
   });
 
   describe('Request Body Size Limits', () => {
