@@ -110,9 +110,6 @@ export function createSessionRoutes(
       const metrics = metricsStore
         ? await metricsStore.getMetricsBulk(tokens.map((t) => t.id))
         : {};
-      const metrics = metricsStore
-        ? await metricsStore.getMetricsBulk(tokens.map((t) => t.id))
-        : {};
 
       logger.info('User session created', {
         user_id: user.id,
@@ -194,6 +191,9 @@ export function createSessionRoutes(
       }
 
       const tokens = await tokenStore.listByUser(user.id);
+      const metrics = metricsStore
+        ? await metricsStore.getMetricsBulk(tokens.map((t) => t.id))
+        : {};
 
       res.status(200).json({
         session,
