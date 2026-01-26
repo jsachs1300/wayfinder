@@ -3,7 +3,7 @@ import Redis from 'ioredis';
 import helmet from 'helmet';
 import cors from 'cors';
 
-import { tokenAuthMiddleware, adminAuthMiddleware, requestIdMiddleware, userAuthMiddleware } from './auth';
+import { tokenAuthMiddleware, adminAuthMiddleware, requestIdMiddleware, userAuthMiddleware, hashToken } from './auth';
 import { createTokenStore, createAdminRoutes, createTokenMetricsStore, TokenStore } from './tokens';
 import type { TokenMetricsStore } from './tokens/metrics';
 import { createPolicyEngine, PolicyEngine } from './policy';
@@ -45,6 +45,48 @@ export interface AppDependencies {
   feedbackHandler: FeedbackHandler;
   opinionPoller: OpinionPoller;
   logger: Logger;
+}
+
+function createRouteThrottleMetricsMiddleware(
+  tokenStore: TokenStore,
+  metricsStore?: TokenMetricsStore,
+  logger?: Logger
+) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    res.on('finish', () => {
+      if (res.statusCode !== 429 || !metricsStore) {
+        return;
+      }
+      const tokenHeader = req.headers['x-wayfinder-token'] as string | undefined;
+      const tokenId = req.tokenConfig?.id;
+      if (tokenId) {
+        void metricsStore.incrementThrottled(tokenId).catch((error) => {
+          logger?.warn('Failed to update throttled token metrics', {
+            token_id: tokenId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+        return;
+      }
+      if (!tokenHeader) {
+        return;
+      }
+      const tokenHash = hashToken(tokenHeader);
+      void tokenStore.getByHash(tokenHash)
+        .then((config) => {
+          if (config) {
+            return metricsStore.incrementThrottled(config.id);
+          }
+          return undefined;
+        })
+        .catch((error) => {
+          logger?.warn('Failed to update throttled token metrics', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+    });
+    next();
+  };
 }
 
 /**
@@ -508,6 +550,7 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
 
   // Routing endpoint: Apply both standard rate limiter and tier-aware limiter
   app.use('/route',
+    createRouteThrottleMetricsMiddleware(tokenStore, tokenMetricsStore, logger),
     rateLimiters.routing,
     tokenAuthMiddleware(tokenStore, userStore),
     tierRateLimiter,
@@ -541,10 +584,11 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
         verificationStore,
         sessionStore,
         userAuthMiddleware(tokenStore, userStore, sessionStore),
-        mailer
+        mailer,
+        tokenMetricsStore
       ));
       if (sessionStore) {
-        app.use('/api/sessions', rateLimiters.auth, createSessionRoutes(sessionStore, userStore, tokenStore, logger));
+        app.use('/api/sessions', rateLimiters.auth, createSessionRoutes(sessionStore, userStore, tokenStore, logger, tokenMetricsStore));
       } else {
         logger.warn('Session routes not mounted because Redis is unavailable');
       }

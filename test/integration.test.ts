@@ -278,7 +278,7 @@ describe('API Integration Tests', () => {
       expect(response.status).toBe(200);
       const token = response.body.tokens.find((t: { id: string }) => t.id === tokenId);
       expect(token).toBeDefined();
-      expect(token.metrics).toEqual({ route_requests: 0, cache_hits: 0 });
+      expect(token.metrics).toEqual({ route_requests: 0, cache_hits: 0, throttled_requests: 0 });
     });
 
     it('should include metrics for admin token detail', async () => {
@@ -294,7 +294,7 @@ describe('API Integration Tests', () => {
         .set('X-Admin-Api-Key', adminApiKey);
 
       expect(response.status).toBe(200);
-      expect(response.body.metrics).toEqual({ route_requests: 0, cache_hits: 0 });
+      expect(response.body.metrics).toEqual({ route_requests: 0, cache_hits: 0, throttled_requests: 0 });
     });
 
     it('should include metrics for user token list', async () => {
@@ -324,7 +324,7 @@ describe('API Integration Tests', () => {
 
       expect(response.status).toBe(200);
       expect(response.body.tokens).toHaveLength(1);
-      expect(response.body.tokens[0].metrics).toEqual({ route_requests: 0, cache_hits: 0 });
+      expect(response.body.tokens[0].metrics).toEqual({ route_requests: 0, cache_hits: 0, throttled_requests: 0 });
     });
 
     it('should increment metrics on route requests', async () => {
@@ -347,7 +347,7 @@ describe('API Integration Tests', () => {
         .get(`/admin/tokens/${tokenId}`)
         .set('X-Admin-Api-Key', adminApiKey);
 
-      expect(metricsResponse.body.metrics).toEqual({ route_requests: 1, cache_hits: 0 });
+      expect(metricsResponse.body.metrics).toEqual({ route_requests: 1, cache_hits: 0, throttled_requests: 0 });
     });
 
     it('should increment cache hit metrics on cached routes', async () => {
@@ -370,7 +370,7 @@ describe('API Integration Tests', () => {
         .get(`/admin/tokens/${tokenId}`)
         .set('X-Admin-Api-Key', adminApiKey);
 
-      expect(metricsResponse.body.metrics).toEqual({ route_requests: 1, cache_hits: 1 });
+      expect(metricsResponse.body.metrics).toEqual({ route_requests: 1, cache_hits: 1, throttled_requests: 0 });
     });
 
     it('should accumulate metrics across multiple requests', async () => {
@@ -401,7 +401,7 @@ describe('API Integration Tests', () => {
         .get(`/admin/tokens/${tokenId}`)
         .set('X-Admin-Api-Key', adminApiKey);
 
-      expect(metricsResponse.body.metrics).toEqual({ route_requests: 3, cache_hits: 1 });
+      expect(metricsResponse.body.metrics).toEqual({ route_requests: 3, cache_hits: 1, throttled_requests: 0 });
     });
   });
 

@@ -18,25 +18,26 @@ describe('RedisTokenMetricsStore', () => {
   it('incrementRouteRequest increments route_requests counter', async () => {
     await store.incrementRouteRequest('token-1', false);
     const metrics = await store.getMetrics('token-1');
-    expect(metrics).toEqual({ route_requests: 1, cache_hits: 0 });
+    expect(metrics).toEqual({ route_requests: 1, cache_hits: 0, throttled_requests: 0 });
   });
 
   it('incrementRouteRequest with cacheHit=true increments both counters', async () => {
     await store.incrementRouteRequest('token-2', true);
     const metrics = await store.getMetrics('token-2');
-    expect(metrics).toEqual({ route_requests: 1, cache_hits: 1 });
+    expect(metrics).toEqual({ route_requests: 1, cache_hits: 1, throttled_requests: 0 });
   });
 
   it('getMetrics returns correct values for existing metrics', async () => {
     await store.incrementRouteRequest('token-3', false);
     await store.incrementRouteRequest('token-3', true);
+    await store.incrementThrottled('token-3');
     const metrics = await store.getMetrics('token-3');
-    expect(metrics).toEqual({ route_requests: 2, cache_hits: 1 });
+    expect(metrics).toEqual({ route_requests: 2, cache_hits: 1, throttled_requests: 1 });
   });
 
   it('getMetrics returns zeros for non-existent token', async () => {
     const metrics = await store.getMetrics('missing-token');
-    expect(metrics).toEqual({ route_requests: 0, cache_hits: 0 });
+    expect(metrics).toEqual({ route_requests: 0, cache_hits: 0, throttled_requests: 0 });
   });
 
   it('getMetricsBulk handles empty array input', async () => {
@@ -44,14 +45,21 @@ describe('RedisTokenMetricsStore', () => {
     expect(metrics).toEqual({});
   });
 
+  it('incrementThrottled increments throttled_requests counter', async () => {
+    await store.incrementThrottled('token-throttle');
+    const metrics = await store.getMetrics('token-throttle');
+    expect(metrics).toEqual({ route_requests: 0, cache_hits: 0, throttled_requests: 1 });
+  });
+
   it('getMetricsBulk returns metrics for multiple tokens', async () => {
     await store.incrementRouteRequest('token-a', false);
     await store.incrementRouteRequest('token-b', true);
     await store.incrementRouteRequest('token-b', true);
+    await store.incrementThrottled('token-b');
 
     const metrics = await store.getMetricsBulk(['token-a', 'token-b']);
-    expect(metrics['token-a']).toEqual({ route_requests: 1, cache_hits: 0 });
-    expect(metrics['token-b']).toEqual({ route_requests: 2, cache_hits: 2 });
+    expect(metrics['token-a']).toEqual({ route_requests: 1, cache_hits: 0, throttled_requests: 0 });
+    expect(metrics['token-b']).toEqual({ route_requests: 2, cache_hits: 2, throttled_requests: 1 });
   });
 
   it('createTokenMetricsStore returns undefined when Redis is not available', () => {
