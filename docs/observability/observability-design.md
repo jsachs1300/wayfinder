@@ -128,7 +128,6 @@ Fields:
 - `timestamp`
 - `token_id`
 - `user_id`
-- `is_primary`
 - `eligible_models` (only on create)
 
 ### User Lifecycle Event

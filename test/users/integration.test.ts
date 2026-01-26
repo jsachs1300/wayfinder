@@ -47,7 +47,6 @@ describe.skip('User Authentication Integration', () => {
       expect(res.body.user.tier).toBe('free');
       expect(res.body.token).toBeDefined();
       expect(res.body.token.token).toMatch(/^wf_/);
-      expect(res.body.token.is_primary).toBe(true);
     });
 
     it('should reject registration with weak password', async () => {
@@ -167,7 +166,6 @@ describe.skip('User Authentication Integration', () => {
       expect(res.status).toBe(200);
       expect(res.body.tokens).toBeDefined();
       expect(res.body.tokens).toHaveLength(1);
-      expect(res.body.tokens[0].is_primary).toBe(true);
     });
 
     it('should create additional token', async () => {
@@ -182,7 +180,6 @@ describe.skip('User Authentication Integration', () => {
       expect(res.status).toBe(201);
       expect(res.body.token).toMatch(/^wf_/);
       expect(res.body.name).toBe('Additional Token');
-      expect(res.body.config.is_primary).toBe(false);
     });
 
     it('should enforce max tokens per user limit', async () => {
@@ -448,7 +445,6 @@ describe.skip('User Authentication Integration', () => {
       expect(res.status).toBe(200);
       expect(res.body.user.email).toBe('converted@example.com');
       expect(res.body.user.tier).toBe('free');
-      expect(res.body.token.is_primary).toBe(true);
       expect(res.body.message).toContain('token has been linked');
     });
 

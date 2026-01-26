@@ -7,8 +7,8 @@ export function sanitizeToken(token: TokenConfigExtended) {
   return {
     id: token.id,
     name: token.name || null,
-    is_primary: token.is_primary || false,
     environment: token.environment,
+    eligible_models: token.eligible_models,
     created_at: token.created_at,
     updated_at: token.updated_at,
   };
