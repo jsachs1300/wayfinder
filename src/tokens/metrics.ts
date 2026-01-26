@@ -30,7 +30,15 @@ export class RedisTokenMetricsStore implements TokenMetricsStore {
     if (cacheHit) {
       pipeline.incr(cacheHitsKey(tokenId));
     }
-    await pipeline.exec();
+    const results = await pipeline.exec();
+    if (!results) {
+      throw new Error('Redis pipeline execution failed');
+    }
+    for (const [error] of results) {
+      if (error) {
+        throw error;
+      }
+    }
   }
 
   async getMetrics(tokenId: string): Promise<TokenUsageMetrics> {
@@ -38,6 +46,14 @@ export class RedisTokenMetricsStore implements TokenMetricsStore {
     pipeline.get(routeRequestsKey(tokenId));
     pipeline.get(cacheHitsKey(tokenId));
     const result = await pipeline.exec();
+    if (!result) {
+      throw new Error('Redis pipeline execution failed');
+    }
+    for (const [error] of result) {
+      if (error) {
+        throw error;
+      }
+    }
     const routeRequests = Number(result?.[0]?.[1] ?? 0);
     const cacheHits = Number(result?.[1]?.[1] ?? 0);
     return {
@@ -56,6 +72,14 @@ export class RedisTokenMetricsStore implements TokenMetricsStore {
       pipeline.get(cacheHitsKey(tokenId));
     });
     const result = await pipeline.exec();
+    if (!result) {
+      throw new Error('Redis pipeline execution failed');
+    }
+    for (const [error] of result) {
+      if (error) {
+        throw error;
+      }
+    }
     const metrics: Record<string, TokenUsageMetrics> = {};
     tokenIds.forEach((tokenId, index) => {
       const routeIdx = index * 2;
