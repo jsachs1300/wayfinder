@@ -29,7 +29,6 @@ export function logTokenEvent(
     event_type: 'token_created' | 'token_deleted' | 'token_rotated';
     token_id: string;
     user_id: string;
-    is_primary?: boolean;
     eligible_models?: string[];
   }
 ): void {
@@ -38,7 +37,6 @@ export function logTokenEvent(
     timestamp: new Date().toISOString(),
     token_id: data.token_id,
     user_id: data.user_id,
-    is_primary: data.is_primary,
     eligible_models: data.eligible_models,
   });
 }

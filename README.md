@@ -783,8 +783,7 @@ Content-Type: application/json
   "token": {
     "id": "660e8400-e29b-41d4-a716-446655440001",
     "token": "wf_aBcDeFgHiJkLmNoPqRsTuVwXyZ123456",
-    "name": "Default Token",
-    "is_primary": true
+    "name": "Default Token"
   }
 }
 ```
@@ -820,8 +819,8 @@ Content-Type: application/json
     {
       "id": "660e8400-e29b-41d4-a716-446655440001",
       "name": "Default Token",
-      "is_primary": true,
-      "created_at": "2026-01-12T10:00:00Z"
+      "created_at": "2026-01-12T10:00:00Z",
+      "eligible_models": ["gpt-4o", "claude-3-5-sonnet"]
     }
   ]
 }
@@ -873,8 +872,7 @@ Content-Type: application/json
   },
   "token": {
     "id": "660e8400-e29b-41d4-a716-446655440001",
-    "name": "Converted from anonymous",
-    "is_primary": true
+    "name": "Converted from anonymous"
   },
   "message": "Account created. Your existing token has been linked to your account."
 }
@@ -935,9 +933,9 @@ X-Wayfinder-Token: wf_xxxxx
     {
       "id": "660e8400-e29b-41d4-a716-446655440001",
       "name": "Default Token",
-      "is_primary": true,
       "environment": "dev",
-      "created_at": "2026-01-12T10:00:00Z"
+      "created_at": "2026-01-12T10:00:00Z",
+      "eligible_models": ["gpt-4o", "claude-3-5-sonnet"]
     }
   ],
   "count": 1
@@ -984,7 +982,7 @@ X-Wayfinder-Token: wf_xxxxx
 
 **Response (204):** No content
 
-**Note:** Cannot delete primary token.
+**Note:** Cannot delete the last remaining token.
 
 #### Rotate User Token
 

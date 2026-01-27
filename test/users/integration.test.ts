@@ -47,7 +47,6 @@ describe.skip('User Authentication Integration', () => {
       expect(res.body.user.tier).toBe('free');
       expect(res.body.token).toBeDefined();
       expect(res.body.token.token).toMatch(/^wf_/);
-      expect(res.body.token.is_primary).toBe(true);
     });
 
     it('should reject registration with weak password', async () => {
@@ -167,7 +166,6 @@ describe.skip('User Authentication Integration', () => {
       expect(res.status).toBe(200);
       expect(res.body.tokens).toBeDefined();
       expect(res.body.tokens).toHaveLength(1);
-      expect(res.body.tokens[0].is_primary).toBe(true);
     });
 
     it('should create additional token', async () => {
@@ -182,7 +180,6 @@ describe.skip('User Authentication Integration', () => {
       expect(res.status).toBe(201);
       expect(res.body.token).toMatch(/^wf_/);
       expect(res.body.name).toBe('Additional Token');
-      expect(res.body.config.is_primary).toBe(false);
     });
 
     it('should enforce max tokens per user limit', async () => {
@@ -224,7 +221,7 @@ describe.skip('User Authentication Integration', () => {
       expect(res.body.rotated_at).toBeDefined();
     });
 
-    it('should delete non-primary token', async () => {
+    it('should delete token when multiple tokens exist', async () => {
       // Create additional token
       const createRes = await request(app)
         .post('/api/tokens')
@@ -240,20 +237,45 @@ describe.skip('User Authentication Integration', () => {
       expect(res.status).toBe(204);
     });
 
-    it('should prevent deleting primary token', async () => {
+    it('should prevent deleting the last remaining token', async () => {
       const listRes = await request(app)
         .get('/api/tokens')
         .set('X-Wayfinder-Token', authToken);
 
-      const primaryTokenId = listRes.body.tokens[0].id;
+      const onlyTokenId = listRes.body.tokens[0].id;
 
       const res = await request(app)
-        .delete(`/api/tokens/${primaryTokenId}`)
+        .delete(`/api/tokens/${onlyTokenId}`)
         .set('X-Wayfinder-Token', authToken);
 
       expect(res.status).toBe(403);
       expect(res.body.error).toBe('Forbidden');
-      expect(res.body.code).toBe('TOKEN_002');
+      expect(res.body.code).toBe('TOKEN_005');
+    });
+
+    it('should block deleting last token after prior deletion', async () => {
+      const createRes = await request(app)
+        .post('/api/tokens')
+        .set('X-Wayfinder-Token', authToken)
+        .send({ name: 'Second Token' });
+
+      const firstDelete = await request(app)
+        .delete(`/api/tokens/${createRes.body.id}`)
+        .set('X-Wayfinder-Token', authToken);
+
+      expect(firstDelete.status).toBe(204);
+
+      const remaining = await request(app)
+        .get('/api/tokens')
+        .set('X-Wayfinder-Token', authToken);
+
+      const lastTokenId = remaining.body.tokens[0].id;
+      const secondDelete = await request(app)
+        .delete(`/api/tokens/${lastTokenId}`)
+        .set('X-Wayfinder-Token', authToken);
+
+      expect(secondDelete.status).toBe(403);
+      expect(secondDelete.body.code).toBe('TOKEN_005');
     });
   });
 
@@ -448,7 +470,6 @@ describe.skip('User Authentication Integration', () => {
       expect(res.status).toBe(200);
       expect(res.body.user.email).toBe('converted@example.com');
       expect(res.body.user.tier).toBe('free');
-      expect(res.body.token.is_primary).toBe(true);
       expect(res.body.message).toContain('token has been linked');
     });
 

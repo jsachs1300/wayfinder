@@ -73,8 +73,8 @@ export interface UserAuthResponse {
   tokens?: Array<{
     id: string;
     name: string | null;
-    is_primary: boolean;
     created_at: string;
+    eligible_models?: string[];
   }>;
 }
 

@@ -276,7 +276,6 @@ export interface TokenConfigExtended extends TokenConfig {
   name: string | null;
 
   /** Whether this is the user's primary/default token */
-  is_primary: boolean;
 
   /** Anonymous session ID (for progressive registration) */
   anonymous_session_id: string | null;
@@ -459,7 +458,6 @@ export const DEFAULT_RATE_LIMITS: RateLimitConfiguration = {
     "id": "660e8400-e29b-41d4-a716-446655440001",
     "token": "wf_aBcDeFgHiJkLmNoPqRsTuVwXyZ123456",
     "name": "Default Token",
-    "is_primary": true
   }
 }
 ```
@@ -506,13 +504,11 @@ export const DEFAULT_RATE_LIMITS: RateLimitConfiguration = {
     {
       "id": "660e8400-e29b-41d4-a716-446655440001",
       "name": "Default Token",
-      "is_primary": true,
       "created_at": "2026-01-12T10:00:00Z"
     },
     {
       "id": "770e8400-e29b-41d4-a716-446655440002",
       "name": "Production",
-      "is_primary": false,
       "created_at": "2026-01-12T11:00:00Z"
     }
   ]
@@ -591,7 +587,6 @@ X-Wayfinder-Token: wf_AnOnYmOuSsEsSiOnToKeN12345678
   "token": {
     "id": "660e8400-e29b-41d4-a716-446655440001",
     "name": "Converted from anonymous",
-    "is_primary": true
   },
   "message": "Account created. Your existing token has been linked to your account."
 }
@@ -620,7 +615,6 @@ All endpoints require `X-Wayfinder-Token` header with valid user token.
     {
       "id": "660e8400-e29b-41d4-a716-446655440001",
       "name": "Default Token",
-      "is_primary": true,
       "environment": "dev",
       "created_at": "2026-01-12T10:00:00Z",
       "updated_at": "2026-01-12T10:00:00Z"
@@ -919,7 +913,6 @@ wayfinder:ratelimit:burst:{user_id}         -> COUNT (TTL: 1 minute)
   "token_hash": "abc123...",
   "user_id": "550e8400-e29b-41d4-a716-446655440000",
   "name": "Production API",
-  "is_primary": true,
   "anonymous_session_id": null,
   "trusted_anchor_model": "gpt-4o",
   "allowed_models": ["gpt-4o", "claude-3-5-sonnet"],
@@ -1727,7 +1720,7 @@ Phase 5: Testing & Documentation (Depends on Phase 4)
 
 **Acceptance Criteria:**
 - [ ] TokenConfigExtended interface
-- [ ] Add user_id, name, is_primary, anonymous_session_id to TokenConfig
+- [ ] Add user_id, name, anonymous_session_id to TokenConfig
 - [ ] Update create() to accept user_id
 - [ ] Add getByUserId(userId: string): Promise<TokenConfig[]>
 - [ ] Add setPrimary(tokenId: string, userId: string): Promise<void>

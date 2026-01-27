@@ -41,7 +41,6 @@ describe('Observability Events', () => {
       event_type: 'token_created',
       token_id: 'token-1',
       user_id: 'user-3',
-      is_primary: true,
       eligible_models: ['gpt-4o-mini'],
     });
     const [, metadata] = logger.info.mock.calls[0];
