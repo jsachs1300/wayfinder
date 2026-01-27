@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { UserStore } from './store';
 import type { User } from './types';
 import { TokenStore } from '../tokens/store';
+import type { ModelRegistry } from '../models';
 import type { TokenMetricsStore } from '../tokens/metrics';
 import { validateEmail, validatePassword } from './validation';
 import { logTokenEvent, logUserLoggedIn, logUserRegistered } from '../observability/events';
@@ -93,6 +94,7 @@ const UserUpdateSchema = z.object({
 export function createUserRoutes(
   userStore: UserStore,
   tokenStore: TokenStore,
+  modelRegistry: ModelRegistry,
   logger: Logger,
   verificationStore?: UserVerificationStore,
   sessionStore?: { deleteAllByUserId: (userId: string) => Promise<void> },
@@ -491,6 +493,7 @@ export function createUserRoutes(
         updated.id,
         'Default Token',
         {
+          eligible_models: modelRegistry.getAvailableModels().map((model) => model.id),
           environment: 'dev',
           confidence_threshold: 0.6,
           logging_level: 'normal',
