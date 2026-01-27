@@ -90,7 +90,7 @@ export function createUserTokenRoutes(
           id: t.id,
           name: t.name,
           environment: t.environment,
-          eligible_models: t.eligible_models,
+          eligible_models: t.eligible_models ?? [],
           created_at: t.created_at,
           updated_at: t.updated_at,
           rotated_at: t.rotated_at,
