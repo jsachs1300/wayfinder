@@ -88,8 +88,9 @@ describe('API Integration Tests', () => {
         .post('/admin/tokens')
         .set('X-Admin-Api-Key', adminApiKey)
         .send({
-          trusted_anchor_model: 'claude-3-opus',
-          allowed_models: ['gpt-4-turbo', 'claude-3-opus'],
+          trusted_anchor_model: 'claude-3-5-sonnet',
+          allowed_models: ['gpt-4-turbo', 'claude-3-5-sonnet'],
+          eligible_models: ['gpt-4-turbo', 'claude-3-5-sonnet'],
         });
 
       expect(response.status).toBe(201);
