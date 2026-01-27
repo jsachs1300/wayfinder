@@ -6,6 +6,7 @@ import { InMemoryUserStore } from '../../src/users/store';
 import { InMemoryTokenStore } from '../../src/tokens/store';
 import { InMemoryUserVerificationStore } from '../../src/users/verification-store';
 import { createLogger } from '../../src/logging';
+import { createModelRegistry } from '../../src/models';
 
 describe('User Registration Verification Flow', () => {
   let app: express.Express;
@@ -15,10 +16,12 @@ describe('User Registration Verification Flow', () => {
     const userStore = new InMemoryUserStore();
     const tokenStore = new InMemoryTokenStore();
     const verificationStore = new InMemoryUserVerificationStore();
+    const modelRegistry = createModelRegistry();
 
     const router = createUserRoutes(
       userStore,
       tokenStore,
+      modelRegistry,
       logger,
       verificationStore
     );

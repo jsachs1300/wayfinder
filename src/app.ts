@@ -580,6 +580,7 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
       app.use('/api/users', createUserRoutes(
         userStore,
         tokenStore,
+        modelRegistry,
         logger,
         verificationStore,
         sessionStore,

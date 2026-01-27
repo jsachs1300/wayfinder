@@ -90,7 +90,7 @@ export function createUserTokenRoutes(
           id: t.id,
           name: t.name,
           environment: t.environment,
-          eligible_models: t.eligible_models,
+          eligible_models: t.eligible_models ?? modelRegistry.getAvailableModels().map((model) => model.id),
           created_at: t.created_at,
           updated_at: t.updated_at,
           rotated_at: t.rotated_at,
@@ -146,6 +146,10 @@ export function createUserTokenRoutes(
 
       const request: TokenCreateRequest = {
         ...parsed.data,
+        eligible_models:
+          parsed.data.eligible_models && parsed.data.eligible_models.length > 0
+            ? parsed.data.eligible_models
+            : modelRegistry.getAvailableModels().map((model) => model.id),
       };
 
       // Validate all model identifiers against the registry
