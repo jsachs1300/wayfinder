@@ -68,6 +68,23 @@ export class InMemoryTokenStore implements TokenStore {
   private tokens: Map<string, TokenConfigExtended> = new Map();
   private hashIndex: Map<string, string> = new Map();
   private userTokenIndex: Map<string, Set<string>> = new Map();
+  private userLocks: Map<string, Promise<void>> = new Map();
+
+  private async withUserLock<T>(userId: string, fn: () => Promise<T> | T): Promise<T> {
+    const previous = this.userLocks.get(userId) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => { release = resolve; });
+    this.userLocks.set(userId, previous.then(() => current));
+    await previous;
+    try {
+      return await fn();
+    } finally {
+      release();
+      if (this.userLocks.get(userId) === current) {
+        this.userLocks.delete(userId);
+      }
+    }
+  }
 
   async create(request: TokenCreateRequest): Promise<{ id: string; token: string; config: TokenConfig }> {
     const id = uuidv4();
@@ -220,29 +237,28 @@ export class InMemoryTokenStore implements TokenStore {
   }
 
   async deleteUserToken(userId: string, tokenId: string): Promise<DeleteUserTokenResult> {
-    const existing = this.tokens.get(tokenId);
-    if (!existing) return { deleted: false, reason: 'not_found' };
+    return this.withUserLock(userId, () => {
+      const existing = this.tokens.get(tokenId);
+      if (!existing) return { deleted: false, reason: 'not_found' };
 
-    // Verify token belongs to user
-    if (existing.user_id !== userId) return { deleted: false, reason: 'not_owner' };
+      // Verify token belongs to user
+      if (existing.user_id !== userId) return { deleted: false, reason: 'not_owner' };
 
-    const userTokens = this.userTokenIndex.get(userId);
-    if (!userTokens || userTokens.size <= 1) {
-      return { deleted: false, reason: 'last_token' };
-    }
+      const userTokens = this.userTokenIndex.get(userId);
+      if (!userTokens || userTokens.size <= 1) {
+        return { deleted: false, reason: 'last_token' };
+      }
 
-    this.hashIndex.delete(existing.token_hash);
-    this.tokens.delete(tokenId);
+      this.hashIndex.delete(existing.token_hash);
+      this.tokens.delete(tokenId);
 
-    // Remove from user index
-    if (userTokens) {
       userTokens.delete(tokenId);
       if (userTokens.size === 0) {
         this.userTokenIndex.delete(userId);
       }
-    }
 
-    return { deleted: true };
+      return { deleted: true };
+    });
   }
 }
 
