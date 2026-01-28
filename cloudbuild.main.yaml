@@ -22,6 +22,8 @@ steps:
       - ROUTER_LLM_OPENAI_API_KEY
       - ROUTER_LLM_GEMINI_API_KEY
       - ADMIN_API_KEY
+      - LLM_KEY_ENCRYPTION_KEY
+      - POSTMARK_API_KEY
   - name: 'gcr.io/cloud-builders/docker'
     id: 'build-image'
     waitFor: ['run-integration-tests']
