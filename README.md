@@ -7,7 +7,7 @@ Wayfinder is an LLM routing control plane that delegates routing decisions to an
 Wayfinder is a **routing control plane** that:
 
 1. **Enforces Policy** - Applies token-scoped rules to determine which models are eligible for selection
-2. **Delegates to Router LLM** - Invokes an external LLM (OpenAI or Anthropic) to make intelligent routing decisions
+2. **Delegates to Router LLM** - Invokes an external LLM (OpenAI or Gemini) to make intelligent routing decisions
 3. **Returns Recommendations** - Provides primary and alternate model recommendations with confidence scores and explanations
 4. **Records Feedback** - Accumulates user feedback to build knowledge for observational and analytical purposes
 
@@ -17,9 +17,8 @@ Unlike a load balancer, Wayfinder's router LLM understands prompt semantics and 
 
 When enabled via `FEATURE_USER_SELF_SERVICE=true`, Wayfinder supports:
 
-- **User Registration** - Self-service account creation with email/password
+- **User Registration** - Email verification followed by password setup
 - **Three-Tier System** - Free, Paid (System), and Paid (BYOLLM) tiers with different rate limits
-- **Anonymous Sessions** - Try Wayfinder without registration, upgrade later
 - **Bring Your Own LLM (BYOLLM)** - Configure your own OpenAI/Gemini API keys for routing
 - **Encrypted Key Storage** - User LLM keys encrypted at rest with AES-256-GCM
 - **Token Management** - Users can create, rotate, and delete their own API tokens
@@ -104,11 +103,13 @@ Response:
     "reason": "Excellent for coding tasks with strong reasoning capabilities"
   },
   "alternate": {
-    "model": "claude-3-5-sonnet",
+    "model": "gemini-2.5-flash",
     "score": 7.8,
     "reason": "Alternative with comparable coding ability and different strengths"
   },
-  "request_id": "req_a1b2c3d4-e5f6-7890"
+  "request_id": "req_a1b2c3d4-e5f6-7890",
+  "router_model_used": "consensus",
+  "from_cache": false
 }
 ```
 
@@ -311,7 +312,7 @@ Each token has its own cache namespace. Cached decisions for token A are never r
 Cache keys include a hash of eligible models. If policy changes which models are eligible, the cache automatically invalidates:
 
 ```
-Before policy change: eligible_models = ["gpt-4", "claude-3-opus"]
+Before policy change: eligible_models = ["gpt-4", "gemini-1.5-pro"]
 After policy change:  eligible_models = ["gpt-4", "gpt-4-turbo"]
 → Different eligible_models_hash → Cache miss → Fresh routing decision
 ```
@@ -412,7 +413,7 @@ Model does not exist in the registry.
 DisabledModelError: Model "legacy-model" is disabled and cannot be used (context: feedback).
 Disabled models are excluded from all routing, policy, and knowledge operations.
 
-ModelConfigurationError: trusted_anchor_model "claude-3-opus" cannot be in denied_models
+ModelConfigurationError: trusted_anchor_model "gemini-1.5-pro" cannot be in denied_models
 ```
 
 **Deprecated Model Behavior**
@@ -438,7 +439,7 @@ curl http://localhost:3000/admin/models \
   -H "X-Admin-Api-Key: your-admin-key"
 ```
 
-Models are curated and include major providers (OpenAI, Anthropic, Google, Meta, Mistral). Future versions may support BYOM (Bring Your Own Model) for custom models.
+Models are curated and currently include OpenAI and Google (Gemini). Future versions may support additional providers and BYOM (Bring Your Own Model) for custom models.
 
 ## Routing Decision Flow
 
@@ -503,8 +504,6 @@ When `FEATURE_USER_SELF_SERVICE=true`:
 - `POST /api/users/password/forgot` - Request password reset
 - `POST /api/users/password/validate` - Validate reset token
 - `POST /api/users/password/reset` - Reset password
-- `POST /api/anonymous/session` - Create anonymous session
-- `POST /api/anonymous/convert` - Convert anonymous to registered user
 
 **User Profile (Token Auth Required)**
 - `GET /api/users/me` - Get current user profile
@@ -573,7 +572,6 @@ curl http://localhost:3000/route \
 **Token Sources:**
 - **Admin-created tokens**: Created via `/admin/tokens` endpoint (legacy)
 - **User-created tokens**: Created via user registration or `/api/tokens` endpoint (when self-service enabled)
-- **Anonymous tokens**: Temporary tokens from anonymous sessions
 
 All tokens work identically for routing requests, regardless of how they were created.
 
@@ -611,11 +609,13 @@ Response (primary and alternate recommendations from router LLM):
     "reason": "Excellent reasoning and code generation. Best choice for algorithmic problems."
   },
   "alternate": {
-    "model": "claude-3-5-sonnet",
+    "model": "gemini-2.5-flash",
     "score": 7.9,
     "reason": "Strong coding ability with clear explanations. Good alternative with different strengths."
   },
-  "request_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+  "request_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "router_model_used": "consensus",
+  "from_cache": false
 }
 ```
 
@@ -646,12 +646,12 @@ X-Admin-Api-Key: your-admin-key
 Content-Type: application/json
 
 {
-  "trusted_anchor_model": "claude-3-5-sonnet",
-  "allowed_models": ["gpt-4-turbo", "claude-3-5-sonnet", "claude-3-opus"],
+  "trusted_anchor_model": "gemini-2.5-flash",
+  "allowed_models": ["gpt-4-turbo", "gemini-2.5-flash", "gemini-1.5-pro"],
   "policy_rules": [
     {
       "type": "AllowModelsGlobal",
-      "models": ["gpt-4-turbo", "claude-3-opus"],
+      "models": ["gpt-4-turbo", "gemini-1.5-pro"],
       "priority": 1
     }
   ],
@@ -727,7 +727,6 @@ Response:
     {
       "id": "gpt-4-turbo",
       "provider": "openai",
-      "capabilities": ["reasoning", "coding", "creative", "support"],
       "cost_tier": "high",
       "speed_tier": "medium",
       "context_window": 128000,
@@ -735,7 +734,7 @@ Response:
     }
   ],
   "count": 14,
-  "default": "claude-3-5-sonnet"
+  "default": "gpt-4o-mini"
 }
 ```
 
@@ -820,61 +819,9 @@ Content-Type: application/json
       "id": "660e8400-e29b-41d4-a716-446655440001",
       "name": "Default Token",
       "created_at": "2026-01-12T10:00:00Z",
-      "eligible_models": ["gpt-4o", "claude-3-5-sonnet"]
+      "eligible_models": ["gpt-4o", "gemini-2.5-flash"]
     }
   ]
-}
-```
-
-#### Anonymous Session
-
-Create a temporary session without registration:
-
-```http
-POST /api/anonymous/session
-```
-
-**Response (201):**
-```json
-{
-  "session_id": "880e8400-e29b-41d4-a716-446655440003",
-  "token": "wf_AnOnYmOuSsEsSiOnToKeN12345678",
-  "expires_at": "2026-01-19T10:00:00Z",
-  "rate_limits": {
-    "requests_per_hour": 10,
-    "requests_per_day": 50,
-    "remaining_today": 50
-  }
-}
-```
-
-#### Convert Anonymous to Registered
-
-```http
-POST /api/anonymous/convert
-X-Wayfinder-Token: wf_AnOnYmOuSsEsSiOnToKeN12345678
-Content-Type: application/json
-
-{
-  "email": "user@example.com",
-  "password": "SecurePass123!"
-}
-```
-
-**Response (200):**
-```json
-{
-  "user": {
-    "id": "550e8400-e29b-41d4-a716-446655440000",
-    "email": "user@example.com",
-    "tier": "free",
-    "status": "active"
-  },
-  "token": {
-    "id": "660e8400-e29b-41d4-a716-446655440001",
-    "name": "Converted from anonymous"
-  },
-  "message": "Account created. Your existing token has been linked to your account."
 }
 ```
 
@@ -935,7 +882,7 @@ X-Wayfinder-Token: wf_xxxxx
       "name": "Default Token",
       "environment": "dev",
       "created_at": "2026-01-12T10:00:00Z",
-      "eligible_models": ["gpt-4o", "claude-3-5-sonnet"]
+      "eligible_models": ["gpt-4o", "gemini-2.5-flash"]
     }
   ],
   "count": 1
@@ -952,7 +899,7 @@ Content-Type: application/json
 {
   "name": "Production API",
   "environment": "prod",
-  "allowed_models": ["gpt-4o", "claude-3-5-sonnet"],
+  "allowed_models": ["gpt-4o", "gemini-2.5-flash"],
   "confidence_threshold": 0.8
 }
 ```
@@ -965,7 +912,7 @@ Content-Type: application/json
   "name": "Production API",
   "config": {
     "environment": "prod",
-    "allowed_models": ["gpt-4o", "claude-3-5-sonnet"],
+    "allowed_models": ["gpt-4o", "gemini-2.5-flash"],
     "confidence_threshold": 0.8
   }
 }
@@ -1163,13 +1110,13 @@ curl -X POST http://localhost:3000/admin/tokens \
   -H "X-Admin-Api-Key: your-admin-key" \
   -H "Content-Type: application/json" \
   -d '{
-    "trusted_anchor_model": "claude-3-5-sonnet",
+    "trusted_anchor_model": "gemini-2.5-flash",
     "default_model": "gpt-4o",
-    "allowed_models": ["gpt-4-turbo", "claude-3-5-sonnet", "claude-3-opus"],
+    "allowed_models": ["gpt-4-turbo", "gemini-2.5-flash", "gemini-1.5-pro"],
     "policy_rules": [
       {
         "type": "AllowModelsGlobal",
-        "models": ["gpt-4-turbo", "claude-3-opus"],
+        "models": ["gpt-4-turbo", "gemini-1.5-pro"],
         "priority": 1
       }
     ]
@@ -1290,24 +1237,6 @@ curl -X POST http://localhost:3000/api/users/login \
   }'
 ```
 
-#### Create Anonymous Session
-
-```bash
-curl -X POST http://localhost:3000/api/anonymous/session
-```
-
-#### Convert Anonymous to Registered
-
-```bash
-curl -X POST http://localhost:3000/api/anonymous/convert \
-  -H "X-Wayfinder-Token: wf_AnOnYmOuS_ToKeN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "user@example.com",
-    "password": "SecurePass123!"
-  }'
-```
-
 #### Get User Profile
 
 ```bash
@@ -1342,7 +1271,7 @@ curl -X POST http://localhost:3000/api/tokens \
   -d '{
     "name": "Production API",
     "environment": "prod",
-    "allowed_models": ["gpt-4o", "claude-3-5-sonnet"]
+    "allowed_models": ["gpt-4o", "gemini-2.5-flash"]
   }'
 ```
 
@@ -1417,13 +1346,6 @@ Wayfinder supports a three-tier user system when user self-service features are 
 - **Features:** Can configure own OpenAI and Gemini API keys for routing
 
 Rate limits can be customized via environment variables (see [Configuration](#configuration)).
-
-### Anonymous Sessions
-
-Users can try Wayfinder without registering by creating an anonymous session. Anonymous sessions:
-- Apply free tier rate limits
-- Expire after 7 days
-- Can be converted to registered accounts while preserving the token
 
 ### Bring Your Own LLM (BYOLLM)
 
@@ -1500,7 +1422,6 @@ Enable user self-service features with `FEATURE_USER_SELF_SERVICE=true`.
 | `FEATURE_USER_SELF_SERVICE` | Enable user registration and BYOLLM features | `false` |
 | `LLM_KEY_ENCRYPTION_KEY` | **REQUIRED for BYOLLM**: 64 hex character encryption key (generate: `openssl rand -hex 32`) | - |
 | `MAX_TOKENS_PER_USER` | Maximum tokens a user can create | `10` |
-| `ANONYMOUS_SESSION_TTL_DAYS` | Anonymous session expiration in days | `7` |
 
 **Rate Limit Configuration (Per Tier)**
 
@@ -1584,14 +1505,14 @@ Intent-based rules face a timing challenge:
     {
       "type": "ForceModelByIntent",
       "intent": "other",
-      "models": ["claude-3-opus"],
+      "models": ["gemini-1.5-pro"],
       "priority": 1
     }
   ]
 }
 ```
 
-This will force `claude-3-opus` for all requests since all requests currently use `"other"` as the placeholder intent during policy evaluation.
+This will force `gemini-1.5-pro` for all requests since all requests currently use `"other"` as the placeholder intent during policy evaluation.
 
 **Recommended Approach:**
 
@@ -1599,12 +1520,12 @@ For now, use **global rules** instead of intent-based rules:
 
 ```json
 {
-  "allowed_models": ["gpt-4-turbo", "claude-3-5-sonnet", "claude-3-opus"],
+  "allowed_models": ["gpt-4-turbo", "gemini-2.5-flash", "gemini-1.5-pro"],
   "denied_models": ["gpt-3.5-turbo"],
   "policy_rules": [
     {
       "type": "AllowModelsGlobal",
-      "models": ["gpt-4-turbo", "claude-3-opus"],
+      "models": ["gpt-4-turbo", "gemini-1.5-pro"],
       "priority": 1
     }
   ]
@@ -1621,19 +1542,15 @@ For updates, see the [GitHub issues](https://github.com/jsachs1300/wayfinder/iss
 
 ## Available Models
 
-Wayfinder includes a registry of well-known LLM models across major providers. **Note:** Wayfinder does not execute model requests - it only provides routing decisions.
+Wayfinder includes a registry of well-known LLM models for supported providers. **Note:** Wayfinder does not execute model requests - it only provides routing decisions.
 
 ### Supported Providers
 
 - **OpenAI**: gpt-4-turbo, gpt-4o, gpt-4o-mini, o1, o1-mini
-- **Anthropic**: claude-3-5-sonnet, claude-3-opus, claude-3-haiku
-- **Google**: gemini-1.5-pro, gemini-1.5-flash
-- **Meta**: llama-3.1-70b, llama-3.1-8b
-- **Mistral**: mistral-large, mistral-medium
+- **Google (Gemini)**: gemini-2.5-flash, gemini-1.5-pro, gemini-1.5-flash
 
 Each model includes metadata about:
 - Provider
-- Capabilities (reasoning, coding, legal, creative, etc.)
 - Cost tier (low, medium, high)
 - Speed tier (fast, medium, slow)
 - Context window size
@@ -1641,7 +1558,7 @@ Each model includes metadata about:
 
 ### Default Model
 
-The system default model is `claude-3-5-sonnet`, used as a fallback when no other selection criteria apply.
+The system default model is `gpt-4o-mini`, used as a fallback when no other selection criteria apply.
 
 ## Router LLM Setup (REQUIRED)
 
@@ -1852,7 +1769,7 @@ src/
 │       ├── errors.ts                # Error types
 │       └── providers/               # Provider clients
 │           ├── openai-client.ts     # OpenAI API
-│           ├── anthropic-client.ts  # Anthropic API
+│           ├── anthropic-client.ts  # Anthropic API (unused)
 │           └── types.ts             # Provider interface
 ├── knowledge/         # Knowledge store (observational telemetry)
 │   ├── index.ts       # Knowledge store exports
@@ -1929,12 +1846,12 @@ curl -X POST http://localhost:3000/admin/tokens \
   -H "Content-Type: application/json" \
   -d '{
     "default_model": "gpt-4o",
-    "allowed_models": ["gpt-4-turbo", "claude-3-5-sonnet", "claude-3-opus"],
+    "allowed_models": ["gpt-4-turbo", "gemini-2.5-flash", "gemini-1.5-pro"],
     "denied_models": ["gpt-3.5-turbo"],
     "policy_rules": [
       {
         "type": "AllowModelsGlobal",
-        "models": ["gpt-4-turbo", "claude-3-opus"],
+        "models": ["gpt-4-turbo", "gemini-1.5-pro"],
         "priority": 1
       }
     ]
@@ -1984,7 +1901,7 @@ curl -X POST http://localhost:3000/admin/tokens \
   -d '{
     "allowed_models": [
       "gpt-4o-mini",
-      "claude-3-haiku",
+      "gemini-1.5-flash",
       "gemini-1.5-flash"
     ],
     "default_model": "gpt-4o-mini"
@@ -2003,7 +1920,7 @@ TOKEN_RESPONSE=$(curl -s -X POST http://localhost:3000/admin/tokens \
   -d '{
     "default_model": "gpt-4o",
     "knowledge_scope": "token",
-    "trusted_anchor_model": "claude-3-5-sonnet"
+    "trusted_anchor_model": "gemini-2.5-flash"
   }')
 
 TOKEN=$(echo $TOKEN_RESPONSE | jq -r '.token')
@@ -2071,7 +1988,7 @@ curl -X POST http://localhost:3000/api/tokens \
   -d '{
     "name": "Production",
     "environment": "prod",
-    "allowed_models": ["gpt-4o", "claude-3-5-sonnet"]
+    "allowed_models": ["gpt-4o", "gemini-2.5-flash"]
   }'
 ```
 
@@ -2123,41 +2040,6 @@ curl -X POST http://localhost:3000/route \
 - Keys are encrypted at rest with AES-256-GCM
 - Each user's keys are completely isolated
 - If your keys fail, requests return errors (no fallback to system keys)
-
-### Example 8: Progressive Registration (Anonymous to Registered)
-
-Start using Wayfinder without registration, then register when needed:
-
-```bash
-# Create an anonymous session
-ANON_RESPONSE=$(curl -s -X POST http://localhost:3000/api/anonymous/session)
-ANON_TOKEN=$(echo $ANON_RESPONSE | jq -r '.token')
-
-echo "Anonymous token: $ANON_TOKEN"
-
-# Use the token immediately (free tier rate limits apply)
-curl -X POST http://localhost:3000/route \
-  -H "X-Wayfinder-Token: $ANON_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"prompt": "What is Docker?"}'
-
-# Later, convert anonymous session to registered account
-# Your existing token will be preserved and linked to your account
-curl -X POST http://localhost:3000/api/anonymous/convert \
-  -H "X-Wayfinder-Token: $ANON_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "user@example.com",
-    "password": "SecurePass123!"
-  }'
-
-# Same token now works as a registered user token
-# Rate limits upgrade to registered free tier
-curl -X POST http://localhost:3000/route \
-  -H "X-Wayfinder-Token: $ANON_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"prompt": "Explain Kubernetes"}'
-```
 
 ## Troubleshooting
 
@@ -2282,7 +2164,7 @@ curl http://localhost:3000/admin/tokens/TOKEN_ID \
 curl -X PATCH http://localhost:3000/admin/tokens/TOKEN_ID \
   -H "X-Admin-Api-Key: your-admin-key" \
   -H "Content-Type: application/json" \
-  -d '{"allowed_models": ["gpt-4-turbo", "claude-3-opus"]}'
+  -d '{"allowed_models": ["gpt-4-turbo", "gemini-1.5-pro"]}'
 ```
 
 ### Redis Connection Issues
@@ -2332,11 +2214,11 @@ curl -X PATCH http://localhost:3000/admin/tokens/TOKEN_ID \
   -H "X-Admin-Api-Key: your-admin-key" \
   -H "Content-Type: application/json" \
   -d '{
-    "allowed_models": ["gpt-4-turbo", "claude-3-opus"],
+    "allowed_models": ["gpt-4-turbo", "gemini-1.5-pro"],
     "policy_rules": [
       {
         "type": "AllowModelsGlobal",
-        "models": ["gpt-4-turbo", "claude-3-opus"],
+        "models": ["gpt-4-turbo", "gemini-1.5-pro"],
         "priority": 1
       }
     ]
@@ -2351,7 +2233,7 @@ curl -X PATCH http://localhost:3000/admin/tokens/TOKEN_ID \
       {
         "type": "ForceModelByIntent",
         "intent": "other",
-        "models": ["claude-3-opus"],
+        "models": ["gemini-1.5-pro"],
         "priority": 1
       }
     ]
@@ -2426,17 +2308,18 @@ RATE_LIMIT_PAID_SYSTEM_DAY=5000
 
 ---
 
-**Problem:** "Cannot delete primary token"
+**Problem:** "Cannot delete last token"
 
-**Cause:** Users cannot delete their primary token to prevent account lockout.
+**Cause:** Users must always have at least one active token to prevent account lockout.
 
 **Solution:**
-Create another token and set it as primary first, or simply rotate the primary token:
+Create another token, then retry the delete:
 
 ```bash
-# Rotate the primary token (generates new value)
-curl -X POST http://localhost:3000/api/tokens/TOKEN_ID/rotate \
-  -H "X-Wayfinder-Token: wf_xxxxx"
+curl -X POST http://localhost:3000/api/tokens \
+  -H "X-Wayfinder-Token: wf_xxxxx" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Secondary"}'
 ```
 
 ---
@@ -2466,9 +2349,9 @@ curl -X POST http://localhost:3000/api/llm-keys/openai/validate \
 - **User Authentication & Self-Service** - User registration, login, and token management
 - **Bring Your Own LLM (BYOLLM)** - Users can configure their own OpenAI/Gemini API keys
 - **Three-Tier User System** - Free, Paid (System), and Paid (BYOLLM) tiers
-- **Anonymous Sessions** - Progressive registration flow
 - **Tier-Based Rate Limiting** - Different rate limits per user tier
 - **Encrypted Key Storage** - AES-256-GCM encryption for user LLM keys
+- **Email Verification** - Required email verification before password setup
 
 ### Short-term (v1.x)
 
@@ -2485,7 +2368,6 @@ curl -X POST http://localhost:3000/api/llm-keys/openai/validate \
 - **Model Metadata in Decisions** - Return expanded model information in routing responses
 - **Compliance & Audit** - Detailed audit trails and compliance reporting
 - **Admin User Management UI** - Web interface for managing users and tiers
-- **Email Verification** - Optional email verification for user registration
 
 ### Longer-term (v3.x)
 
