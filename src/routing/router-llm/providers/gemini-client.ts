@@ -24,6 +24,7 @@ interface GeminiRequest {
     temperature: number;
     maxOutputTokens: number;
     responseMimeType?: string;
+    responseSchema?: Record<string, unknown>;
   };
 }
 
@@ -48,6 +49,29 @@ interface GeminiResponse {
   };
   modelVersion: string;
 }
+
+const ROUTER_RESPONSE_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  required: ['intent', 'ranked_models'],
+  properties: {
+    intent: { type: 'string' },
+    ranked_models: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['rank', 'model', 'score', 'reason'],
+        properties: {
+          rank: { type: 'integer' },
+          model: { type: 'string' },
+          score: { type: 'number' },
+          reason: { type: 'string' },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+  additionalProperties: false,
+};
 
 /**
  * Gemini error response structure
@@ -97,6 +121,7 @@ export class GeminiClient implements ProviderClient {
           temperature: request.temperature,
           maxOutputTokens: request.maxTokens,
           responseMimeType: 'application/json', // Request JSON response
+          responseSchema: ROUTER_RESPONSE_SCHEMA,
         },
       };
 
