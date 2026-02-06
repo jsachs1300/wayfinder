@@ -324,3 +324,92 @@ The system is compliant if:
 - Removing alternates does not break routing
 - Adding new models requires no code changes
 - Architecture remains simple, explainable, and reversible
+
+---
+
+## 16. User Self-Service & Sessions
+
+### 16.1 Registration & Verification
+
+- User registration MUST begin with email-only submission.
+- The system MUST issue a verification token and send a verification link via email.
+- Users MUST complete verification before setting a password.
+- Unverified users MUST NOT be able to authenticate or route.
+
+### 16.2 Login & Sessions
+
+- The system MUST support session creation, validation, and logout.
+- Session tokens MUST be stored in Redis.
+- Session tokens MUST be presented via `X-Session-Token`.
+- Session validation MUST return user profile and associated tokens.
+
+### 16.3 Password Reset
+
+- The system MUST support password reset via email token.
+- Reset tokens MUST be time-limited and single-use.
+
+### 16.4 Anonymous Sessions
+
+- Anonymous sessions are **explicitly out of scope** and MUST NOT be implemented.
+
+---
+
+## 17. BYOLLM (User-Provided LLM Keys)
+
+### 17.1 Key Storage & Encryption
+
+- User-provided keys MUST be encrypted at rest using AES-256-GCM.
+- The encryption key MUST be provided via `LLM_KEY_ENCRYPTION_KEY`.
+- Decryption failures MUST fail fast and surface errors clearly.
+
+### 17.2 Key Management
+
+- Users on BYOLLM tier MUST be able to create, list, validate, and delete keys.
+- Keys MUST be scoped per user and per provider.
+- Keys MUST NOT be exposed in API responses or logs.
+
+### 17.3 Routing Behavior
+
+- If a user has configured BYOLLM keys, routing MUST use the user’s keys.
+- If user keys are invalid or missing, requests MUST fail (no silent fallback).
+
+---
+
+## 18. Token Metrics
+
+The system MUST track per-token usage metrics:
+
+- `route_requests` (total routing requests)
+- `cache_hits` (routing requests served from cache)
+- `throttled_requests` (requests rejected due to rate limits)
+
+These metrics MUST be stored in Redis and returned in:
+
+- `/api/tokens` list and detail responses
+- session login/validate responses
+
+---
+
+## 19. Admin User Management
+
+- Admins MUST be able to list users and update user status and tier.
+- Admin operations MUST be authenticated via `X-Admin-Api-Key` or admin session.
+
+---
+
+## 20. Email Delivery Requirements
+
+- The system MUST send email for verification and password reset.
+- Email sender address MUST be configurable.
+- Email delivery failures MUST be logged and surfaced to operators.
+
+---
+
+## 21. Observability Extensions
+
+In addition to routing logs, the system MUST emit:
+
+- provider error rates
+- routing failures by provider
+- cache hit/miss metrics
+- per-token usage metrics (see §18)
