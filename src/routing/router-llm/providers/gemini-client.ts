@@ -61,7 +61,7 @@ const ROUTER_RESPONSE_SCHEMA: Record<string, unknown> = {
         type: 'object',
         required: ['rank', 'model', 'score', 'reason'],
         properties: {
-          rank: { type: 'integer' },
+          rank: { type: 'number' },
           model: { type: 'string' },
           score: { type: 'number' },
           reason: { type: 'string' },
