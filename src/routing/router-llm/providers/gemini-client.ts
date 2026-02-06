@@ -66,11 +66,9 @@ const ROUTER_RESPONSE_SCHEMA: Record<string, unknown> = {
           score: { type: 'number' },
           reason: { type: 'string' },
         },
-        additionalProperties: false,
       },
     },
   },
-  additionalProperties: false,
 };
 
 /**
@@ -100,6 +98,7 @@ export class GeminiClient implements ProviderClient {
 
   async invoke(request: ProviderRequest): Promise<ProviderResponse> {
     const startTime = Date.now();
+    const debugEnabled = process.env.ROUTER_LLM_DEBUG === 'true';
 
     // Create abort controller for timeout
     const controller = new AbortController();
@@ -145,6 +144,19 @@ export class GeminiClient implements ProviderClient {
       // Handle error responses
       if (!response.ok) {
         const errorData = (await response.json()) as GeminiErrorResponse;
+        if (debugEnabled) {
+          console.error('[gemini] Provider request failed', {
+            status: response.status,
+            model: request.model,
+            generationConfig: body.generationConfig,
+            error: {
+              code: errorData.error?.code,
+              status: errorData.error?.status,
+              message: errorData.error?.message,
+              details: errorData.error?.details,
+            },
+          });
+        }
         throw new RouterLLMProviderError(
           `Gemini API error: ${errorData.error.message}`,
           'gemini',
@@ -201,6 +213,18 @@ export class GeminiClient implements ProviderClient {
       // Re-throw provider errors as-is
       if (error instanceof RouterLLMProviderError || error instanceof RouterLLMTimeoutError) {
         throw error;
+      }
+
+      if (debugEnabled) {
+        console.error('[gemini] Unexpected provider error', {
+          model: request.model,
+          generationConfig: {
+            temperature: request.temperature,
+            maxOutputTokens: request.maxTokens,
+            responseMimeType: 'application/json',
+          },
+          error: error instanceof Error ? { name: error.name, message: error.message, stack: error.stack } : String(error),
+        });
       }
 
       // Wrap unexpected errors
