@@ -25,6 +25,9 @@ export interface PromptContext {
 
   /** Optional request metadata */
   requestMetadata?: Record<string, unknown>;
+
+  /** Optional model metadata for eligible models */
+  eligibleModelRegistry?: Record<string, Record<string, unknown>>;
 }
 
 /**
@@ -42,7 +45,7 @@ export interface PromptContext {
  * @returns Formatted prompt string
  */
 export function buildRoutingPrompt(context: PromptContext): string {
-  const { prompt, eligibleModels, preferModel } = context;
+  const { prompt, eligibleModels, preferModel, eligibleModelRegistry } = context;
 
   // Build the system instructions
   const systemInstructions = `You are a router that selects the best LLM model for a given user prompt.
@@ -96,6 +99,12 @@ NO ADDITIONAL PROPERTIES are allowed in the response.
   const modelsSection = `ELIGIBLE MODELS:
 ${eligibleModels.map((model) => `- ${model}`).join('\n')}`;
 
+  // Optional model metadata section (when provided by registry)
+  const modelMetadataSection =
+    eligibleModelRegistry && Object.keys(eligibleModelRegistry).length > 0
+      ? `ELIGIBLE MODEL METADATA (informational context only):\n${JSON.stringify(eligibleModelRegistry, null, 2)}`
+      : '';
+
   // Build prefer model hint if present
   const preferSection = preferModel
     ? `\nUSER PREFERENCE:
@@ -117,6 +126,7 @@ Analyze the user prompt above and respond with your routing decision in the exac
   return [
     systemInstructions,
     modelsSection,
+    modelMetadataSection,
     preferSection,
     userPromptSection,
     finalInstruction,

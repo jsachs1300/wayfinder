@@ -124,6 +124,7 @@ export interface RouterLLM {
       preferModel?: string;
       requestMetadata?: Record<string, unknown>;
       userLLMKeys?: any[]; // Optional: DecryptedLLMKey[] for BYOLLM users
+      eligibleModelRegistry?: Record<string, Record<string, unknown>>;
     },
   ): Promise<unknown>;
 }
@@ -258,6 +259,38 @@ export class DefaultRoutingEngine implements RoutingEngine {
     // Resolve effective router preference (request > token > consensus)
     const effectiveRouter = this.resolveEffectiveRouter(request.router_model, tokenConfig);
 
+    // Build metadata payload for eligible models so router LLM can use richer context.
+    const effectiveRegistry = this.deps.modelRegistry.getEffectiveModelsForUser(userContext?.user?.id);
+    const effectiveRegistryById = new Map(effectiveRegistry.map((model) => [model.id, model]));
+    const eligibleModelRegistryEntries: Array<[string, Record<string, unknown>]> = [];
+
+    for (const modelId of eligibleModels) {
+      const model = effectiveRegistryById.get(modelId);
+      if (!model) {
+        continue;
+      }
+
+      eligibleModelRegistryEntries.push([
+        modelId,
+        {
+          provider: model.provider,
+          cost_tier: model.cost_tier,
+          speed_tier: model.speed_tier,
+          context_window: model.context_window,
+          max_output_tokens: model.max_output_tokens,
+          capabilities: model.capabilities,
+          cost: model.cost,
+          performance: model.performance,
+          capability_flags: model.capability_flags,
+          description: model.description,
+          availability: model.availability,
+          status: model.status,
+        },
+      ]);
+    }
+
+    const eligibleModelRegistry = Object.fromEntries(eligibleModelRegistryEntries);
+
     // Check cache AFTER policy evaluation, BEFORE router LLM invocation (REQUIREMENTS.md §8 step 8)
     // Cache is token-scoped with router model differentiation via attributes
     let routerModelUsed = effectiveRouter;
@@ -339,6 +372,7 @@ export class DefaultRoutingEngine implements RoutingEngine {
       preferModel: request.prefer_model,
       requestMetadata: request.metadata,
       userLLMKeys, // Pass user's LLM keys if BYOLLM tier
+      eligibleModelRegistry,
     });
 
     // Handle both MultiProviderResult and legacy RankedRouteDecision formats

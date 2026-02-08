@@ -1,4 +1,4 @@
-import { ModelInfo, TokenConfig, KnowledgeScope } from '../types';
+import { ModelInfo, TokenConfig, KnowledgeScope, RegistryMode } from '../types';
 import {
   InvalidModelError,
   DisabledModelError,
@@ -32,10 +32,18 @@ export interface ModelRegistry {
   getAvailableModels(): ModelInfo[];
   isValidModel(id: string): boolean;
   getDefaultModel(): string;
+  getEffectiveModelsForUser(userId?: string): ModelInfo[];
+  getEffectiveModelForUser(modelId: string, userId?: string): ModelInfo | null;
+  getUserRegistryMode(userId: string): RegistryMode;
 
   // Mutation operations (future BYOM support)
   registerModel(model: ModelInfo): void;
   unregisterModel(id: string): boolean;
+  setSystemCuratedOverride(modelId: string, override: Partial<ModelInfo>): void;
+  clearSystemCuratedOverride(modelId: string): boolean;
+  setUserRegistryMode(userId: string, mode: RegistryMode): void;
+  setUserModelOverlay(userId: string, modelId: string, overlay: Partial<ModelInfo>): void;
+  clearUserModelOverlay(userId: string, modelId: string): boolean;
 
   // Validation API (fail-fast assertions)
   assertModelExists(modelId: string, context?: ValidationContext): void;
@@ -233,44 +241,309 @@ const DEFAULT_MODELS: ModelInfo[] = [
  */
 export class DefaultModelRegistry implements ModelRegistry {
   private models: Map<string, ModelInfo> = new Map();
-  private defaultModelId: string = 'claude-3-5-sonnet';
+  private systemCuratedOverrides: Map<string, Partial<ModelInfo>> = new Map();
+  private userOverlays: Map<string, Map<string, Partial<ModelInfo>>> = new Map();
+  private userRegistryModes: Map<string, RegistryMode> = new Map();
+  private defaultModelId: string = 'gpt-4o-mini';
 
   constructor(initialModels: ModelInfo[] = DEFAULT_MODELS) {
     for (const model of initialModels) {
-      this.models.set(model.id, model);
+      this.models.set(model.id, {
+        ...model,
+        source: model.source ?? 'system_base',
+        updated_at: model.updated_at ?? new Date().toISOString(),
+      });
     }
+  }
+
+  private mergeModelInfo(base: ModelInfo, overlay?: Partial<ModelInfo>): ModelInfo {
+    if (!overlay) {
+      return base;
+    }
+
+    return {
+      ...base,
+      ...overlay,
+      cost: {
+        ...base.cost,
+        ...overlay.cost,
+      },
+      performance: {
+        ...base.performance,
+        ...overlay.performance,
+        strengths: overlay.performance?.strengths ?? base.performance?.strengths,
+        weaknesses: overlay.performance?.weaknesses ?? base.performance?.weaknesses,
+      },
+      capability_flags: {
+        ...base.capability_flags,
+        ...overlay.capability_flags,
+      },
+      provider_metadata: {
+        ...base.provider_metadata,
+        ...overlay.provider_metadata,
+        raw: {
+          ...base.provider_metadata?.raw,
+          ...overlay.provider_metadata?.raw,
+        },
+      },
+      metadata_confidence: {
+        ...base.metadata_confidence,
+        ...overlay.metadata_confidence,
+      },
+      updated_at: overlay.updated_at ?? new Date().toISOString(),
+    };
+  }
+
+  private getSystemModel(modelId: string): ModelInfo | null {
+    const base = this.models.get(modelId);
+    const curated = this.systemCuratedOverrides.get(modelId);
+
+    if (!base && !curated) {
+      return null;
+    }
+
+    if (!base && curated) {
+      // Curated-only entries must define required fields to become valid system entries.
+      const required: Array<keyof ModelInfo> = [
+        'id',
+        'provider',
+        'cost_tier',
+        'speed_tier',
+        'context_window',
+        'available',
+        'status',
+        'global_eligible',
+      ];
+      const isComplete = required.every((key) => curated[key] !== undefined);
+      if (!isComplete) {
+        return null;
+      }
+      return {
+        ...(curated as ModelInfo),
+        source: 'system_curated',
+        updated_at: curated.updated_at ?? new Date().toISOString(),
+      };
+    }
+
+    return this.mergeModelInfo(base!, curated);
+  }
+
+  private getSystemModels(): ModelInfo[] {
+    const ids = new Set<string>([
+      ...this.models.keys(),
+      ...this.systemCuratedOverrides.keys(),
+    ]);
+
+    const result: ModelInfo[] = [];
+    for (const id of ids) {
+      const model = this.getSystemModel(id);
+      if (model) {
+        result.push(model);
+      }
+    }
+    return result;
+  }
+
+  private getUserOverlay(userId?: string): Map<string, Partial<ModelInfo>> | undefined {
+    if (!userId) {
+      return undefined;
+    }
+    return this.userOverlays.get(userId);
   }
 
   // ===== Read Operations =====
 
   getModel(id: string): ModelInfo | null {
-    return this.models.get(id) ?? null;
+    return this.getSystemModel(id);
   }
 
   getAllModels(): ModelInfo[] {
-    return Array.from(this.models.values());
+    return this.getSystemModels();
   }
 
   getAvailableModels(): ModelInfo[] {
-    return Array.from(this.models.values()).filter((m) => m.available);
+    return this.getSystemModels().filter((m) => m.available);
   }
 
   isValidModel(id: string): boolean {
-    return this.models.has(id);
+    return this.getSystemModel(id) !== null;
   }
 
   getDefaultModel(): string {
     return this.defaultModelId;
   }
 
+  getUserRegistryMode(userId: string): RegistryMode {
+    return this.userRegistryModes.get(userId) ?? 'augment';
+  }
+
+  getEffectiveModelForUser(modelId: string, userId?: string): ModelInfo | null {
+    const systemModel = this.getSystemModel(modelId);
+    if (!userId) {
+      return systemModel;
+    }
+
+    const userMode = this.getUserRegistryMode(userId);
+    const userOverlay = this.getUserOverlay(userId);
+    const userModelOverlay = userOverlay?.get(modelId);
+
+    if (userMode === 'override') {
+      if (!userModelOverlay) {
+        return null;
+      }
+      if (!systemModel) {
+        // Overlay-only model in override mode must provide required fields.
+        const required: Array<keyof ModelInfo> = [
+          'id',
+          'provider',
+          'cost_tier',
+          'speed_tier',
+          'context_window',
+          'available',
+          'status',
+          'global_eligible',
+        ];
+        const isComplete = required.every((key) => userModelOverlay[key] !== undefined);
+        if (!isComplete) {
+          return null;
+        }
+        return {
+          ...(userModelOverlay as ModelInfo),
+          source: 'user_overlay',
+          user_id: userId,
+          updated_at: userModelOverlay.updated_at ?? new Date().toISOString(),
+        };
+      }
+    }
+
+    if (!systemModel && !userModelOverlay) {
+      return null;
+    }
+    if (!systemModel && userModelOverlay) {
+      // augment mode + overlay-only model: allow if complete.
+      const required: Array<keyof ModelInfo> = [
+        'id',
+        'provider',
+        'cost_tier',
+        'speed_tier',
+        'context_window',
+        'available',
+        'status',
+        'global_eligible',
+      ];
+      const isComplete = required.every((key) => userModelOverlay[key] !== undefined);
+      if (!isComplete) {
+        return null;
+      }
+      return {
+        ...(userModelOverlay as ModelInfo),
+        source: 'user_overlay',
+        user_id: userId,
+        updated_at: userModelOverlay.updated_at ?? new Date().toISOString(),
+      };
+    }
+
+    if (systemModel && userModelOverlay) {
+      const merged = this.mergeModelInfo(systemModel, userModelOverlay);
+      return {
+        ...merged,
+        source: 'user_overlay',
+        user_id: userId,
+      };
+    }
+
+    return systemModel;
+  }
+
+  getEffectiveModelsForUser(userId?: string): ModelInfo[] {
+    const systemModels = this.getSystemModels();
+    if (!userId) {
+      return systemModels;
+    }
+
+    const userMode = this.getUserRegistryMode(userId);
+    const overlay = this.getUserOverlay(userId) ?? new Map<string, Partial<ModelInfo>>();
+
+    if (userMode === 'override') {
+      const models: ModelInfo[] = [];
+      for (const modelId of overlay.keys()) {
+        const resolved = this.getEffectiveModelForUser(modelId, userId);
+        if (resolved) {
+          models.push(resolved);
+        }
+      }
+      return models;
+    }
+
+    const ids = new Set<string>([
+      ...systemModels.map((m) => m.id),
+      ...overlay.keys(),
+    ]);
+    const models: ModelInfo[] = [];
+    for (const modelId of ids) {
+      const resolved = this.getEffectiveModelForUser(modelId, userId);
+      if (resolved) {
+        models.push(resolved);
+      }
+    }
+    return models;
+  }
+
   // ===== Mutation Operations =====
 
   registerModel(model: ModelInfo): void {
-    this.models.set(model.id, model);
+    this.models.set(model.id, {
+      ...model,
+      source: model.source ?? 'system_base',
+      updated_at: model.updated_at ?? new Date().toISOString(),
+    });
   }
 
   unregisterModel(id: string): boolean {
-    return this.models.delete(id);
+    const deletedBase = this.models.delete(id);
+    this.systemCuratedOverrides.delete(id);
+    return deletedBase;
+  }
+
+  setSystemCuratedOverride(modelId: string, override: Partial<ModelInfo>): void {
+    this.systemCuratedOverrides.set(modelId, {
+      id: modelId,
+      ...override,
+      source: 'system_curated',
+      updated_at: new Date().toISOString(),
+    });
+  }
+
+  clearSystemCuratedOverride(modelId: string): boolean {
+    return this.systemCuratedOverrides.delete(modelId);
+  }
+
+  setUserRegistryMode(userId: string, mode: RegistryMode): void {
+    this.userRegistryModes.set(userId, mode);
+  }
+
+  setUserModelOverlay(userId: string, modelId: string, overlay: Partial<ModelInfo>): void {
+    const userOverlay = this.userOverlays.get(userId) ?? new Map<string, Partial<ModelInfo>>();
+    userOverlay.set(modelId, {
+      id: modelId,
+      ...overlay,
+      source: 'user_overlay',
+      user_id: userId,
+      updated_at: new Date().toISOString(),
+    });
+    this.userOverlays.set(userId, userOverlay);
+  }
+
+  clearUserModelOverlay(userId: string, modelId: string): boolean {
+    const userOverlay = this.userOverlays.get(userId);
+    if (!userOverlay) {
+      return false;
+    }
+    const deleted = userOverlay.delete(modelId);
+    if (userOverlay.size === 0) {
+      this.userOverlays.delete(userId);
+    }
+    return deleted;
   }
 
   // ===== Validation API (Fail-Fast Assertions) =====
@@ -280,7 +553,7 @@ export class DefaultModelRegistry implements ModelRegistry {
    * @throws InvalidModelError if model does not exist
    */
   assertModelExists(modelId: string, context?: ValidationContext): void {
-    if (!this.models.has(modelId)) {
+    if (!this.getSystemModel(modelId)) {
       throw new InvalidModelError(modelId, context);
     }
   }
@@ -291,7 +564,7 @@ export class DefaultModelRegistry implements ModelRegistry {
    * @throws DisabledModelError if model is disabled
    */
   assertModelActive(modelId: string, context?: ValidationContext): void {
-    const model = this.models.get(modelId);
+    const model = this.getSystemModel(modelId);
     if (!model) {
       throw new InvalidModelError(modelId, context);
     }
@@ -319,7 +592,7 @@ export class DefaultModelRegistry implements ModelRegistry {
     modelId: string,
     context?: ValidationContext
   ): void {
-    const model = this.models.get(modelId);
+    const model = this.getSystemModel(modelId);
     if (!model) {
       throw new InvalidModelError(modelId, context);
     }
@@ -526,14 +799,14 @@ export class DefaultModelRegistry implements ModelRegistry {
    * Get model IDs as a simple array
    */
   getModelIds(): string[] {
-    return Array.from(this.models.keys());
+    return this.getSystemModels().map((model) => model.id);
   }
 
   /**
    * Get all active models (excludes disabled)
    */
   getActiveModels(): ModelInfo[] {
-    return Array.from(this.models.values()).filter(
+    return this.getSystemModels().filter(
       (m) => m.status === 'active' || m.status === 'deprecated'
     );
   }
@@ -542,7 +815,7 @@ export class DefaultModelRegistry implements ModelRegistry {
    * Get all global-eligible models
    */
   getGlobalEligibleModels(): ModelInfo[] {
-    return Array.from(this.models.values()).filter((m) => m.global_eligible);
+    return this.getSystemModels().filter((m) => m.global_eligible);
   }
 }
 

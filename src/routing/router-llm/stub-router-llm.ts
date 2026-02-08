@@ -22,6 +22,7 @@ export class StubRouterLLM implements RouterLLM {
       tokenConfig: TokenConfig;
       preferModel?: string;
       requestMetadata?: Record<string, unknown>;
+      eligibleModelRegistry?: Record<string, Record<string, unknown>>;
     }
   ): Promise<unknown> {
     // If preferModel is specified and eligible, make it rank 1

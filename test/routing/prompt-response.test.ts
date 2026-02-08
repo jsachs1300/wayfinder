@@ -82,6 +82,26 @@ describe('buildRoutingPrompt', () => {
     expect(prompt).toContain('"reason"');
   });
 
+  it('should include eligible model registry metadata when provided', () => {
+    const prompt = buildRoutingPrompt({
+      prompt: 'Test prompt',
+      eligibleModels: ['gpt-4'],
+      tokenConfig: mockTokenConfig,
+      eligibleModelRegistry: {
+        'gpt-4': {
+          provider: 'openai',
+          cost_tier: 'high',
+          speed_tier: 'medium',
+        },
+      },
+    });
+
+    expect(prompt).toContain('ELIGIBLE MODEL METADATA');
+    expect(prompt).toContain('"gpt-4"');
+    expect(prompt).toContain('"provider": "openai"');
+    expect(prompt).toContain('"cost_tier": "high"');
+  });
+
   it('should include scoring guidance', () => {
     const prompt = buildRoutingPrompt({
       prompt: 'Test prompt',

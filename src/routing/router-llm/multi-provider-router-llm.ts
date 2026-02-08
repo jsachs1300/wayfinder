@@ -97,6 +97,7 @@ export class MultiProviderRouterLLM implements RouterLLM {
       tokenConfig: TokenConfig;
       preferModel?: string;
       requestMetadata?: Record<string, unknown>;
+      eligibleModelRegistry?: Record<string, Record<string, unknown>>;
     }
   ): Promise<unknown> {
     // Input validation
@@ -125,6 +126,7 @@ export class MultiProviderRouterLLM implements RouterLLM {
       tokenConfig: context.tokenConfig,
       preferModel: context.preferModel,
       requestMetadata: context.requestMetadata,
+      eligibleModelRegistry: context.eligibleModelRegistry,
     });
 
     // Determine which providers are enabled

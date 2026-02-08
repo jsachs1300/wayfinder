@@ -8,7 +8,14 @@ import { createTokenStore, createAdminRoutes, createTokenMetricsStore, TokenStor
 import type { TokenMetricsStore } from './tokens/metrics';
 import { createPolicyEngine, PolicyEngine } from './policy';
 import { createKnowledgeStore, KnowledgeStore } from './knowledge';
-import { createModelRegistry, DefaultModelRegistry } from './models';
+import {
+  createModelRegistry,
+  DefaultModelRegistry,
+  createAdminModelRegistryRoutes,
+  createUserModelRegistryRoutes,
+  createModelCatalogProvidersFromEnv,
+  ModelRegistrySyncService,
+} from './models';
 import { createRoutingEngine, createRoutingRoutes, RoutingEngine, StubRouterLLM, MultiProviderRouterLLM } from './routing';
 import { createFeedbackHandler, createFeedbackRoutes, FeedbackHandler } from './feedback';
 import { createOpinionPoller, OpinionPoller } from './polling';
@@ -41,6 +48,7 @@ export interface AppDependencies {
   policyEngine: PolicyEngine;
   knowledgeStore: KnowledgeStore;
   modelRegistry: DefaultModelRegistry;
+  modelRegistrySyncService?: ModelRegistrySyncService;
   routingEngine: RoutingEngine;
   feedbackHandler: FeedbackHandler;
   opinionPoller: OpinionPoller;
@@ -264,6 +272,29 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
 
   const policyEngine = deps?.policyEngine ?? createPolicyEngine();
   const modelRegistry = deps?.modelRegistry ?? createModelRegistry();
+  const modelRegistrySyncService = deps?.modelRegistrySyncService ?? (() => {
+    const providers = createModelCatalogProvidersFromEnv();
+    if (providers.length === 0) {
+      return undefined;
+    }
+    return new ModelRegistrySyncService(modelRegistry, logger, providers);
+  })();
+
+  const modelRegistrySyncOnStartup = process.env.MODEL_REGISTRY_SYNC_ON_STARTUP === 'true';
+  if (modelRegistrySyncOnStartup && modelRegistrySyncService?.hasProviders()) {
+    try {
+      const summary = await modelRegistrySyncService.syncAll();
+      logger.info('Startup model registry sync completed', {
+        imported_total: summary.imported_total,
+        providers: summary.providers,
+      });
+    } catch (error) {
+      logger.warn('Startup model registry sync failed; continuing with existing registry', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   const knowledgeStore = deps?.knowledgeStore ?? createKnowledgeStore(redis, modelRegistry);
   const opinionPoller = deps?.opinionPoller ?? createOpinionPoller(knowledgeStore, modelRegistry);
   const feedbackHandler = deps?.feedbackHandler ?? createFeedbackHandler(knowledgeStore);
@@ -326,6 +357,7 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
     policyEngine,
     knowledgeStore,
     modelRegistry,
+    modelRegistrySyncService,
     routingEngine,
     feedbackHandler,
     opinionPoller,
@@ -426,6 +458,9 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
       default: modelRegistry.getDefaultModel(),
     });
   });
+
+  // Model registry management (admin only)
+  adminRouter.use('/registry', createAdminModelRegistryRoutes(modelRegistry, logger, modelRegistrySyncService));
 
   // Update user tier (admin only) - for testing/support purposes
   if (userStore) {
@@ -604,6 +639,11 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
       app.use('/api/llm-keys',
         userAuthMiddleware(tokenStore, userStore, sessionStore),
         createLLMKeyRoutes(userLLMKeyStore)
+      );
+
+      app.use('/api/registry',
+        userAuthMiddleware(tokenStore, userStore, sessionStore),
+        createUserModelRegistryRoutes(modelRegistry, logger)
       );
 
       logger.info('User self-service routes mounted successfully');
