@@ -42,6 +42,23 @@ describe('Model Registry Layering', () => {
     expect(alpha?.performance?.quality_tier).toBe('high');
   });
 
+  it('merges system curated overrides instead of replacing previous fields', () => {
+    const registry = createModelRegistry(BASE_MODELS);
+
+    registry.setSystemCuratedOverride('alpha-model', {
+      description: 'first description',
+      performance: { strengths: ['reasoning'] },
+    });
+    registry.setSystemCuratedOverride('alpha-model', {
+      speed_tier: 'medium',
+    });
+
+    const alpha = registry.getModel('alpha-model');
+    expect(alpha?.speed_tier).toBe('medium');
+    expect(alpha?.description).toBe('first description');
+    expect(alpha?.performance?.strengths).toEqual(['reasoning']);
+  });
+
   it('uses user overlays in augment mode while preserving system models', () => {
     const registry = createModelRegistry(BASE_MODELS);
 
@@ -57,6 +74,23 @@ describe('Model Registry Layering', () => {
     const alpha = registry.getEffectiveModelForUser('alpha-model', 'user-1');
     expect(alpha?.performance?.strengths).toEqual(['reasoning', 'coding']);
     expect(alpha?.source).toBe('user_overlay');
+  });
+
+  it('merges user overlays instead of replacing previous fields', () => {
+    const registry = createModelRegistry(BASE_MODELS);
+
+    registry.setUserModelOverlay('user-merge', 'alpha-model', {
+      description: 'custom description',
+      performance: { strengths: ['coding'] },
+    });
+    registry.setUserModelOverlay('user-merge', 'alpha-model', {
+      speed_tier: 'medium',
+    });
+
+    const alpha = registry.getEffectiveModelForUser('alpha-model', 'user-merge');
+    expect(alpha?.description).toBe('custom description');
+    expect(alpha?.performance?.strengths).toEqual(['coding']);
+    expect(alpha?.speed_tier).toBe('medium');
   });
 
   it('uses only user overlay entries in override mode', () => {

@@ -5,6 +5,8 @@ import { AnthropicModelCatalogProvider } from './anthropic-model-provider';
 import { XAIModelCatalogProvider } from './xai-model-provider';
 import { OllamaModelCatalogProvider } from './ollama-model-provider';
 
+const MAX_MODEL_REGISTRY_SYNC_TIMEOUT_MS = 60000;
+
 function parseTimeoutMs(value: string | undefined, fallback: number): number {
   if (!value) {
     return fallback;
@@ -13,7 +15,7 @@ function parseTimeoutMs(value: string | undefined, fallback: number): number {
   if (!Number.isFinite(parsed) || parsed <= 0) {
     return fallback;
   }
-  return parsed;
+  return Math.min(parsed, MAX_MODEL_REGISTRY_SYNC_TIMEOUT_MS);
 }
 
 export function createModelCatalogProvidersFromEnv(): ModelCatalogProvider[] {

@@ -53,5 +53,83 @@ describe('ModelRegistrySyncService', () => {
     expect(summary.providers[0]?.provider).toBe('failing-provider');
     expect(summary.providers[0]?.error).toContain('provider down');
   });
-});
 
+  it('redacts API keys from provider errors', async () => {
+    const registry = createModelRegistry();
+    const logger = createLogger('error');
+
+    const failingProvider: ModelCatalogProvider = {
+      getProviderName: () => 'failing-provider',
+      listModels: async () => {
+        throw new Error(
+          'request failed with Authorization: Bearer sk-secret-abcdef and key=AIzaSySecretValue'
+        );
+      },
+    };
+
+    const syncService = new ModelRegistrySyncService(registry, logger, [failingProvider]);
+    const summary = await syncService.syncAll();
+
+    expect(summary.providers[0]?.error).toContain('[REDACTED]');
+    expect(summary.providers[0]?.error).not.toContain('sk-secret-abcdef');
+    expect(summary.providers[0]?.error).not.toContain('AIzaSySecretValue');
+  });
+
+  it('runs provider sync in parallel', async () => {
+    const registry = createModelRegistry();
+    const logger = createLogger('error');
+
+    const delayed = (name: string): ModelCatalogProvider => ({
+      getProviderName: () => name,
+      listModels: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 120));
+        return [
+          {
+            id: `${name}-model`,
+            provider: 'test',
+            cost_tier: 'medium',
+            speed_tier: 'medium',
+            context_window: 16000,
+            available: true,
+            status: 'active',
+            global_eligible: true,
+            source: 'system_base',
+          },
+        ];
+      },
+    });
+
+    const syncService = new ModelRegistrySyncService(registry, logger, [
+      delayed('provider-a'),
+      delayed('provider-b'),
+    ]);
+
+    const start = Date.now();
+    const summary = await syncService.syncAll();
+    const durationMs = Date.now() - start;
+
+    expect(summary.imported_total).toBe(2);
+    expect(durationMs).toBeLessThan(220);
+  });
+
+  it('reuses in-flight sync for concurrent callers', async () => {
+    const registry = createModelRegistry();
+    const logger = createLogger('error');
+    let calls = 0;
+
+    const provider: ModelCatalogProvider = {
+      getProviderName: () => 'single-provider',
+      listModels: async () => {
+        calls += 1;
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        return [];
+      },
+    };
+
+    const syncService = new ModelRegistrySyncService(registry, logger, [provider]);
+
+    const [first, second] = await Promise.all([syncService.syncAll(), syncService.syncAll()]);
+    expect(first.completed_at).toBe(second.completed_at);
+    expect(calls).toBe(1);
+  });
+});

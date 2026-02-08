@@ -14,6 +14,7 @@ const logger = createLogger(process.env.LOG_LEVEL);
 const MODEL_REGISTRY_STATE_KEY = 'wayfinder:model_registry:v1';
 const MODEL_REGISTRY_STATE_VERSION = 1;
 const MODEL_REGISTRY_PERSIST_DEBOUNCE_MS = 25;
+const DEFAULT_MODEL_REGISTRY_MAX_MODELS = 250;
 
 interface PersistedModelRegistryState {
   version: number;
@@ -274,6 +275,7 @@ export class DefaultModelRegistry implements ModelRegistry {
     'status',
     'global_eligible',
   ];
+  private readonly maxModels: number;
 
   constructor(
     initialModels: ModelInfo[] = DEFAULT_MODELS,
@@ -281,6 +283,13 @@ export class DefaultModelRegistry implements ModelRegistry {
   ) {
     this.redis = options?.redis;
     this.registryLogger = options?.logger;
+    const parsedMax = Number.parseInt(
+      process.env.MODEL_REGISTRY_MAX_MODELS ?? `${DEFAULT_MODEL_REGISTRY_MAX_MODELS}`,
+      10
+    );
+    this.maxModels = Number.isFinite(parsedMax) && parsedMax > 0
+      ? parsedMax
+      : DEFAULT_MODEL_REGISTRY_MAX_MODELS;
     for (const model of initialModels) {
       this.models.set(model.id, {
         ...model,
@@ -288,6 +297,7 @@ export class DefaultModelRegistry implements ModelRegistry {
         updated_at: model.updated_at ?? new Date().toISOString(),
       });
     }
+    this.pruneModelLimit();
   }
 
   async loadPersistedState(): Promise<boolean> {
@@ -324,6 +334,11 @@ export class DefaultModelRegistry implements ModelRegistry {
         ])
       );
       this.defaultModelId = parsed.default_model_id || this.defaultModelId;
+      const modelCountBeforePrune = this.models.size;
+      this.pruneModelLimit();
+      if (this.models.size < modelCountBeforePrune) {
+        this.schedulePersist();
+      }
 
       this.registryLogger?.info('Loaded model registry state from Redis', {
         model_count: this.models.size,
@@ -434,6 +449,79 @@ export class DefaultModelRegistry implements ModelRegistry {
         ...overlay.metadata_confidence,
       },
     };
+  }
+
+  private getProtectedModelIds(): Set<string> {
+    const protectedIds = new Set<string>([this.defaultModelId]);
+    for (const modelId of this.systemCuratedOverrides.keys()) {
+      protectedIds.add(modelId);
+    }
+    for (const overlayMap of this.userOverlays.values()) {
+      for (const modelId of overlayMap.keys()) {
+        protectedIds.add(modelId);
+      }
+    }
+    return protectedIds;
+  }
+
+  private getModelSortTimestamp(model: ModelInfo): number {
+    if (!model.updated_at) {
+      return 0;
+    }
+    const parsed = Date.parse(model.updated_at);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  private pruneModelLimit(): void {
+    if (this.models.size <= this.maxModels) {
+      return;
+    }
+
+    const protectedIds = this.getProtectedModelIds();
+    const candidates = Array.from(this.models.values())
+      .filter((model) => !protectedIds.has(model.id))
+      .sort((a, b) => {
+        const statusRank = (model: ModelInfo): number => {
+          if (model.status === 'disabled') return 0;
+          if (model.status === 'deprecated') return 1;
+          if (!model.available) return 2;
+          return 3;
+        };
+
+        const byStatus = statusRank(a) - statusRank(b);
+        if (byStatus !== 0) {
+          return byStatus;
+        }
+        return this.getModelSortTimestamp(a) - this.getModelSortTimestamp(b);
+      });
+
+    let removed = 0;
+    while (this.models.size > this.maxModels && candidates.length > 0) {
+      const victim = candidates.shift();
+      if (!victim) {
+        break;
+      }
+      if (this.models.delete(victim.id)) {
+        removed += 1;
+      }
+    }
+
+    if (this.models.size > this.maxModels) {
+      this.registryLogger?.warn('Model registry reached max size and could not fully prune', {
+        max_models: this.maxModels,
+        current_models: this.models.size,
+        protected_models: protectedIds.size,
+      });
+      return;
+    }
+
+    if (removed > 0) {
+      this.registryLogger?.info('Pruned model registry to enforce max size', {
+        removed_models: removed,
+        max_models: this.maxModels,
+        current_models: this.models.size,
+      });
+    }
   }
 
   private mergeModelInfo(base: ModelInfo, overlay?: Partial<ModelInfo>): ModelInfo {
@@ -644,6 +732,7 @@ export class DefaultModelRegistry implements ModelRegistry {
       source: model.source ?? 'system_base',
       updated_at: model.updated_at ?? new Date().toISOString(),
     });
+    this.pruneModelLimit();
     this.schedulePersist();
   }
 

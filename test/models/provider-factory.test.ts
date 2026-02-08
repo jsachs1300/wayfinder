@@ -12,6 +12,7 @@ function resetRegistryProviderEnv(): void {
   delete process.env.MODEL_REGISTRY_XAI_API_KEY;
   delete process.env.MODEL_REGISTRY_OLLAMA_ENABLED;
   delete process.env.MODEL_REGISTRY_OLLAMA_BASE_URL;
+  delete process.env.MODEL_REGISTRY_SYNC_TIMEOUT_MS;
 }
 
 describe('Model catalog provider factory', () => {
@@ -36,5 +37,16 @@ describe('Model catalog provider factory', () => {
 
     expect(names).toEqual(['openai', 'gemini', 'anthropic', 'xai', 'ollama']);
   });
-});
 
+  it('caps sync timeout at 60s', () => {
+    process.env.MODEL_REGISTRY_OPENAI_ENABLED = 'true';
+    process.env.MODEL_REGISTRY_OPENAI_API_KEY = 'openai-test';
+    process.env.MODEL_REGISTRY_SYNC_TIMEOUT_MS = '120000';
+
+    const providers = createModelCatalogProvidersFromEnv();
+    expect(providers).toHaveLength(1);
+
+    const timeoutMs = (providers[0] as any).timeoutMs;
+    expect(timeoutMs).toBe(60000);
+  });
+});
