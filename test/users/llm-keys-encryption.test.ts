@@ -100,9 +100,11 @@ describe('LLM Key Encryption', () => {
       const encrypted = encryptLLMKey(apiKey);
 
       // Tamper with encrypted data
+      const ciphertext = Buffer.from(encrypted.encrypted, 'base64');
+      ciphertext[0] = ciphertext[0] ^ 0xff;
       const tampered = {
         ...encrypted,
-        encrypted: encrypted.encrypted.slice(0, -1) + 'X',
+        encrypted: ciphertext.toString('base64'),
       };
 
       expect(() => decryptLLMKey(tampered)).toThrow();
