@@ -10,6 +10,7 @@ import { createPolicyEngine, PolicyEngine } from './policy';
 import { createKnowledgeStore, KnowledgeStore } from './knowledge';
 import {
   createModelRegistry,
+  createPersistentModelRegistry,
   DefaultModelRegistry,
   createAdminModelRegistryRoutes,
   createUserModelRegistryRoutes,
@@ -271,7 +272,11 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
   }
 
   const policyEngine = deps?.policyEngine ?? createPolicyEngine();
-  const modelRegistry = deps?.modelRegistry ?? createModelRegistry();
+  const modelRegistry = deps?.modelRegistry ?? (
+    redis
+      ? await createPersistentModelRegistry(redis, logger)
+      : createModelRegistry()
+  );
   const modelRegistrySyncService = deps?.modelRegistrySyncService ?? (() => {
     const providers = createModelCatalogProvidersFromEnv();
     if (providers.length === 0) {

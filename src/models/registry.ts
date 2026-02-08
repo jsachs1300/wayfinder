@@ -1,4 +1,5 @@
 import { ModelInfo, TokenConfig, KnowledgeScope, RegistryMode } from '../types';
+import type Redis from 'ioredis';
 import {
   InvalidModelError,
   DisabledModelError,
@@ -7,8 +8,21 @@ import {
   ModelConfigurationError,
 } from './errors';
 import { createLogger } from '../logging';
+import type { Logger } from '../logging/logger';
 
 const logger = createLogger(process.env.LOG_LEVEL);
+const MODEL_REGISTRY_STATE_KEY = 'wayfinder:model_registry:v1';
+const MODEL_REGISTRY_STATE_VERSION = 1;
+const MODEL_REGISTRY_PERSIST_DEBOUNCE_MS = 25;
+
+interface PersistedModelRegistryState {
+  version: number;
+  default_model_id: string;
+  models: Record<string, ModelInfo>;
+  system_curated_overrides: Record<string, Partial<ModelInfo>>;
+  user_overlays: Record<string, Record<string, Partial<ModelInfo>>>;
+  user_registry_modes: Record<string, RegistryMode>;
+}
 
 /**
  * Context for model validation
@@ -245,8 +259,28 @@ export class DefaultModelRegistry implements ModelRegistry {
   private userOverlays: Map<string, Map<string, Partial<ModelInfo>>> = new Map();
   private userRegistryModes: Map<string, RegistryMode> = new Map();
   private defaultModelId: string = 'gpt-4o-mini';
+  private readonly redis?: Redis;
+  private readonly registryLogger?: Logger;
+  private persistTimer?: NodeJS.Timeout;
+  private persistInFlight = false;
+  private persistQueued = false;
+  private readonly requiredModelInfoFields: Array<keyof ModelInfo> = [
+    'id',
+    'provider',
+    'cost_tier',
+    'speed_tier',
+    'context_window',
+    'available',
+    'status',
+    'global_eligible',
+  ];
 
-  constructor(initialModels: ModelInfo[] = DEFAULT_MODELS) {
+  constructor(
+    initialModels: ModelInfo[] = DEFAULT_MODELS,
+    options?: { redis?: Redis; logger?: Logger }
+  ) {
+    this.redis = options?.redis;
+    this.registryLogger = options?.logger;
     for (const model of initialModels) {
       this.models.set(model.id, {
         ...model,
@@ -254,6 +288,152 @@ export class DefaultModelRegistry implements ModelRegistry {
         updated_at: model.updated_at ?? new Date().toISOString(),
       });
     }
+  }
+
+  async loadPersistedState(): Promise<boolean> {
+    if (!this.redis) {
+      return false;
+    }
+
+    try {
+      const raw = await this.redis.get(MODEL_REGISTRY_STATE_KEY);
+      if (!raw) {
+        return false;
+      }
+
+      const parsed = JSON.parse(raw) as PersistedModelRegistryState;
+      if (parsed.version !== MODEL_REGISTRY_STATE_VERSION) {
+        this.registryLogger?.warn('Ignoring model registry state with unexpected version', {
+          expected: MODEL_REGISTRY_STATE_VERSION,
+          received: parsed.version,
+        });
+        return false;
+      }
+
+      this.models = new Map(Object.entries(parsed.models ?? {}));
+      this.systemCuratedOverrides = new Map(
+        Object.entries(parsed.system_curated_overrides ?? {})
+      );
+      this.userRegistryModes = new Map(
+        Object.entries(parsed.user_registry_modes ?? {})
+      );
+      this.userOverlays = new Map(
+        Object.entries(parsed.user_overlays ?? {}).map(([userId, overlays]) => [
+          userId,
+          new Map(Object.entries(overlays ?? {})),
+        ])
+      );
+      this.defaultModelId = parsed.default_model_id || this.defaultModelId;
+
+      this.registryLogger?.info('Loaded model registry state from Redis', {
+        model_count: this.models.size,
+        system_overrides: this.systemCuratedOverrides.size,
+        user_overlays: this.userOverlays.size,
+      });
+      return true;
+    } catch (error) {
+      this.registryLogger?.warn('Failed to load model registry state from Redis', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
+  }
+
+  private toPersistedState(): PersistedModelRegistryState {
+    const userOverlays: Record<string, Record<string, Partial<ModelInfo>>> = {};
+    for (const [userId, overlays] of this.userOverlays.entries()) {
+      userOverlays[userId] = Object.fromEntries(overlays.entries());
+    }
+
+    return {
+      version: MODEL_REGISTRY_STATE_VERSION,
+      default_model_id: this.defaultModelId,
+      models: Object.fromEntries(this.models.entries()),
+      system_curated_overrides: Object.fromEntries(this.systemCuratedOverrides.entries()),
+      user_overlays: userOverlays,
+      user_registry_modes: Object.fromEntries(this.userRegistryModes.entries()),
+    };
+  }
+
+  private schedulePersist(): void {
+    if (!this.redis) {
+      return;
+    }
+
+    if (this.persistTimer) {
+      clearTimeout(this.persistTimer);
+    }
+
+    this.persistTimer = setTimeout(() => {
+      this.persistTimer = undefined;
+      void this.flushPersistState();
+    }, MODEL_REGISTRY_PERSIST_DEBOUNCE_MS);
+  }
+
+  private async flushPersistState(): Promise<void> {
+    if (!this.redis) {
+      return;
+    }
+    if (this.persistInFlight) {
+      this.persistQueued = true;
+      return;
+    }
+
+    this.persistInFlight = true;
+    try {
+      await this.redis.set(MODEL_REGISTRY_STATE_KEY, JSON.stringify(this.toPersistedState()));
+    } catch (error) {
+      this.registryLogger?.warn('Failed to persist model registry state to Redis', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      this.persistInFlight = false;
+      if (this.persistQueued) {
+        this.persistQueued = false;
+        void this.flushPersistState();
+      }
+    }
+  }
+
+  private isCompleteModelInfo(partial: Partial<ModelInfo>): partial is ModelInfo {
+    return this.requiredModelInfoFields.every((key) => partial[key] !== undefined);
+  }
+
+  private mergePartialModelInfo(
+    base: Partial<ModelInfo> | undefined,
+    overlay: Partial<ModelInfo>
+  ): Partial<ModelInfo> {
+    const safeBase = base ?? {};
+    return {
+      ...safeBase,
+      ...overlay,
+      cost: {
+        ...safeBase.cost,
+        ...overlay.cost,
+      },
+      performance: {
+        ...safeBase.performance,
+        ...overlay.performance,
+        strengths: overlay.performance?.strengths ?? safeBase.performance?.strengths,
+        weaknesses: overlay.performance?.weaknesses ?? safeBase.performance?.weaknesses,
+      },
+      capability_flags: {
+        ...safeBase.capability_flags,
+        ...overlay.capability_flags,
+      },
+      provider_metadata: {
+        ...safeBase.provider_metadata,
+        ...overlay.provider_metadata,
+        raw: {
+          ...safeBase.provider_metadata?.raw,
+          ...overlay.provider_metadata?.raw,
+        },
+      },
+      metadata_confidence: {
+        ...safeBase.metadata_confidence,
+        ...overlay.metadata_confidence,
+      },
+    };
   }
 
   private mergeModelInfo(base: ModelInfo, overlay?: Partial<ModelInfo>): ModelInfo {
@@ -304,18 +484,7 @@ export class DefaultModelRegistry implements ModelRegistry {
 
     if (!base && curated) {
       // Curated-only entries must define required fields to become valid system entries.
-      const required: Array<keyof ModelInfo> = [
-        'id',
-        'provider',
-        'cost_tier',
-        'speed_tier',
-        'context_window',
-        'available',
-        'status',
-        'global_eligible',
-      ];
-      const isComplete = required.every((key) => curated[key] !== undefined);
-      if (!isComplete) {
+      if (!this.isCompleteModelInfo(curated)) {
         return null;
       }
       return {
@@ -393,18 +562,7 @@ export class DefaultModelRegistry implements ModelRegistry {
       }
       if (!systemModel) {
         // Overlay-only model in override mode must provide required fields.
-        const required: Array<keyof ModelInfo> = [
-          'id',
-          'provider',
-          'cost_tier',
-          'speed_tier',
-          'context_window',
-          'available',
-          'status',
-          'global_eligible',
-        ];
-        const isComplete = required.every((key) => userModelOverlay[key] !== undefined);
-        if (!isComplete) {
+        if (!this.isCompleteModelInfo(userModelOverlay)) {
           return null;
         }
         return {
@@ -421,18 +579,7 @@ export class DefaultModelRegistry implements ModelRegistry {
     }
     if (!systemModel && userModelOverlay) {
       // augment mode + overlay-only model: allow if complete.
-      const required: Array<keyof ModelInfo> = [
-        'id',
-        'provider',
-        'cost_tier',
-        'speed_tier',
-        'context_window',
-        'available',
-        'status',
-        'global_eligible',
-      ];
-      const isComplete = required.every((key) => userModelOverlay[key] !== undefined);
-      if (!isComplete) {
+      if (!this.isCompleteModelInfo(userModelOverlay)) {
         return null;
       }
       return {
@@ -497,41 +644,54 @@ export class DefaultModelRegistry implements ModelRegistry {
       source: model.source ?? 'system_base',
       updated_at: model.updated_at ?? new Date().toISOString(),
     });
+    this.schedulePersist();
   }
 
   unregisterModel(id: string): boolean {
     const deletedBase = this.models.delete(id);
     this.systemCuratedOverrides.delete(id);
+    this.schedulePersist();
     return deletedBase;
   }
 
   setSystemCuratedOverride(modelId: string, override: Partial<ModelInfo>): void {
-    this.systemCuratedOverrides.set(modelId, {
+    const current = this.systemCuratedOverrides.get(modelId);
+    const merged = this.mergePartialModelInfo(current, {
       id: modelId,
       ...override,
       source: 'system_curated',
       updated_at: new Date().toISOString(),
     });
+    this.systemCuratedOverrides.set(modelId, merged);
+    this.schedulePersist();
   }
 
   clearSystemCuratedOverride(modelId: string): boolean {
-    return this.systemCuratedOverrides.delete(modelId);
+    const deleted = this.systemCuratedOverrides.delete(modelId);
+    if (deleted) {
+      this.schedulePersist();
+    }
+    return deleted;
   }
 
   setUserRegistryMode(userId: string, mode: RegistryMode): void {
     this.userRegistryModes.set(userId, mode);
+    this.schedulePersist();
   }
 
   setUserModelOverlay(userId: string, modelId: string, overlay: Partial<ModelInfo>): void {
     const userOverlay = this.userOverlays.get(userId) ?? new Map<string, Partial<ModelInfo>>();
-    userOverlay.set(modelId, {
+    const current = userOverlay.get(modelId);
+    const merged = this.mergePartialModelInfo(current, {
       id: modelId,
       ...overlay,
       source: 'user_overlay',
       user_id: userId,
       updated_at: new Date().toISOString(),
     });
+    userOverlay.set(modelId, merged);
     this.userOverlays.set(userId, userOverlay);
+    this.schedulePersist();
   }
 
   clearUserModelOverlay(userId: string, modelId: string): boolean {
@@ -542,6 +702,9 @@ export class DefaultModelRegistry implements ModelRegistry {
     const deleted = userOverlay.delete(modelId);
     if (userOverlay.size === 0) {
       this.userOverlays.delete(userId);
+    }
+    if (deleted) {
+      this.schedulePersist();
     }
     return deleted;
   }
@@ -826,4 +989,17 @@ export function createModelRegistry(
   customModels?: ModelInfo[]
 ): DefaultModelRegistry {
   return new DefaultModelRegistry(customModels ?? DEFAULT_MODELS);
+}
+
+export async function createPersistentModelRegistry(
+  redis?: Redis,
+  registryLogger?: Logger,
+  customModels?: ModelInfo[]
+): Promise<DefaultModelRegistry> {
+  const registry = new DefaultModelRegistry(customModels ?? DEFAULT_MODELS, {
+    redis,
+    logger: registryLogger,
+  });
+  await registry.loadPersistedState();
+  return registry;
 }

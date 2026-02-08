@@ -2,6 +2,7 @@ export {
   ModelRegistry,
   DefaultModelRegistry,
   createModelRegistry,
+  createPersistentModelRegistry,
   ValidationContext,
 } from './registry';
 
