@@ -7,6 +7,9 @@
 
 import type { TokenConfig } from '../../types/index';
 
+const DEFAULT_MODEL_METADATA_MAX_CHARS = 5000;
+const MODEL_METADATA_MAX_ITEMS = 25;
+
 /**
  * Context for building the routing prompt
  */
@@ -100,10 +103,7 @@ NO ADDITIONAL PROPERTIES are allowed in the response.
 ${eligibleModels.map((model) => `- ${model}`).join('\n')}`;
 
   // Optional model metadata section (when provided by registry)
-  const modelMetadataSection =
-    eligibleModelRegistry && Object.keys(eligibleModelRegistry).length > 0
-      ? `ELIGIBLE MODEL METADATA (informational context only):\n${JSON.stringify(eligibleModelRegistry, null, 2)}`
-      : '';
+  const modelMetadataSection = buildEligibleModelMetadataSection(eligibleModelRegistry);
 
   // Build prefer model hint if present
   const preferSection = preferModel
@@ -133,4 +133,76 @@ Analyze the user prompt above and respond with your routing decision in the exac
   ]
     .filter(Boolean)
     .join('\n\n');
+}
+
+function getModelMetadataMaxChars(): number {
+  const parsed = Number.parseInt(
+    process.env.ROUTER_LLM_MODEL_METADATA_MAX_CHARS ?? `${DEFAULT_MODEL_METADATA_MAX_CHARS}`,
+    10
+  );
+  if (!Number.isFinite(parsed) || parsed < 500) {
+    return DEFAULT_MODEL_METADATA_MAX_CHARS;
+  }
+  return parsed;
+}
+
+function sanitizeModelMetadataForPrompt(model: Record<string, unknown>): Record<string, unknown> {
+  const record = model as Record<string, unknown>;
+  return {
+    provider: record.provider,
+    cost_tier: record.cost_tier,
+    speed_tier: record.speed_tier,
+    context_window: record.context_window,
+    max_output_tokens: record.max_output_tokens,
+    status: record.status,
+    available: record.available,
+    global_eligible: record.global_eligible,
+    availability: record.availability,
+    capabilities: Array.isArray(record.capabilities) ? record.capabilities.slice(0, 10) : undefined,
+    cost: record.cost,
+    performance: record.performance,
+    capability_flags: record.capability_flags,
+    description:
+      typeof record.description === 'string'
+        ? record.description.slice(0, 240)
+        : undefined,
+  };
+}
+
+function buildEligibleModelMetadataSection(
+  eligibleModelRegistry?: Record<string, Record<string, unknown>>
+): string {
+  if (!eligibleModelRegistry || Object.keys(eligibleModelRegistry).length === 0) {
+    return '';
+  }
+
+  const maxChars = getModelMetadataMaxChars();
+  const entries = Object.entries(eligibleModelRegistry).slice(0, MODEL_METADATA_MAX_ITEMS);
+  const compacted: Record<string, Record<string, unknown>> = {};
+
+  for (const [modelId, metadata] of entries) {
+    compacted[modelId] = sanitizeModelMetadataForPrompt(metadata);
+  }
+
+  let payload = JSON.stringify(compacted);
+  if (payload.length > maxChars) {
+    let reduced = { ...compacted };
+    const reducedKeys = Object.keys(reduced);
+    while (payload.length > maxChars && reducedKeys.length > 1) {
+      const toDrop = reducedKeys.pop();
+      if (!toDrop) {
+        break;
+      }
+      delete reduced[toDrop];
+      payload = JSON.stringify(reduced);
+    }
+
+    payload = JSON.stringify({
+      ...reduced,
+      __truncated__: true,
+      __note__: 'Metadata trimmed for prompt size.',
+    });
+  }
+
+  return `ELIGIBLE MODEL METADATA (informational context only; may be truncated):\n${payload}`;
 }
