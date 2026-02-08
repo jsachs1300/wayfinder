@@ -483,7 +483,8 @@ export class DefaultModelRegistry implements ModelRegistry {
 
     const protectedIds = this.getProtectedModelIds();
     const candidates = Array.from(this.models.values())
-      .filter((model) => !protectedIds.has(model.id))
+      // Disabled models are always prune-eligible, even if otherwise protected.
+      .filter((model) => model.status === 'disabled' || !protectedIds.has(model.id))
       .sort((a, b) => {
         const statusRank = (model: ModelInfo): number => {
           if (model.status === 'disabled') return 0;

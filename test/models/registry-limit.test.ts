@@ -16,6 +16,13 @@ function makeModel(id: string): ModelInfo {
   };
 }
 
+function makeModelWithStatus(id: string, status: ModelInfo['status']): ModelInfo {
+  return {
+    ...makeModel(id),
+    status,
+  };
+}
+
 describe('Model registry max size pruning', () => {
   it('enforces MODEL_REGISTRY_MAX_MODELS when registering new models', () => {
     const originalMax = process.env.MODEL_REGISTRY_MAX_MODELS;
@@ -44,6 +51,33 @@ describe('Model registry max size pruning', () => {
 
     const allIds = registry.getAllModels().map((m) => m.id);
     expect(allIds).toContain('m1');
+    expect(allIds.length).toBeLessThanOrEqual(2);
+
+    if (originalMax === undefined) {
+      delete process.env.MODEL_REGISTRY_MAX_MODELS;
+    } else {
+      process.env.MODEL_REGISTRY_MAX_MODELS = originalMax;
+    }
+  });
+
+  it('allows disabled protected models to be pruned', () => {
+    const originalMax = process.env.MODEL_REGISTRY_MAX_MODELS;
+    process.env.MODEL_REGISTRY_MAX_MODELS = '2';
+
+    const registry = createModelRegistry([
+      makeModel('active-protected'),
+      makeModelWithStatus('disabled-protected', 'disabled'),
+    ]);
+
+    registry.setSystemCuratedOverride('active-protected', { description: 'keep me' });
+    registry.setSystemCuratedOverride('disabled-protected', { description: 'can be pruned' });
+
+    registry.registerModel(makeModel('new-active'));
+
+    const allIds = registry.getAllModels().map((m) => m.id);
+    expect(allIds).toContain('active-protected');
+    expect(allIds).toContain('new-active');
+    expect(allIds).not.toContain('disabled-protected');
     expect(allIds.length).toBeLessThanOrEqual(2);
 
     if (originalMax === undefined) {
