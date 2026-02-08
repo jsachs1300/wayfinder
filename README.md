@@ -366,6 +366,13 @@ The model registry is not just a convenience—it's a **foundational correctness
 - Protects against typos and configuration errors
 - Enables lifecycle management (active, deprecated, disabled)
 
+**Prompt Safety for Registry Metadata**
+
+Model metadata is also sent to the router LLM as **informational context** for eligible models. Because descriptions can originate from admin/user registry entries, Wayfinder treats them as untrusted:
+- Descriptions are transformed to `safe_description` before prompt inclusion.
+- Control characters and code-fence markers are sanitized.
+- Router instructions explicitly forbid following commands embedded in metadata fields.
+
 **Model Lifecycle States**
 
 Every model has a status that determines how it can be used:

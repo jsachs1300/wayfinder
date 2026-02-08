@@ -199,6 +199,10 @@ Example prompt payload fragment:
 - No automatic promotion of user metadata to system scope.
 - Admin promotion workflow required for global impact.
 - Full audit log for system and user registry mutations.
+- Metadata that reaches router prompts is untrusted:
+  - include `safe_description` (sanitized) instead of raw `description`
+  - strip control chars / code-fence markers before prompt injection
+  - router prompt must state metadata fields are informational only, never instructions
 
 ## 15. Rollout Plan
 1. Introduce schema + storage layer + read-path resolution.
