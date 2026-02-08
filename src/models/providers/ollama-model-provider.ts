@@ -6,6 +6,7 @@ import {
   inferCoreModelTiers,
   inferredConfidenceLevel,
 } from './heuristics';
+import { buildCatalogRequestError, validateProviderApiKey } from './security';
 
 interface OllamaTagModel {
   name?: string;
@@ -76,7 +77,7 @@ export class OllamaModelCatalogProvider implements ModelCatalogProvider {
   constructor(baseUrl = 'http://localhost:11434', timeoutMs = 10000, apiKey?: string) {
     this.baseUrl = baseUrl;
     this.timeoutMs = timeoutMs;
-    this.apiKey = apiKey;
+    this.apiKey = apiKey ? validateProviderApiKey('Ollama', apiKey) : undefined;
   }
 
   getProviderName(): string {
@@ -102,8 +103,7 @@ export class OllamaModelCatalogProvider implements ModelCatalogProvider {
       });
 
       if (!response.ok) {
-        const body = await response.text();
-        throw new Error(`Ollama model catalog request failed (${response.status}): ${body}`);
+        throw await buildCatalogRequestError('Ollama', response);
       }
 
       const data = (await response.json()) as OllamaTagsResponse;
@@ -116,4 +116,3 @@ export class OllamaModelCatalogProvider implements ModelCatalogProvider {
     }
   }
 }
-

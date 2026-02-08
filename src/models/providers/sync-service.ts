@@ -1,15 +1,7 @@
 import type { Logger } from '../../logging/logger';
 import type { ModelRegistry } from '../registry';
 import type { ModelCatalogProvider, ModelRegistrySyncSummary, ProviderSyncResult } from './types';
-
-function sanitizeSyncError(message: string): string {
-  return message
-    .replace(/(Bearer\s+)[A-Za-z0-9._\-]+/gi, '$1[REDACTED]')
-    .replace(/([?&](?:key|api_key|token)=)[^&\s]+/gi, '$1[REDACTED]')
-    .replace(/(x-api-key[:=]\s*)[^\s,;]+/gi, '$1[REDACTED]')
-    .replace(/(sk-[A-Za-z0-9_-]{8,})/g, 'sk-[REDACTED]')
-    .replace(/(AIza[0-9A-Za-z_-]{8,})/g, 'AIza[REDACTED]');
-}
+import { sanitizeSensitive } from './security';
 
 export class ModelRegistrySyncService {
   private syncInFlight?: Promise<ModelRegistrySyncSummary>;
@@ -64,7 +56,7 @@ export class ModelRegistrySyncService {
         this.logger.info('Model registry provider sync completed', { ...result });
         return result;
       } catch (error) {
-        const errorMessage = sanitizeSyncError(
+        const errorMessage = sanitizeSensitive(
           error instanceof Error ? error.message : String(error)
         );
         const result: ProviderSyncResult = {

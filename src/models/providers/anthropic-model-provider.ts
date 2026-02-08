@@ -6,6 +6,7 @@ import {
   inferCoreModelTiers,
   inferredConfidenceLevel,
 } from './heuristics';
+import { buildCatalogRequestError, validateProviderApiKey } from './security';
 
 interface AnthropicModelsResponse {
   data?: Array<{
@@ -67,7 +68,7 @@ export class AnthropicModelCatalogProvider implements ModelCatalogProvider {
     timeoutMs = 10000,
     anthropicVersion = '2023-06-01'
   ) {
-    this.apiKey = apiKey;
+    this.apiKey = validateProviderApiKey('Anthropic', apiKey);
     this.baseUrl = baseUrl;
     this.timeoutMs = timeoutMs;
     this.anthropicVersion = anthropicVersion;
@@ -93,8 +94,7 @@ export class AnthropicModelCatalogProvider implements ModelCatalogProvider {
       });
 
       if (!response.ok) {
-        const body = await response.text();
-        throw new Error(`Anthropic model catalog request failed (${response.status}): ${body}`);
+        throw await buildCatalogRequestError('Anthropic', response);
       }
 
       const data = (await response.json()) as AnthropicModelsResponse;
@@ -106,4 +106,3 @@ export class AnthropicModelCatalogProvider implements ModelCatalogProvider {
     }
   }
 }
-

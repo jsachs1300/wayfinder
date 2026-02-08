@@ -6,6 +6,7 @@ import {
   inferCoreModelTiers,
   inferredConfidenceLevel,
 } from './heuristics';
+import { buildCatalogRequestError, validateProviderApiKey } from './security';
 
 interface GeminiModel {
   name: string; // e.g. "models/gemini-2.5-flash"
@@ -87,7 +88,7 @@ export class GeminiModelCatalogProvider implements ModelCatalogProvider {
     baseUrl = 'https://generativelanguage.googleapis.com/v1beta',
     timeoutMs = 10000
   ) {
-    this.apiKey = apiKey;
+    this.apiKey = validateProviderApiKey('Gemini', apiKey);
     this.baseUrl = baseUrl;
     this.timeoutMs = timeoutMs;
   }
@@ -120,8 +121,7 @@ export class GeminiModelCatalogProvider implements ModelCatalogProvider {
         });
 
         if (!response.ok) {
-          const body = await response.text();
-          throw new Error(`Gemini model catalog request failed (${response.status}): ${body}`);
+          throw await buildCatalogRequestError('Gemini', response);
         }
 
         const data = (await response.json()) as GeminiModelsResponse;
@@ -138,4 +138,3 @@ export class GeminiModelCatalogProvider implements ModelCatalogProvider {
       .map(normalizeGeminiModel);
   }
 }
-

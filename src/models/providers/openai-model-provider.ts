@@ -6,6 +6,7 @@ import {
   inferCoreModelTiers,
   inferredConfidenceLevel,
 } from './heuristics';
+import { buildCatalogRequestError, validateProviderApiKey } from './security';
 
 interface OpenAIModelsResponse {
   object: 'list';
@@ -69,7 +70,7 @@ export class OpenAIModelCatalogProvider implements ModelCatalogProvider {
   private readonly timeoutMs: number;
 
   constructor(apiKey: string, baseUrl = 'https://api.openai.com/v1', timeoutMs = 10000) {
-    this.apiKey = apiKey;
+    this.apiKey = validateProviderApiKey('OpenAI', apiKey);
     this.baseUrl = baseUrl;
     this.timeoutMs = timeoutMs;
   }
@@ -93,8 +94,7 @@ export class OpenAIModelCatalogProvider implements ModelCatalogProvider {
       });
 
       if (!response.ok) {
-        const body = await response.text();
-        throw new Error(`OpenAI model catalog request failed (${response.status}): ${body}`);
+        throw await buildCatalogRequestError('OpenAI', response);
       }
 
       const data = (await response.json()) as OpenAIModelsResponse;
@@ -106,4 +106,3 @@ export class OpenAIModelCatalogProvider implements ModelCatalogProvider {
     }
   }
 }
-

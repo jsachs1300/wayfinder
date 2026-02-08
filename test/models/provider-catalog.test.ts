@@ -149,4 +149,26 @@ describe('Model Catalog Providers', () => {
     expect(models[0]?.provider).toBe('ollama');
     expect(models[0]?.cost?.input_per_1k).toBe(0);
   });
+
+  it('redacts secrets in provider fetch error payloads', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      text: async () => 'invalid key sk-secret-abcdef token=AIzaSySecretValue',
+    } as Response);
+
+    const provider = new OpenAIModelCatalogProvider('sk-valid-no-whitespace');
+    await expect(provider.listModels()).rejects.toThrow('[REDACTED]');
+    await expect(provider.listModels()).rejects.not.toThrow('sk-secret-abcdef');
+    await expect(provider.listModels()).rejects.not.toThrow('AIzaSySecretValue');
+  });
+
+  it('rejects invalid API key format with whitespace', () => {
+    expect(() => new OpenAIModelCatalogProvider('sk test-key')).toThrow(
+      /must not contain whitespace/
+    );
+    expect(() => new GeminiModelCatalogProvider('gemini key')).toThrow(
+      /must not contain whitespace/
+    );
+  });
 });

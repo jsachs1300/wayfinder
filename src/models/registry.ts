@@ -374,6 +374,10 @@ export class DefaultModelRegistry implements ModelRegistry {
     if (!this.redis) {
       return;
     }
+    if (this.persistInFlight) {
+      this.persistQueued = true;
+      return;
+    }
 
     if (this.persistTimer) {
       clearTimeout(this.persistTimer);

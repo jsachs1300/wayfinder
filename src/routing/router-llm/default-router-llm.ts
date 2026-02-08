@@ -29,6 +29,7 @@ import {
   RouterLLMProviderError,
   RouterLLMConfigError,
 } from './errors';
+import { dumpRawRouterResponse } from './raw-response-dump';
 
 /**
  * Default Router LLM implementation
@@ -160,6 +161,22 @@ export class DefaultRouterLLM implements RouterLLM {
         try {
           parsed = JSON.parse(response.content);
         } catch (error) {
+          let dumpPath: string | undefined;
+          try {
+            dumpPath = await dumpRawRouterResponse({
+              provider: String(response.metadata.provider ?? this.providerName),
+              model: response.metadata.model,
+              rawResponse: response.content,
+              parseError: error instanceof Error ? error.message : String(error),
+              inputTokens: response.metadata.inputTokens,
+              outputTokens: response.metadata.outputTokens,
+            });
+          } catch (dumpError) {
+            this.logger?.warn('[RouterLLM] Failed to dump raw parse response', {
+              error: dumpError instanceof Error ? dumpError.message : String(dumpError),
+            });
+          }
+
           // Log the raw response for diagnosis of intermittent parse failures
           this.logger?.error('[RouterLLM] Failed to parse response as JSON', {
             error: error instanceof Error ? error.message : String(error),
@@ -169,6 +186,7 @@ export class DefaultRouterLLM implements RouterLLM {
             model: response.metadata.model,
             outputTokens: response.metadata.outputTokens,
             inputTokens: response.metadata.inputTokens,
+            dumpPath,
           });
 
           throw new RouterLLMParseError(

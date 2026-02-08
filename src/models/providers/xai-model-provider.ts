@@ -6,6 +6,7 @@ import {
   inferCoreModelTiers,
   inferredConfidenceLevel,
 } from './heuristics';
+import { buildCatalogRequestError, validateProviderApiKey } from './security';
 
 interface XAIModelsResponse {
   data?: Array<{
@@ -59,7 +60,7 @@ export class XAIModelCatalogProvider implements ModelCatalogProvider {
   private readonly timeoutMs: number;
 
   constructor(apiKey: string, baseUrl = 'https://api.x.ai/v1', timeoutMs = 10000) {
-    this.apiKey = apiKey;
+    this.apiKey = validateProviderApiKey('xAI', apiKey);
     this.baseUrl = baseUrl;
     this.timeoutMs = timeoutMs;
   }
@@ -83,8 +84,7 @@ export class XAIModelCatalogProvider implements ModelCatalogProvider {
       });
 
       if (!response.ok) {
-        const body = await response.text();
-        throw new Error(`xAI model catalog request failed (${response.status}): ${body}`);
+        throw await buildCatalogRequestError('xAI', response);
       }
 
       const data = (await response.json()) as XAIModelsResponse;
@@ -96,4 +96,3 @@ export class XAIModelCatalogProvider implements ModelCatalogProvider {
     }
   }
 }
-
