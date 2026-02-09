@@ -2,8 +2,14 @@ export {
   ModelRegistry,
   DefaultModelRegistry,
   createModelRegistry,
+  createPersistentModelRegistry,
   ValidationContext,
 } from './registry';
+
+export {
+  createAdminModelRegistryRoutes,
+  createUserModelRegistryRoutes,
+} from './routes';
 
 export {
   ModelValidationError,
@@ -13,3 +19,19 @@ export {
   ModelNotAllowedForTokenError,
   ModelConfigurationError,
 } from './errors';
+
+export {
+  createModelCatalogProvidersFromEnv,
+  OpenAIModelCatalogProvider,
+  GeminiModelCatalogProvider,
+  AnthropicModelCatalogProvider,
+  XAIModelCatalogProvider,
+  OllamaModelCatalogProvider,
+  ModelRegistrySyncService,
+} from './providers';
+
+export type {
+  ModelCatalogProvider,
+  ModelRegistrySyncSummary,
+  ProviderSyncResult,
+} from './providers';

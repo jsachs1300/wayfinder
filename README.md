@@ -366,6 +366,13 @@ The model registry is not just a convenience—it's a **foundational correctness
 - Protects against typos and configuration errors
 - Enables lifecycle management (active, deprecated, disabled)
 
+**Prompt Safety for Registry Metadata**
+
+Model metadata is also sent to the router LLM as **informational context** for eligible models. Because descriptions can originate from admin/user registry entries, Wayfinder treats them as untrusted:
+- Descriptions are transformed to `safe_description` before prompt inclusion.
+- Control characters and code-fence markers are sanitized.
+- Router instructions explicitly forbid following commands embedded in metadata fields.
+
 **Model Lifecycle States**
 
 Every model has a status that determines how it can be used:
@@ -515,6 +522,13 @@ When `FEATURE_USER_SELF_SERVICE=true`:
 - `DELETE /api/tokens/:id` - Delete token
 - `POST /api/tokens/:id/rotate` - Rotate token
 
+**User Model Registry (Token Auth Required)**
+- `GET /api/registry` - Get effective model registry for the authenticated user
+- `POST /api/registry/mode` - Set registry mode (`augment` or `override`)
+- `POST /api/registry` - Create/update a user-scoped model overlay entry
+- `PATCH /api/registry/:id` - Patch user-scoped model metadata
+- `DELETE /api/registry/:id` - Delete a user-scoped model overlay entry
+
 **BYOLLM Key Management (Token Auth Required, paid_byollm tier only)**
 - `GET /api/llm-keys` - List configured LLM provider keys
 - `POST /api/llm-keys` - Add/update LLM provider key
@@ -537,6 +551,13 @@ When `FEATURE_USER_SELF_SERVICE=true`:
 
 **Models**
 - `GET /admin/models` - List all available models
+
+**Model Registry**
+- `GET /admin/registry` - List system-effective registry entries
+- `POST /admin/registry` - Create/update curated system override for a model
+- `PATCH /admin/registry/:id` - Patch curated system override metadata
+- `DELETE /admin/registry/:id` - Remove curated system override
+- `POST /admin/registry/refresh` - Trigger provider catalog sync and import
 
 ## API Reference
 
@@ -737,6 +758,61 @@ Response:
   "default": "gpt-4o-mini"
 }
 ```
+
+#### Admin: Model Registry
+
+```http
+# List system-effective registry
+GET /admin/registry
+X-Admin-Api-Key: your-admin-key
+
+# Create or overwrite a curated system override
+POST /admin/registry
+X-Admin-Api-Key: your-admin-key
+Content-Type: application/json
+
+{
+  "id": "gpt-4o-mini",
+  "description": "Preferred low-cost model for short prompts",
+  "cost_tier": "low",
+  "speed_tier": "fast"
+}
+
+# Patch a curated system override
+PATCH /admin/registry/gpt-4o-mini
+X-Admin-Api-Key: your-admin-key
+Content-Type: application/json
+
+{
+  "availability": "generally_available"
+}
+
+# Remove curated override
+DELETE /admin/registry/gpt-4o-mini
+X-Admin-Api-Key: your-admin-key
+
+# Trigger provider sync
+POST /admin/registry/refresh
+X-Admin-Api-Key: your-admin-key
+```
+
+Sync response:
+```json
+{
+  "started_at": "2026-02-08T15:00:00.000Z",
+  "completed_at": "2026-02-08T15:00:01.250Z",
+  "imported_total": 24,
+  "providers": [
+    { "provider": "openai", "imported": 10, "total_fetched": 10 },
+    { "provider": "gemini", "imported": 8, "total_fetched": 8 },
+    { "provider": "anthropic", "imported": 6, "total_fetched": 6 }
+  ],
+  "configured_providers": ["openai", "gemini", "anthropic"],
+  "timestamp": "2026-02-08T15:00:01.251Z"
+}
+```
+
+If no registry providers are configured, refresh returns `503 ServiceUnavailable`.
 
 #### Health Check
 
@@ -1392,6 +1468,31 @@ At least one provider must be enabled. Both can be enabled for multi-provider ra
 | `ROUTER_LLM_TEMPERATURE` | Sampling temperature (0.0-2.0) | `0.0` |
 | `ROUTER_LLM_MAX_TOKENS` | Maximum tokens in LLM response | `2000` |
 
+#### Model Registry Provider Sync (Optional, Recommended)
+
+Use provider catalog sync to keep the system registry current. Sync can run at startup and/or on-demand via `POST /admin/registry/refresh`.
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `MODEL_REGISTRY_SYNC_ON_STARTUP` | Run provider sync when app starts | `false` |
+| `MODEL_REGISTRY_SYNC_TIMEOUT_MS` | Per-provider HTTP timeout for catalog fetch | `10000` |
+| `MODEL_REGISTRY_OPENAI_ENABLED` | Enable OpenAI model catalog provider | falls back to `ROUTER_LLM_OPENAI_ENABLED` |
+| `MODEL_REGISTRY_OPENAI_API_KEY` | OpenAI API key for catalog sync | falls back to `ROUTER_LLM_OPENAI_API_KEY` |
+| `MODEL_REGISTRY_OPENAI_BASE_URL` | OpenAI API base URL override | `https://api.openai.com/v1` |
+| `MODEL_REGISTRY_GEMINI_ENABLED` | Enable Gemini model catalog provider | falls back to `ROUTER_LLM_GEMINI_ENABLED` |
+| `MODEL_REGISTRY_GEMINI_API_KEY` | Gemini API key for catalog sync | falls back to `ROUTER_LLM_GEMINI_API_KEY` |
+| `MODEL_REGISTRY_GEMINI_BASE_URL` | Gemini API base URL override | `https://generativelanguage.googleapis.com/v1beta` |
+| `MODEL_REGISTRY_ANTHROPIC_ENABLED` | Enable Anthropic model catalog provider | `false` |
+| `MODEL_REGISTRY_ANTHROPIC_API_KEY` | Anthropic API key for catalog sync | - |
+| `MODEL_REGISTRY_ANTHROPIC_BASE_URL` | Anthropic API base URL override | `https://api.anthropic.com/v1` |
+| `MODEL_REGISTRY_ANTHROPIC_VERSION` | Anthropic API version header value | `2023-06-01` |
+| `MODEL_REGISTRY_XAI_ENABLED` | Enable xAI model catalog provider | `false` |
+| `MODEL_REGISTRY_XAI_API_KEY` | xAI API key for catalog sync | - |
+| `MODEL_REGISTRY_XAI_BASE_URL` | xAI API base URL override | `https://api.x.ai/v1` |
+| `MODEL_REGISTRY_OLLAMA_ENABLED` | Enable Ollama local catalog provider | `false` |
+| `MODEL_REGISTRY_OLLAMA_BASE_URL` | Ollama API base URL | `http://localhost:11434` |
+| `MODEL_REGISTRY_OLLAMA_API_KEY` | Optional Bearer token for hosted Ollama | - |
+
 #### Redis & Storage
 
 | Variable | Description | Default |
@@ -1542,12 +1643,15 @@ For updates, see the [GitHub issues](https://github.com/jsachs1300/wayfinder/iss
 
 ## Available Models
 
-Wayfinder includes a registry of well-known LLM models for supported providers. **Note:** Wayfinder does not execute model requests - it only provides routing decisions.
+Wayfinder maintains a model registry that starts with curated defaults and can be refreshed from provider catalogs. **Note:** Wayfinder does not execute workload model requests itself; it provides routing decisions.
 
 ### Supported Providers
 
-- **OpenAI**: gpt-4-turbo, gpt-4o, gpt-4o-mini, o1, o1-mini
-- **Google (Gemini)**: gemini-2.5-flash, gemini-1.5-pro, gemini-1.5-flash
+- **OpenAI** (sync supported)
+- **Google Gemini** (sync supported)
+- **Anthropic** (sync supported)
+- **xAI** (sync supported)
+- **Ollama** (sync supported)
 
 Each model includes metadata about:
 - Provider
@@ -1559,6 +1663,24 @@ Each model includes metadata about:
 ### Default Model
 
 The system default model is `gpt-4o-mini`, used as a fallback when no other selection criteria apply.
+
+### Provider Sync Runbook
+
+```bash
+# 1) Verify provider env vars are configured
+# 2) Trigger sync
+curl -X POST http://localhost:3000/admin/registry/refresh \
+  -H "X-Admin-Api-Key: your-admin-key"
+
+# 3) Verify import results
+curl http://localhost:3000/admin/registry \
+  -H "X-Admin-Api-Key: your-admin-key"
+```
+
+Troubleshooting:
+- `503 ServiceUnavailable`: no model catalog providers enabled/configured.
+- Provider error in refresh response: check provider API key, endpoint/base URL, quota, or firewall egress.
+- Partial success is expected: one provider can fail while others import successfully.
 
 ## Router LLM Setup (REQUIRED)
 

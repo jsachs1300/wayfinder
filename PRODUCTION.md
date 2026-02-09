@@ -507,6 +507,8 @@ Dev secrets:
 - `ROUTER_LLM_GEMINI_API_KEY_DEV`
 - `REDIS_URL_DEV`
 - `LANGCACHE_API_KEY_DEV`
+- `LLM_KEY_ENCRYPTION_KEY_DEV`
+- `POSTMARK_API_KEY_DEV`
 
 Prod secrets:
 - `ADMIN_API_KEY_PROD`
@@ -514,10 +516,81 @@ Prod secrets:
 - `ROUTER_LLM_GEMINI_API_KEY_PROD`
 - `REDIS_URL_PROD`
 - `LANGCACHE_API_KEY_PROD`
+- `LLM_KEY_ENCRYPTION_KEY_PROD`
+- `POSTMARK_API_KEY_PROD`
 
 Cloud Build mappings:
 - Dev (`cloudbuild.main.yaml`) maps `ADMIN_API_KEY=ADMIN_API_KEY_DEV:latest` (same pattern for other secrets).
 - Prod (`cloudbuild.yaml`) maps `ADMIN_API_KEY=ADMIN_API_KEY_PROD:latest` (same pattern for other secrets).
+
+### Required Cloud Build Substitutions
+Both triggers must define these substitutions to avoid accidental deploy-time misconfiguration:
+
+- `_LANGCACHE_HOST` (LangCache host, e.g. `aws-us-east-1.langcache.redis.io`)
+- `_LANGCACHE_CACHE_ID` (LangCache cache id)
+- `_ALLOWED_ORIGINS` (comma-separated frontend origins)
+- `_FRONTEND_BASE_URL` (frontend base URL used in email links)
+
+If these are missing, Cloud Build deploys can overwrite working Cloud Run env values with placeholders.
+
+---
+
+## Model Registry Sync (Production)
+
+Wayfinder supports dynamic provider catalog sync into the system model registry. This keeps model lists current without hardcoding.
+
+### Environment Variables
+
+Core controls:
+
+- `MODEL_REGISTRY_SYNC_ON_STARTUP` (default `false`)
+- `MODEL_REGISTRY_SYNC_TIMEOUT_MS` (default `10000`)
+
+Provider flags and credentials:
+
+- `MODEL_REGISTRY_OPENAI_ENABLED` (falls back to `ROUTER_LLM_OPENAI_ENABLED`)
+- `MODEL_REGISTRY_OPENAI_API_KEY` (falls back to `ROUTER_LLM_OPENAI_API_KEY`)
+- `MODEL_REGISTRY_OPENAI_BASE_URL` (default `https://api.openai.com/v1`)
+- `MODEL_REGISTRY_GEMINI_ENABLED` (falls back to `ROUTER_LLM_GEMINI_ENABLED`)
+- `MODEL_REGISTRY_GEMINI_API_KEY` (falls back to `ROUTER_LLM_GEMINI_API_KEY`)
+- `MODEL_REGISTRY_GEMINI_BASE_URL` (default `https://generativelanguage.googleapis.com/v1beta`)
+- `MODEL_REGISTRY_ANTHROPIC_ENABLED` (default `false`)
+- `MODEL_REGISTRY_ANTHROPIC_API_KEY`
+- `MODEL_REGISTRY_ANTHROPIC_BASE_URL` (default `https://api.anthropic.com/v1`)
+- `MODEL_REGISTRY_ANTHROPIC_VERSION` (default `2023-06-01`)
+- `MODEL_REGISTRY_XAI_ENABLED` (default `false`)
+- `MODEL_REGISTRY_XAI_API_KEY`
+- `MODEL_REGISTRY_XAI_BASE_URL` (default `https://api.x.ai/v1`)
+- `MODEL_REGISTRY_OLLAMA_ENABLED` (default `false`)
+- `MODEL_REGISTRY_OLLAMA_BASE_URL` (default `http://localhost:11434`)
+- `MODEL_REGISTRY_OLLAMA_API_KEY` (optional)
+
+### Operational Runbook
+
+After deployment (or any provider credential change), run:
+
+```bash
+curl -X POST "https://<service-domain>/admin/registry/refresh" \
+  -H "X-Admin-Api-Key: <admin-api-key>"
+```
+
+Expected behavior:
+
+- `200 OK` with per-provider `imported_count` and error details (if partial failures).
+- `503 ServiceUnavailable` when no providers are configured/enabled.
+
+Validate results:
+
+```bash
+curl "https://<service-domain>/admin/registry" \
+  -H "X-Admin-Api-Key: <admin-api-key>"
+```
+
+Troubleshooting:
+
+- Provider shows error: verify API key, quota, endpoint/base URL, and Cloud Run egress/network policy.
+- Zero imports for a provider: confirm provider is enabled and returns models supporting generation.
+- `503` on refresh: ensure at least one provider is enabled and has credentials.
 
 ## Recommended Deployment Architecture
 

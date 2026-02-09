@@ -419,6 +419,36 @@ export interface OpinionPollResult {
 
 // Model Registry
 export type ModelStatus = 'active' | 'deprecated' | 'disabled';
+export type RegistrySource = 'system_base' | 'system_curated' | 'user_overlay' | 'inferred';
+export type RegistryMode = 'augment' | 'override';
+export type MetadataConfidenceLevel = 'unknown' | 'low' | 'medium' | 'high';
+
+export interface ModelCostMetadata {
+  input_per_1k?: number;
+  output_per_1k?: number;
+  currency?: string;
+  source?: 'provider' | 'curated' | 'inferred' | 'user';
+}
+
+export interface ModelPerformanceMetadata {
+  quality_tier?: 'low' | 'medium' | 'high';
+  latency_tier?: 'fast' | 'medium' | 'slow';
+  strengths?: string[];
+  weaknesses?: string[];
+}
+
+export interface ModelCapabilitiesMetadata {
+  tool_use?: boolean;
+  vision?: boolean;
+  audio?: boolean;
+  json_mode?: boolean;
+}
+
+export interface ModelMetadataConfidence {
+  cost?: MetadataConfidenceLevel;
+  performance?: MetadataConfidenceLevel;
+  capabilities?: MetadataConfidenceLevel;
+}
 
 export interface ModelInfo {
   id: string;
@@ -426,10 +456,26 @@ export interface ModelInfo {
   cost_tier: 'low' | 'medium' | 'high';
   speed_tier: 'fast' | 'medium' | 'slow';
   context_window: number;
+  max_output_tokens?: number;
   available: boolean;
   status: ModelStatus; // Lifecycle state
   global_eligible: boolean; // Can participate in global knowledge
   description?: string; // Human-readable description
+  display_name?: string;
+  availability?: 'generally_available' | 'preview' | 'restricted' | 'unknown';
+  capabilities?: string[]; // Legacy compatibility and lightweight prompt context
+  cost?: ModelCostMetadata;
+  performance?: ModelPerformanceMetadata;
+  capability_flags?: ModelCapabilitiesMetadata;
+  provider_metadata?: {
+    raw?: Record<string, unknown>;
+    model_family?: string;
+    version?: string;
+  };
+  metadata_confidence?: ModelMetadataConfidence;
+  source?: RegistrySource;
+  user_id?: string;
+  updated_at?: string;
 }
 
 // Logging

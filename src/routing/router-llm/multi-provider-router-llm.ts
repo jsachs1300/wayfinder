@@ -27,6 +27,7 @@ import {
   RouterLLMProviderError,
 } from './errors';
 import { recordLlmCall, recordLlmError } from '../../observability/metrics';
+import { dumpRawRouterResponse } from './raw-response-dump';
 
 /**
  * Result from querying all router LLM providers
@@ -97,6 +98,7 @@ export class MultiProviderRouterLLM implements RouterLLM {
       tokenConfig: TokenConfig;
       preferModel?: string;
       requestMetadata?: Record<string, unknown>;
+      eligibleModelRegistry?: Record<string, Record<string, unknown>>;
     }
   ): Promise<unknown> {
     // Input validation
@@ -125,6 +127,7 @@ export class MultiProviderRouterLLM implements RouterLLM {
       tokenConfig: context.tokenConfig,
       preferModel: context.preferModel,
       requestMetadata: context.requestMetadata,
+      eligibleModelRegistry: context.eligibleModelRegistry,
     });
 
     // Determine which providers are enabled
@@ -337,6 +340,22 @@ export class MultiProviderRouterLLM implements RouterLLM {
         try {
           parsed = JSON.parse(response.content);
         } catch (error) {
+          let dumpPath: string | undefined;
+          try {
+            dumpPath = await dumpRawRouterResponse({
+              provider: providerName,
+              model: response.metadata.model,
+              rawResponse: response.content,
+              parseError: error instanceof Error ? error.message : String(error),
+              inputTokens: response.metadata.inputTokens,
+              outputTokens: response.metadata.outputTokens,
+            });
+          } catch (dumpError) {
+            this.logger?.warn(`[${providerName}] Failed to dump raw parse response`, {
+              error: dumpError instanceof Error ? dumpError.message : String(dumpError),
+            });
+          }
+
           // Log the raw response for diagnosis of intermittent parse failures
           this.logger?.error(`[${providerName}] Failed to parse response as JSON`, {
             error: error instanceof Error ? error.message : String(error),
@@ -345,6 +364,7 @@ export class MultiProviderRouterLLM implements RouterLLM {
             model: response.metadata.model,
             outputTokens: response.metadata.outputTokens,
             inputTokens: response.metadata.inputTokens,
+            dumpPath,
           });
 
           throw new RouterLLMParseError(

@@ -51,6 +51,7 @@ export class BYOLLMRouterLLM implements RouterLLM {
       preferModel?: string;
       requestMetadata?: Record<string, unknown>;
       userLLMKeys?: DecryptedLLMKey[]; // Injected by routing handler
+      eligibleModelRegistry?: Record<string, Record<string, unknown>>;
     }
   ): Promise<unknown> {
     // Check if user has BYOLLM keys configured
