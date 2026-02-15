@@ -77,4 +77,28 @@ describe('Model catalog provider factory', () => {
     expect(names).toContain('openai');
     expect(names).not.toContain('gemini');
   });
+
+  it('uses router flag as fallback when registry flag is unset', () => {
+    process.env.MODEL_REGISTRY_OPENAI_API_KEY = 'openai-test';
+    process.env.MODEL_REGISTRY_GEMINI_API_KEY = 'gemini-test';
+    process.env.ROUTER_LLM_OPENAI_ENABLED = 'false';
+    process.env.ROUTER_LLM_GEMINI_ENABLED = 'true';
+
+    const providers = createModelCatalogProvidersFromEnv();
+    const names = providers.map((provider) => provider.getProviderName());
+
+    expect(names).not.toContain('openai');
+    expect(names).toContain('gemini');
+  });
+
+  it('prioritizes registry flag over router flag', () => {
+    process.env.MODEL_REGISTRY_OPENAI_API_KEY = 'openai-test';
+    process.env.MODEL_REGISTRY_OPENAI_ENABLED = 'false';
+    process.env.ROUTER_LLM_OPENAI_ENABLED = 'true';
+
+    const providers = createModelCatalogProvidersFromEnv();
+    const names = providers.map((provider) => provider.getProviderName());
+
+    expect(names).not.toContain('openai');
+  });
 });

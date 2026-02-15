@@ -14,6 +14,14 @@ interface IdParams {
   id: string;
 }
 
+function isDefaultToken(config: { is_default?: boolean; user_id?: string; name?: string }): boolean {
+  if (config.is_default === true) {
+    return true;
+  }
+  // Backward compatibility for legacy default tokens.
+  return typeof config.user_id === 'string' && config.name === 'Default Token';
+}
+
 const PolicyRuleSchema = z.object({
   type: z.enum(['ForceModelByIntent', 'RestrictModelsByIntent', 'AllowModelsGlobal', 'DenyModelsGlobal']),
   intent: z.enum(['code_review', 'coding', 'legal', 'summarization', 'reasoning', 'creative', 'support', 'other']).optional(),
@@ -281,8 +289,18 @@ export function createAdminRoutes(
     try {
       const { id } = req.params;
 
-      // Clear cache for this token before deletion
-      if (cache) {
+      const existing = await tokenStore.getById(id);
+      if (!existing) {
+        res.status(404).json({
+          error: 'NotFound',
+          message: 'Token not found',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      // Skip cache-scope deletion for default tokens because they use global cache scope.
+      if (cache && !isDefaultToken(existing)) {
         try {
           await cache.clearByScope(id);
         } catch (cacheError) {

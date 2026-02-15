@@ -32,19 +32,43 @@ function isProviderEnabled(flagValue: string | undefined, hasCredentials: boolea
   return true;
 }
 
+function shouldEnableProvider(
+  registryFlag: string | undefined,
+  routerFlag: string | undefined,
+  hasCredentials: boolean
+): boolean {
+  if (!hasCredentials) {
+    return false;
+  }
+  if (registryFlag === 'true') {
+    return true;
+  }
+  if (registryFlag === 'false') {
+    return false;
+  }
+  if (routerFlag === 'true') {
+    return true;
+  }
+  if (routerFlag === 'false') {
+    return false;
+  }
+  return true;
+}
+
 export function createModelCatalogProvidersFromEnv(): ModelCatalogProvider[] {
   const providers: ModelCatalogProvider[] = [];
   const timeoutMs = parseTimeoutMs(process.env.MODEL_REGISTRY_SYNC_TIMEOUT_MS, 10000);
 
   const openaiApiKey =
     process.env.MODEL_REGISTRY_OPENAI_API_KEY || process.env.ROUTER_LLM_OPENAI_API_KEY;
-  if (openaiApiKey && (
-    isProviderEnabled(process.env.MODEL_REGISTRY_OPENAI_ENABLED, !!openaiApiKey) ||
-    (process.env.MODEL_REGISTRY_OPENAI_ENABLED !== 'false' && process.env.ROUTER_LLM_OPENAI_ENABLED === 'true')
+  if (shouldEnableProvider(
+    process.env.MODEL_REGISTRY_OPENAI_ENABLED,
+    process.env.ROUTER_LLM_OPENAI_ENABLED,
+    !!openaiApiKey
   )) {
     providers.push(
       new OpenAIModelCatalogProvider(
-        openaiApiKey,
+        openaiApiKey!,
         process.env.MODEL_REGISTRY_OPENAI_BASE_URL || 'https://api.openai.com/v1',
         timeoutMs
       )
@@ -53,13 +77,14 @@ export function createModelCatalogProvidersFromEnv(): ModelCatalogProvider[] {
 
   const geminiApiKey =
     process.env.MODEL_REGISTRY_GEMINI_API_KEY || process.env.ROUTER_LLM_GEMINI_API_KEY;
-  if (geminiApiKey && (
-    isProviderEnabled(process.env.MODEL_REGISTRY_GEMINI_ENABLED, !!geminiApiKey) ||
-    (process.env.MODEL_REGISTRY_GEMINI_ENABLED !== 'false' && process.env.ROUTER_LLM_GEMINI_ENABLED === 'true')
+  if (shouldEnableProvider(
+    process.env.MODEL_REGISTRY_GEMINI_ENABLED,
+    process.env.ROUTER_LLM_GEMINI_ENABLED,
+    !!geminiApiKey
   )) {
     providers.push(
       new GeminiModelCatalogProvider(
-        geminiApiKey,
+        geminiApiKey!,
         process.env.MODEL_REGISTRY_GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta',
         timeoutMs
       )
