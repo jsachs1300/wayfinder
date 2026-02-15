@@ -74,6 +74,7 @@ export type Environment = 'prod' | 'dev';
 export interface TokenConfig {
   id: string;
   token_hash: string;
+  is_default?: boolean; // Internal marker for default user token behavior
   trusted_anchor_model?: string;
   allowed_models?: string[];
   denied_models?: string[];
@@ -90,6 +91,7 @@ export interface TokenConfig {
 }
 
 export interface TokenCreateRequest {
+  is_default?: boolean; // Internal use only (set by backend for default user token)
   trusted_anchor_model?: string;
   allowed_models?: string[];
   denied_models?: string[];

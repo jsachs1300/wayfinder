@@ -18,16 +18,30 @@ function parseTimeoutMs(value: string | undefined, fallback: number): number {
   return Math.min(parsed, MAX_MODEL_REGISTRY_SYNC_TIMEOUT_MS);
 }
 
+function isProviderEnabled(flagValue: string | undefined, hasCredentials: boolean): boolean {
+  if (!hasCredentials) {
+    return false;
+  }
+  if (flagValue === 'false') {
+    return false;
+  }
+  if (flagValue === 'true') {
+    return true;
+  }
+  // Default to enabled when credentials are present.
+  return true;
+}
+
 export function createModelCatalogProvidersFromEnv(): ModelCatalogProvider[] {
   const providers: ModelCatalogProvider[] = [];
   const timeoutMs = parseTimeoutMs(process.env.MODEL_REGISTRY_SYNC_TIMEOUT_MS, 10000);
 
-  const openaiEnabled =
-    process.env.MODEL_REGISTRY_OPENAI_ENABLED === 'true' ||
-    process.env.ROUTER_LLM_OPENAI_ENABLED === 'true';
   const openaiApiKey =
     process.env.MODEL_REGISTRY_OPENAI_API_KEY || process.env.ROUTER_LLM_OPENAI_API_KEY;
-  if (openaiEnabled && openaiApiKey) {
+  if (openaiApiKey && (
+    isProviderEnabled(process.env.MODEL_REGISTRY_OPENAI_ENABLED, !!openaiApiKey) ||
+    (process.env.MODEL_REGISTRY_OPENAI_ENABLED !== 'false' && process.env.ROUTER_LLM_OPENAI_ENABLED === 'true')
+  )) {
     providers.push(
       new OpenAIModelCatalogProvider(
         openaiApiKey,
@@ -37,12 +51,12 @@ export function createModelCatalogProvidersFromEnv(): ModelCatalogProvider[] {
     );
   }
 
-  const geminiEnabled =
-    process.env.MODEL_REGISTRY_GEMINI_ENABLED === 'true' ||
-    process.env.ROUTER_LLM_GEMINI_ENABLED === 'true';
   const geminiApiKey =
     process.env.MODEL_REGISTRY_GEMINI_API_KEY || process.env.ROUTER_LLM_GEMINI_API_KEY;
-  if (geminiEnabled && geminiApiKey) {
+  if (geminiApiKey && (
+    isProviderEnabled(process.env.MODEL_REGISTRY_GEMINI_ENABLED, !!geminiApiKey) ||
+    (process.env.MODEL_REGISTRY_GEMINI_ENABLED !== 'false' && process.env.ROUTER_LLM_GEMINI_ENABLED === 'true')
+  )) {
     providers.push(
       new GeminiModelCatalogProvider(
         geminiApiKey,
@@ -52,9 +66,8 @@ export function createModelCatalogProvidersFromEnv(): ModelCatalogProvider[] {
     );
   }
 
-  const anthropicEnabled = process.env.MODEL_REGISTRY_ANTHROPIC_ENABLED === 'true';
   const anthropicApiKey = process.env.MODEL_REGISTRY_ANTHROPIC_API_KEY;
-  if (anthropicEnabled && anthropicApiKey) {
+  if (anthropicApiKey && isProviderEnabled(process.env.MODEL_REGISTRY_ANTHROPIC_ENABLED, !!anthropicApiKey)) {
     providers.push(
       new AnthropicModelCatalogProvider(
         anthropicApiKey,
@@ -65,9 +78,8 @@ export function createModelCatalogProvidersFromEnv(): ModelCatalogProvider[] {
     );
   }
 
-  const xaiEnabled = process.env.MODEL_REGISTRY_XAI_ENABLED === 'true';
   const xaiApiKey = process.env.MODEL_REGISTRY_XAI_API_KEY;
-  if (xaiEnabled && xaiApiKey) {
+  if (xaiApiKey && isProviderEnabled(process.env.MODEL_REGISTRY_XAI_ENABLED, !!xaiApiKey)) {
     providers.push(
       new XAIModelCatalogProvider(
         xaiApiKey,

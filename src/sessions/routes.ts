@@ -12,6 +12,7 @@ import type { SessionStore } from './store';
 import type { UserStore } from '../users/store';
 import type { TokenStore } from '../tokens/store';
 import type { TokenMetricsStore } from '../tokens/metrics';
+import type { ModelRegistry } from '../models';
 import { verifyPassword, DUMMY_PASSWORD_HASH } from '../users/password';
 import { sanitizeUser } from '../users/sanitize';
 import { sanitizeToken } from '../tokens/sanitize';
@@ -45,6 +46,7 @@ export function createSessionRoutes(
   sessionStore: SessionStore,
   userStore: UserStore,
   tokenStore: TokenStore,
+  modelRegistry: ModelRegistry,
   logger: Logger,
   metricsStore?: TokenMetricsStore
 ): Router {
@@ -107,6 +109,7 @@ export function createSessionRoutes(
 
       const { session, token } = await sessionStore.create(user.id);
       const tokens = await tokenStore.listByUser(user.id);
+      const allModelIds = modelRegistry.getAvailableModels().map((model) => model.id);
       const metrics = metricsStore
         ? await metricsStore.getMetricsBulk(tokens.map((t) => t.id))
         : {};
@@ -122,7 +125,7 @@ export function createSessionRoutes(
         session: session,
         user: sanitizeUser(user),
         tokens: tokens.map((token) => ({
-          ...sanitizeToken(token),
+          ...sanitizeToken(token, allModelIds),
           metrics: metrics[token.id] ?? { route_requests: 0, cache_hits: 0, throttled_requests: 0 },
         })),
       });
@@ -191,6 +194,7 @@ export function createSessionRoutes(
       }
 
       const tokens = await tokenStore.listByUser(user.id);
+      const allModelIds = modelRegistry.getAvailableModels().map((model) => model.id);
       const metrics = metricsStore
         ? await metricsStore.getMetricsBulk(tokens.map((t) => t.id))
         : {};
@@ -199,7 +203,7 @@ export function createSessionRoutes(
         session,
         user: sanitizeUser(user),
         tokens: tokens.map((token) => ({
-          ...sanitizeToken(token),
+          ...sanitizeToken(token, allModelIds),
           metrics: metrics[token.id] ?? { route_requests: 0, cache_hits: 0, throttled_requests: 0 },
         })),
       });

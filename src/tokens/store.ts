@@ -95,6 +95,7 @@ export class InMemoryTokenStore implements TokenStore {
     const config: TokenConfig = {
       id,
       token_hash: tokenHash,
+      is_default: request.is_default === true ? true : undefined,
       trusted_anchor_model: request.trusted_anchor_model,
       allowed_models: request.allowed_models,
       denied_models: request.denied_models,
@@ -195,6 +196,7 @@ export class InMemoryTokenStore implements TokenStore {
       user_id: userId,
       name,
       anonymous_session_id: null,
+      is_default: request.is_default === true ? true : undefined,
       trusted_anchor_model: request.trusted_anchor_model,
       allowed_models: request.allowed_models,
       denied_models: request.denied_models,
@@ -281,6 +283,7 @@ export class RedisTokenStore implements TokenStore {
     const config: TokenConfig = {
       id,
       token_hash: tokenHash,
+      is_default: request.is_default === true ? true : undefined,
       trusted_anchor_model: request.trusted_anchor_model,
       allowed_models: request.allowed_models,
       denied_models: request.denied_models,
@@ -402,6 +405,7 @@ export class RedisTokenStore implements TokenStore {
       user_id: userId,
       name,
       anonymous_session_id: null,
+      is_default: request.is_default === true ? true : undefined,
       trusted_anchor_model: request.trusted_anchor_model,
       allowed_models: request.allowed_models,
       denied_models: request.denied_models,

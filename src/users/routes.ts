@@ -322,6 +322,7 @@ export function createUserRoutes(
 
       // Get user's tokens
       const tokens = await tokenStore.listByUser(user.id);
+      const allModelIds = modelRegistry.getAvailableModels().map((model) => model.id);
       const metrics = metricsStore
         ? await metricsStore.getMetricsBulk(tokens.map((t) => t.id))
         : {};
@@ -337,7 +338,7 @@ export function createUserRoutes(
       res.status(200).json({
         user: sanitizeUser(user),
         tokens: tokens.map((token) => ({
-          ...sanitizeToken(token),
+          ...sanitizeToken(token, allModelIds),
           metrics: metrics[token.id] ?? { route_requests: 0, cache_hits: 0, throttled_requests: 0 },
         })),
       });
@@ -493,7 +494,7 @@ export function createUserRoutes(
         updated.id,
         'Default Token',
         {
-          eligible_models: modelRegistry.getAvailableModels().map((model) => model.id),
+          is_default: true,
           environment: 'dev',
           confidence_threshold: 0.6,
           logging_level: 'normal',

@@ -285,7 +285,9 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
     return new ModelRegistrySyncService(modelRegistry, logger, providers);
   })();
 
-  const modelRegistrySyncOnStartup = process.env.MODEL_REGISTRY_SYNC_ON_STARTUP === 'true';
+  const modelRegistrySyncOnStartup = process.env.MODEL_REGISTRY_SYNC_ON_STARTUP
+    ? process.env.MODEL_REGISTRY_SYNC_ON_STARTUP === 'true'
+    : process.env.NODE_ENV !== 'test';
   if (modelRegistrySyncOnStartup && modelRegistrySyncService?.hasProviders()) {
     try {
       const summary = await modelRegistrySyncService.syncAll();
@@ -629,7 +631,7 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
         tokenMetricsStore
       ));
       if (sessionStore) {
-        app.use('/api/sessions', rateLimiters.auth, createSessionRoutes(sessionStore, userStore, tokenStore, logger, tokenMetricsStore));
+        app.use('/api/sessions', rateLimiters.auth, createSessionRoutes(sessionStore, userStore, tokenStore, modelRegistry, logger, tokenMetricsStore));
       } else {
         logger.warn('Session routes not mounted because Redis is unavailable');
       }

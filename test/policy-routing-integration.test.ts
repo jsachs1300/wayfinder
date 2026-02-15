@@ -8,7 +8,7 @@
  * - Policy bypass attempts are rejected
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { DefaultRoutingEngine } from '../src/routing/engine';
 import type { RouterLLM } from '../src/routing/engine';
 import { createPolicyEngine } from '../src/policy';
@@ -420,6 +420,91 @@ describe('Policy-Routing Integration', () => {
 
       // Should only warn once despite 3 requests
       expect(warnCount).toBe(1);
+    });
+  });
+
+  describe('Default Token Cache Scope', () => {
+    it('uses global cache scope for explicit default tokens', async () => {
+      const cache = {
+        get: vi.fn().mockResolvedValue(null),
+        set: vi.fn().mockResolvedValue(undefined),
+        getTTL: vi.fn().mockReturnValue(3600),
+      };
+
+      const testRouterLLM: RouterLLM = {
+        async invoke(_prompt: string, eligibleModels: string[]) {
+          const decision: RankedRouteDecision = {
+            intent: 'coding',
+            ranked_models: eligibleModels.map((model, idx) => ({
+              rank: idx + 1,
+              model,
+              score: Math.max(3, 8 - idx),
+              reason: idx === 0 ? 'Best for task' : 'Alternative',
+            })),
+          };
+          return buildMultiProviderResult(decision);
+        },
+      };
+
+      const engine = new DefaultRoutingEngine({
+        routerLLM: testRouterLLM,
+        policyEngine,
+        modelRegistry,
+        logger: mockLogger,
+        cache: cache as any,
+      });
+
+      const tokenConfig = createTokenConfig({ is_default: true });
+      await engine.route({ prompt: 'Write a function' }, tokenConfig);
+
+      expect(cache.get).toHaveBeenCalledWith('Write a function', {
+        scope: 'global',
+        router_model: 'consensus',
+      });
+    });
+
+    it('uses global cache scope for legacy default tokens', async () => {
+      const cache = {
+        get: vi.fn().mockResolvedValue(null),
+        set: vi.fn().mockResolvedValue(undefined),
+        getTTL: vi.fn().mockReturnValue(3600),
+      };
+
+      const testRouterLLM: RouterLLM = {
+        async invoke(_prompt: string, eligibleModels: string[]) {
+          const decision: RankedRouteDecision = {
+            intent: 'coding',
+            ranked_models: eligibleModels.map((model, idx) => ({
+              rank: idx + 1,
+              model,
+              score: Math.max(3, 8 - idx),
+              reason: idx === 0 ? 'Best for task' : 'Alternative',
+            })),
+          };
+          return buildMultiProviderResult(decision);
+        },
+      };
+
+      const engine = new DefaultRoutingEngine({
+        routerLLM: testRouterLLM,
+        policyEngine,
+        modelRegistry,
+        logger: mockLogger,
+        cache: cache as any,
+      });
+
+      const tokenConfig = {
+        ...createTokenConfig(),
+        name: 'Default Token',
+        user_id: 'user-123',
+      } as TokenConfig;
+
+      await engine.route({ prompt: 'Write a function' }, tokenConfig);
+
+      expect(cache.get).toHaveBeenCalledWith('Write a function', {
+        scope: 'global',
+        router_model: 'consensus',
+      });
     });
   });
 
