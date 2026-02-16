@@ -10,6 +10,7 @@ import {
   type RouterModelPreference,
 } from '../types';
 import { ModelRegistry, ModelValidationError } from '../models';
+import { isDefaultToken } from './utils';
 import { User } from '../users/types';
 import { z } from 'zod';
 import { logTokenEvent } from '../observability/events';
@@ -18,14 +19,6 @@ import type { Logger } from '../logging/logger';
 
 interface IdParams {
   id: string;
-}
-
-function isDefaultToken(config: { is_default?: boolean; user_id?: string; name?: string }): boolean {
-  if (config.is_default === true) {
-    return true;
-  }
-  // Backward compatibility for legacy default tokens.
-  return typeof config.user_id === 'string' && config.name === 'Default Token';
 }
 
 const PolicyRuleSchema = z.object({

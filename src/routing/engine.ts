@@ -19,6 +19,7 @@ import type { Logger } from '../logging/logger';
 import type { SemanticCache } from '../cache';
 import { hashPrompt } from '../cache';
 import type { MultiProviderResult } from './router-llm';
+import { isDefaultToken } from '../tokens/utils';
 import { recordCacheHit, recordCacheMiss } from '../observability/metrics';
 
 /**
@@ -155,23 +156,8 @@ export class DefaultRoutingEngine implements RoutingEngine {
 
   constructor(private readonly deps: RoutingEngineDependencies) {}
 
-  private isDefaultToken(tokenConfig: TokenConfig): boolean {
-    const extended = tokenConfig as TokenConfig & {
-      is_default?: boolean;
-      name?: string | null;
-      user_id?: string | null;
-    };
-
-    if (extended.is_default === true) {
-      return true;
-    }
-
-    // Backward compatibility for legacy default tokens created before is_default existed.
-    return extended.name === 'Default Token' && !!extended.user_id;
-  }
-
   private getCacheScope(tokenConfig: TokenConfig): string {
-    return this.isDefaultToken(tokenConfig) ? 'global' : tokenConfig.id;
+    return isDefaultToken(tokenConfig) ? 'global' : tokenConfig.id;
   }
 
   async route(
