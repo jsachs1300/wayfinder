@@ -18,28 +18,10 @@ function parseTimeoutMs(value: string | undefined, fallback: number): number {
   return Math.min(parsed, MAX_MODEL_REGISTRY_SYNC_TIMEOUT_MS);
 }
 
-function isProviderEnabled(flagValue: string | undefined, hasCredentials: boolean): boolean {
-  if (!hasCredentials) {
-    return false;
-  }
-  if (flagValue === 'false') {
-    return false;
-  }
-  if (flagValue === 'true') {
-    return true;
-  }
-  // Default to enabled when credentials are present.
-  return true;
-}
-
 function shouldEnableProvider(
   registryFlag: string | undefined,
-  routerFlag: string | undefined,
-  hasCredentials: boolean
+  routerFlag?: string | undefined
 ): boolean {
-  if (!hasCredentials) {
-    return false;
-  }
   if (registryFlag === 'true') {
     return true;
   }
@@ -63,8 +45,7 @@ export function createModelCatalogProvidersFromEnv(): ModelCatalogProvider[] {
     process.env.MODEL_REGISTRY_OPENAI_API_KEY || process.env.ROUTER_LLM_OPENAI_API_KEY;
   if (openaiApiKey && shouldEnableProvider(
     process.env.MODEL_REGISTRY_OPENAI_ENABLED,
-    process.env.ROUTER_LLM_OPENAI_ENABLED,
-    true
+    process.env.ROUTER_LLM_OPENAI_ENABLED
   )) {
     providers.push(
       new OpenAIModelCatalogProvider(
@@ -79,8 +60,7 @@ export function createModelCatalogProvidersFromEnv(): ModelCatalogProvider[] {
     process.env.MODEL_REGISTRY_GEMINI_API_KEY || process.env.ROUTER_LLM_GEMINI_API_KEY;
   if (geminiApiKey && shouldEnableProvider(
     process.env.MODEL_REGISTRY_GEMINI_ENABLED,
-    process.env.ROUTER_LLM_GEMINI_ENABLED,
-    true
+    process.env.ROUTER_LLM_GEMINI_ENABLED
   )) {
     providers.push(
       new GeminiModelCatalogProvider(
@@ -92,7 +72,7 @@ export function createModelCatalogProvidersFromEnv(): ModelCatalogProvider[] {
   }
 
   const anthropicApiKey = process.env.MODEL_REGISTRY_ANTHROPIC_API_KEY;
-  if (anthropicApiKey && isProviderEnabled(process.env.MODEL_REGISTRY_ANTHROPIC_ENABLED, !!anthropicApiKey)) {
+  if (anthropicApiKey && shouldEnableProvider(process.env.MODEL_REGISTRY_ANTHROPIC_ENABLED)) {
     providers.push(
       new AnthropicModelCatalogProvider(
         anthropicApiKey,
@@ -104,7 +84,7 @@ export function createModelCatalogProvidersFromEnv(): ModelCatalogProvider[] {
   }
 
   const xaiApiKey = process.env.MODEL_REGISTRY_XAI_API_KEY;
-  if (xaiApiKey && isProviderEnabled(process.env.MODEL_REGISTRY_XAI_ENABLED, !!xaiApiKey)) {
+  if (xaiApiKey && shouldEnableProvider(process.env.MODEL_REGISTRY_XAI_ENABLED)) {
     providers.push(
       new XAIModelCatalogProvider(
         xaiApiKey,
