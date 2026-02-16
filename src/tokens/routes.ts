@@ -292,16 +292,6 @@ export function createAdminRoutes(
         return;
       }
 
-      // Skip cache-scope deletion for default tokens because they use global cache scope.
-      if (cache && !isDefaultToken(existing)) {
-        try {
-          await cache.clearByScope(id);
-        } catch (cacheError) {
-          // Log but don't fail deletion if cache clear fails
-          console.error('Failed to clear cache for token:', id, cacheError);
-        }
-      }
-
       const deleted = await tokenStore.delete(id);
 
       if (!deleted) {
@@ -311,6 +301,17 @@ export function createAdminRoutes(
           timestamp: new Date().toISOString(),
         });
         return;
+      }
+
+      // Clear cache only after successful deletion.
+      // Skip scoped clear for default tokens because they use global cache scope.
+      if (cache && !isDefaultToken(existing)) {
+        try {
+          await cache.clearByScope(id);
+        } catch (cacheError) {
+          // Log but don't fail deletion if cache clear fails
+          console.error('Failed to clear cache for token:', id, cacheError);
+        }
       }
 
       res.status(204).send();

@@ -243,8 +243,9 @@ export function createUserTokenRoutes(
         }
       }
 
-      // Skip cache-scope deletion for default tokens because they use global cache scope.
-      if (cache && existing && !isDefaultToken(existing)) {
+      // Clear cache only after successful deletion.
+      // Skip scoped clear for default tokens because they use global cache scope.
+      if (cache && (!existing || !isDefaultToken(existing))) {
         try {
           await cache.clearByScope(id);
         } catch (cacheError) {

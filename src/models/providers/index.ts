@@ -18,6 +18,16 @@ function parseTimeoutMs(value: string | undefined, fallback: number): number {
   return Math.min(parsed, MAX_MODEL_REGISTRY_SYNC_TIMEOUT_MS);
 }
 
+/**
+ * Determines provider enablement from feature flags.
+ *
+ * Priority:
+ * 1) explicit registry flag
+ * 2) router flag fallback (OpenAI/Gemini)
+ * 3) default enabled
+ *
+ * Callers are responsible for checking credentials first.
+ */
 function shouldEnableProvider(
   registryFlag: string | undefined,
   routerFlag?: string | undefined
