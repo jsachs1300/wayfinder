@@ -61,14 +61,14 @@ export function createModelCatalogProvidersFromEnv(): ModelCatalogProvider[] {
 
   const openaiApiKey =
     process.env.MODEL_REGISTRY_OPENAI_API_KEY || process.env.ROUTER_LLM_OPENAI_API_KEY;
-  if (shouldEnableProvider(
+  if (openaiApiKey && shouldEnableProvider(
     process.env.MODEL_REGISTRY_OPENAI_ENABLED,
     process.env.ROUTER_LLM_OPENAI_ENABLED,
-    !!openaiApiKey
+    true
   )) {
     providers.push(
       new OpenAIModelCatalogProvider(
-        openaiApiKey!,
+        openaiApiKey,
         process.env.MODEL_REGISTRY_OPENAI_BASE_URL || 'https://api.openai.com/v1',
         timeoutMs
       )
@@ -77,14 +77,14 @@ export function createModelCatalogProvidersFromEnv(): ModelCatalogProvider[] {
 
   const geminiApiKey =
     process.env.MODEL_REGISTRY_GEMINI_API_KEY || process.env.ROUTER_LLM_GEMINI_API_KEY;
-  if (shouldEnableProvider(
+  if (geminiApiKey && shouldEnableProvider(
     process.env.MODEL_REGISTRY_GEMINI_ENABLED,
     process.env.ROUTER_LLM_GEMINI_ENABLED,
-    !!geminiApiKey
+    true
   )) {
     providers.push(
       new GeminiModelCatalogProvider(
-        geminiApiKey!,
+        geminiApiKey,
         process.env.MODEL_REGISTRY_GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta',
         timeoutMs
       )
