@@ -19,6 +19,7 @@ import type { Logger } from '../logging/logger';
 import type { SemanticCache } from '../cache';
 import { hashPrompt } from '../cache';
 import type { MultiProviderResult } from './router-llm';
+import { isDefaultToken } from '../tokens/utils';
 import { recordCacheHit, recordCacheMiss } from '../observability/metrics';
 
 /**
@@ -154,6 +155,10 @@ export class DefaultRoutingEngine implements RoutingEngine {
   private warnedTokens = new Set<string>(); // Track tokens we've warned about intent-based rules
 
   constructor(private readonly deps: RoutingEngineDependencies) {}
+
+  private getCacheScope(tokenConfig: TokenConfig): string {
+    return isDefaultToken(tokenConfig) ? 'global' : tokenConfig.id;
+  }
 
   async route(
     request: RouteRequest,
@@ -294,9 +299,10 @@ export class DefaultRoutingEngine implements RoutingEngine {
     // Check cache AFTER policy evaluation, BEFORE router LLM invocation (REQUIREMENTS.md §8 step 8)
     // Cache is token-scoped with router model differentiation via attributes
     let routerModelUsed = effectiveRouter;
+    const cacheScope = this.getCacheScope(tokenConfig);
     if (this.deps.cache) {
       const cachedResponse = await this.deps.cache.get(request.prompt, {
-        scope: tokenConfig.id,
+        scope: cacheScope,
         router_model: effectiveRouter,
       });
 
@@ -309,13 +315,13 @@ export class DefaultRoutingEngine implements RoutingEngine {
         const rankedDecision = cachedResponse.ranking;
         routerModelUsed = cachedResponse.router_model;
 
-        this.deps.logger.info('Token-scoped cache hit - returning cached decision', {
+        this.deps.logger.info('Cache hit - returning cached decision', {
           token_id: tokenConfig.id,
           prompt_hash: hashPrompt(request.prompt),
           request_id: requestId,
           router_model_used: routerModelUsed,
           router_model_requested: effectiveRouter,
-          cache_scope: tokenConfig.id,
+          cache_scope: cacheScope,
           top_model: rankedDecision.ranked_models[0]?.model,
         });
 
@@ -439,7 +445,7 @@ export class DefaultRoutingEngine implements RoutingEngine {
           cached_at,
           ttl,
         }, {
-          scope: tokenConfig.id,
+          scope: cacheScope,
           router_model: 'consensus',
         })
       );
@@ -454,7 +460,7 @@ export class DefaultRoutingEngine implements RoutingEngine {
             cached_at,
             ttl,
           }, {
-            scope: tokenConfig.id,
+            scope: cacheScope,
             router_model: 'openai',
           })
         );
@@ -470,7 +476,7 @@ export class DefaultRoutingEngine implements RoutingEngine {
             cached_at,
             ttl,
           }, {
-            scope: tokenConfig.id,
+            scope: cacheScope,
             router_model: 'gemini',
           })
         );

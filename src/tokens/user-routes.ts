@@ -10,6 +10,7 @@ import {
   type RouterModelPreference,
 } from '../types';
 import { ModelRegistry, ModelValidationError } from '../models';
+import { isDefaultToken } from './utils';
 import { User } from '../users/types';
 import { z } from 'zod';
 import { logTokenEvent } from '../observability/events';
@@ -210,6 +211,7 @@ export function createUserTokenRoutes(
       }
 
       const { id } = req.params;
+      const existing = await tokenStore.getById(id);
       const result = await tokenStore.deleteUserToken(req.user.id, id);
       if (!result.deleted) {
         if (result.reason === 'not_found') {
@@ -241,8 +243,9 @@ export function createUserTokenRoutes(
         }
       }
 
-      // Clear cache for this token after deletion
-      if (cache) {
+      // Clear cache only after successful deletion.
+      // Skip scoped clear for default tokens because they use global cache scope.
+      if (cache && (!existing || !isDefaultToken(existing))) {
         try {
           await cache.clearByScope(id);
         } catch (cacheError) {

@@ -193,14 +193,16 @@ Both prompts would return the same cached routing decision, avoiding redundant L
 - **Cost Reduction**: Avoid router LLM API calls for similar prompts (can save 40-70% on costs)
 - **Faster Response**: Cache hits return instantly without LLM latency
 - **Consistency**: Similar prompts get consistent routing decisions
-- **Token-Scoped**: Each token has isolated cache namespace for security and compliance
+- **Scope-Aware**: Default user tokens share global cache; non-default tokens use token-scoped cache
 
 **How It Works**
 
 Per REQUIREMENTS.md §8 step 8, cache is queried:
 1. **After** policy evaluation (ensures policy is always enforced)
 2. **Before** router LLM invocation (only if cache miss)
-3. Cache key includes `token_id` + `eligible_models_hash` for automatic invalidation
+3. Cache attributes include `scope` + `router_model`:
+   - default user token: `scope=global`
+   - non-default token: `scope=<token_id>`
 
 **Cache Behavior:**
 - Cache **hit**: Return cached decision, skip router LLM (fast path)
@@ -901,6 +903,11 @@ Content-Type: application/json
 }
 ```
 
+Default token behavior:
+- `eligible_models` for the default token is resolved dynamically from the current effective model registry.
+- Default-token cache scope is global (`scope=global`), so similar requests can share cache across default tokens.
+- Non-default tokens keep token-scoped cache (`scope=<token_id>`).
+
 #### Get User Profile
 
 ```http
@@ -1474,19 +1481,19 @@ Use provider catalog sync to keep the system registry current. Sync can run at s
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `MODEL_REGISTRY_SYNC_ON_STARTUP` | Run provider sync when app starts | `false` |
+| `MODEL_REGISTRY_SYNC_ON_STARTUP` | Run provider sync on startup (`true`/`false`) | `true` (except `NODE_ENV=test`) |
 | `MODEL_REGISTRY_SYNC_TIMEOUT_MS` | Per-provider HTTP timeout for catalog fetch | `10000` |
-| `MODEL_REGISTRY_OPENAI_ENABLED` | Enable OpenAI model catalog provider | falls back to `ROUTER_LLM_OPENAI_ENABLED` |
+| `MODEL_REGISTRY_OPENAI_ENABLED` | Enable/disable OpenAI model catalog provider | auto-enabled when OpenAI catalog/router key is present; set `false` to disable |
 | `MODEL_REGISTRY_OPENAI_API_KEY` | OpenAI API key for catalog sync | falls back to `ROUTER_LLM_OPENAI_API_KEY` |
 | `MODEL_REGISTRY_OPENAI_BASE_URL` | OpenAI API base URL override | `https://api.openai.com/v1` |
-| `MODEL_REGISTRY_GEMINI_ENABLED` | Enable Gemini model catalog provider | falls back to `ROUTER_LLM_GEMINI_ENABLED` |
+| `MODEL_REGISTRY_GEMINI_ENABLED` | Enable/disable Gemini model catalog provider | auto-enabled when Gemini catalog/router key is present; set `false` to disable |
 | `MODEL_REGISTRY_GEMINI_API_KEY` | Gemini API key for catalog sync | falls back to `ROUTER_LLM_GEMINI_API_KEY` |
 | `MODEL_REGISTRY_GEMINI_BASE_URL` | Gemini API base URL override | `https://generativelanguage.googleapis.com/v1beta` |
-| `MODEL_REGISTRY_ANTHROPIC_ENABLED` | Enable Anthropic model catalog provider | `false` |
+| `MODEL_REGISTRY_ANTHROPIC_ENABLED` | Enable/disable Anthropic model catalog provider | auto-enabled when API key is present; set `false` to disable |
 | `MODEL_REGISTRY_ANTHROPIC_API_KEY` | Anthropic API key for catalog sync | - |
 | `MODEL_REGISTRY_ANTHROPIC_BASE_URL` | Anthropic API base URL override | `https://api.anthropic.com/v1` |
 | `MODEL_REGISTRY_ANTHROPIC_VERSION` | Anthropic API version header value | `2023-06-01` |
-| `MODEL_REGISTRY_XAI_ENABLED` | Enable xAI model catalog provider | `false` |
+| `MODEL_REGISTRY_XAI_ENABLED` | Enable/disable xAI model catalog provider | auto-enabled when API key is present; set `false` to disable |
 | `MODEL_REGISTRY_XAI_API_KEY` | xAI API key for catalog sync | - |
 | `MODEL_REGISTRY_XAI_BASE_URL` | xAI API base URL override | `https://api.x.ai/v1` |
 | `MODEL_REGISTRY_OLLAMA_ENABLED` | Enable Ollama local catalog provider | `false` |
@@ -1681,6 +1688,17 @@ Troubleshooting:
 - `503 ServiceUnavailable`: no model catalog providers enabled/configured.
 - Provider error in refresh response: check provider API key, endpoint/base URL, quota, or firewall egress.
 - Partial success is expected: one provider can fail while others import successfully.
+
+Provider catalog endpoints used:
+- OpenAI: `GET /v1/models`
+- Gemini: `GET /v1beta/models`
+- Anthropic: `GET /v1/models`
+- xAI: `GET /v1/models`
+
+Startup behavior:
+- Registry sync runs automatically at startup when provider credentials are configured.
+- Override with `MODEL_REGISTRY_SYNC_ON_STARTUP=true|false`.
+- In test environment (`NODE_ENV=test`), startup sync is disabled by default unless explicitly set to `true`.
 
 ## Router LLM Setup (REQUIRED)
 
