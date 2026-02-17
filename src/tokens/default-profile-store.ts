@@ -4,6 +4,7 @@ import type { ModelInfo } from '../types';
 import { selectDefaultEligibleModelIds } from './utils';
 
 const DEFAULT_TOKEN_PROFILE_KEY = 'wayfinder:default_token_profile:v1';
+const DEFAULT_TOKEN_PROFILE_UPDATE_MAX_RETRIES = 5;
 
 export interface DefaultTokenModelProfile {
   model_ids: string[];
@@ -173,16 +174,38 @@ class RedisDefaultTokenProfileStore implements DefaultTokenProfileStore {
       throw new Error('Default token profile requires at least one model id');
     }
 
-    const current = await this.getProfile();
-    const profile: DefaultTokenModelProfile = {
-      model_ids: normalized,
-      version: (current?.version ?? 0) + 1,
-      updated_at: new Date().toISOString(),
-      updated_by: updatedBy,
-    };
+    for (let attempt = 1; attempt <= DEFAULT_TOKEN_PROFILE_UPDATE_MAX_RETRIES; attempt += 1) {
+      await this.redis.watch(DEFAULT_TOKEN_PROFILE_KEY);
+      try {
+        const current = await this.getProfile();
+        const profile: DefaultTokenModelProfile = {
+          model_ids: normalized,
+          version: (current?.version ?? 0) + 1,
+          updated_at: new Date().toISOString(),
+          updated_by: updatedBy,
+        };
 
-    await this.persistProfile(profile);
-    return profile;
+        const transaction = this.redis.multi();
+        transaction.set(DEFAULT_TOKEN_PROFILE_KEY, JSON.stringify(profile));
+        const execResult = await transaction.exec();
+
+        if (execResult !== null) {
+          return profile;
+        }
+
+        if (attempt < DEFAULT_TOKEN_PROFILE_UPDATE_MAX_RETRIES) {
+          this.logger?.warn('Default token profile update conflicted, retrying', {
+            attempt,
+            max_retries: DEFAULT_TOKEN_PROFILE_UPDATE_MAX_RETRIES,
+          });
+          continue;
+        }
+      } finally {
+        await this.redis.unwatch();
+      }
+    }
+
+    throw new Error('Failed to update default token profile due to concurrent updates');
   }
 
   async resolveForModels(availableModels: readonly ModelInfo[]): Promise<ResolvedDefaultTokenModelProfile> {
