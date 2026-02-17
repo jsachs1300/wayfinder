@@ -904,7 +904,7 @@ Content-Type: application/json
 ```
 
 Default token behavior:
-- `eligible_models` for the default token is resolved dynamically from the current effective model registry.
+- `eligible_models` for the default token is resolved dynamically from a compact provider-diverse subset of the current effective registry (one lightweight model per provider, favoring `mini`/`lite`/`haiku`/`flash` IDs).
 - Default-token cache scope is global (`scope=global`), so similar requests can share cache across default tokens.
 - Non-default tokens keep token-scoped cache (`scope=<token_id>`).
 
@@ -1482,6 +1482,7 @@ Use provider catalog sync to keep the system registry current. Sync can run at s
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `MODEL_REGISTRY_SYNC_ON_STARTUP` | Run provider sync on startup (`true`/`false`) | `true` (except `NODE_ENV=test`) |
+| `GENERATE_NEW_REGISTRY` | Drop persisted registry state at startup and rebuild from defaults + provider sync | `false` |
 | `MODEL_REGISTRY_SYNC_TIMEOUT_MS` | Per-provider HTTP timeout for catalog fetch | `10000` |
 | `MODEL_REGISTRY_TRIM_VARIANTS` | Trim preview/media/dated catalog variants and canonicalize stable IDs | `true` |
 | `MODEL_REGISTRY_OPENAI_ENABLED` | Enable/disable OpenAI model catalog provider | auto-enabled when OpenAI catalog/router key is present; set `false` to disable |
@@ -1502,6 +1503,8 @@ Use provider catalog sync to keep the system registry current. Sync can run at s
 | `MODEL_REGISTRY_OLLAMA_API_KEY` | Optional Bearer token for hosted Ollama | - |
 
 When `MODEL_REGISTRY_TRIM_VARIANTS=true`, provider sync removes preview/experimental/media variants (for example `*-preview-*`, `*-image`, `*-tts`) and normalizes `-latest` / dated suffixes to stable canonical IDs before importing into the registry.
+
+When `GENERATE_NEW_REGISTRY=true`, Wayfinder deletes persisted model registry state in Redis at startup and skips loading old state. This is useful when you want a fresh registry generated from startup defaults plus configured provider sync.
 
 #### Redis & Storage
 

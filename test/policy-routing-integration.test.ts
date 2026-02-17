@@ -13,6 +13,7 @@ import { DefaultRoutingEngine } from '../src/routing/engine';
 import type { RouterLLM } from '../src/routing/engine';
 import { createPolicyEngine } from '../src/policy';
 import { createModelRegistry } from '../src/models';
+import { selectDefaultEligibleModelIds } from '../src/tokens/utils';
 import type { TokenConfig, RouteRequest, RankedRouteDecision } from '../src/types';
 import type { MultiProviderResult } from '../src/routing/router-llm';
 import type { Logger } from '../src/logging/logger';
@@ -505,6 +506,45 @@ describe('Policy-Routing Integration', () => {
         scope: 'global',
         router_model: 'consensus',
       });
+    });
+
+    it('ignores persisted eligible_models for default tokens and uses compact provider-diverse model set', async () => {
+      let receivedModels: string[] = [];
+
+      const testRouterLLM: RouterLLM = {
+        async invoke(_prompt: string, eligibleModels: string[]) {
+          receivedModels = eligibleModels;
+          const decision: RankedRouteDecision = {
+            intent: 'coding',
+            ranked_models: eligibleModels.map((model, idx) => ({
+              rank: idx + 1,
+              model,
+              score: Math.max(3, 8 - idx),
+              reason: idx === 0 ? 'Best for task' : 'Alternative',
+            })),
+          };
+          return buildMultiProviderResult(decision);
+        },
+      };
+
+      const engine = new DefaultRoutingEngine({
+        routerLLM: testRouterLLM,
+        policyEngine,
+        modelRegistry,
+        logger: mockLogger,
+      });
+
+      const availableModels = modelRegistry.getAvailableModels();
+      const expectedDefaultEligibleModels = selectDefaultEligibleModelIds(availableModels);
+      const tokenConfig = createTokenConfig({
+        is_default: true,
+        eligible_models: ['legacy-preview-model', 'legacy-removed-model'],
+      });
+
+      await engine.route({ prompt: 'Write a function' }, tokenConfig);
+
+      expect(receivedModels).toEqual(expectedDefaultEligibleModels);
+      expect(receivedModels).not.toContain('legacy-preview-model');
     });
   });
 

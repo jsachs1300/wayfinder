@@ -19,7 +19,7 @@ import type { Logger } from '../logging/logger';
 import type { SemanticCache } from '../cache';
 import { hashPrompt } from '../cache';
 import type { MultiProviderResult } from './router-llm';
-import { isDefaultToken } from '../tokens/utils';
+import { isDefaultToken, resolveEligibleModels, selectDefaultEligibleModelIds } from '../tokens/utils';
 import { recordCacheHit, recordCacheMiss } from '../observability/metrics';
 
 /**
@@ -153,8 +153,32 @@ export interface RoutingEngineDependencies {
 
 export class DefaultRoutingEngine implements RoutingEngine {
   private warnedTokens = new Set<string>(); // Track tokens we've warned about intent-based rules
+  private defaultEligibleCache?: { signature: string; models: readonly string[] };
 
   constructor(private readonly deps: RoutingEngineDependencies) {}
+
+  private getDefaultEligibleModelIds(availableModels: Array<{
+    id: string;
+    provider: string;
+    cost_tier: 'low' | 'medium' | 'high';
+    speed_tier: 'fast' | 'medium' | 'slow';
+    updated_at?: string;
+  }>): readonly string[] {
+    const signature = availableModels
+      .map((model) => `${model.id}:${model.provider}:${model.cost_tier}:${model.speed_tier}:${model.updated_at ?? ''}`)
+      .join('|');
+
+    if (this.defaultEligibleCache?.signature === signature) {
+      return this.defaultEligibleCache.models;
+    }
+
+    const selected = selectDefaultEligibleModelIds(availableModels);
+    this.defaultEligibleCache = {
+      signature,
+      models: selected,
+    };
+    return selected;
+  }
 
   private getCacheScope(tokenConfig: TokenConfig): string {
     return isDefaultToken(tokenConfig) ? 'global' : tokenConfig.id;
@@ -172,6 +196,7 @@ export class DefaultRoutingEngine implements RoutingEngine {
     // Get all available models from registry
     const availableModels = this.deps.modelRegistry.getAvailableModels();
     const availableModelIds = availableModels.map((m) => m.id);
+    const defaultEligibleModelIds = this.getDefaultEligibleModelIds(availableModels);
 
     // Warn if intent-based policy rules are configured (only once per token to avoid spam)
     const hasIntentBasedRules = tokenConfig.policy_rules?.some(
@@ -186,6 +211,17 @@ export class DefaultRoutingEngine implements RoutingEngine {
       });
     }
 
+    const effectiveTokenConfig: TokenConfig = isDefaultToken(tokenConfig)
+      ? {
+          ...tokenConfig,
+          eligible_models: [...resolveEligibleModels(
+            tokenConfig,
+            availableModelIds,
+            defaultEligibleModelIds
+          )],
+        }
+      : tokenConfig;
+
     // Apply policy evaluation to determine eligible models
     // NOTE: Intent-based policy rules present a timing challenge:
     //   - Intent is inferred by the router LLM (not available yet)
@@ -197,7 +233,7 @@ export class DefaultRoutingEngine implements RoutingEngine {
     const policyResult = this.deps.policyEngine.evaluate(
       'other',
       availableModelIds,
-      tokenConfig
+      effectiveTokenConfig
     );
 
     // Structured logging for policy evaluation
@@ -374,7 +410,7 @@ export class DefaultRoutingEngine implements RoutingEngine {
     // Cache miss - invoke router LLM with policy-filtered eligible models
     // Router LLM may return MultiProviderResult or legacy RankedRouteDecision (e.g., from StubRouterLLM)
     const rawDecision = await this.deps.routerLLM.invoke(request.prompt, eligibleModels, {
-      tokenConfig,
+      tokenConfig: effectiveTokenConfig,
       preferModel: request.prefer_model,
       requestMetadata: request.metadata,
       userLLMKeys, // Pass user's LLM keys if BYOLLM tier

@@ -8,7 +8,7 @@ import {
   type RouterModelPreference,
 } from '../types';
 import { ModelRegistry, ModelValidationError } from '../models';
-import { isDefaultToken } from './utils';
+import { isDefaultToken, resolveEligibleModels, selectDefaultEligibleModelIds } from './utils';
 import { z } from 'zod';
 
 interface IdParams {
@@ -123,12 +123,16 @@ export function createAdminRoutes(
         return;
       }
 
+      const availableModels = modelRegistry.getAvailableModels();
+      const availableModelIds = availableModels.map((model) => model.id);
+      const defaultEligibleModelIds = selectDefaultEligibleModelIds(availableModels);
       const metrics = metricsStore
         ? await metricsStore.getMetrics(config.id)
         : { route_requests: 0, cache_hits: 0, throttled_requests: 0 };
 
       res.json({
         ...config,
+        eligible_models: resolveEligibleModels(config, availableModelIds, defaultEligibleModelIds),
         token_hash: undefined, // Never expose hash
         metrics,
       });
@@ -257,12 +261,16 @@ export function createAdminRoutes(
   router.get('/tokens', async (_req: Request, res: Response): Promise<void> => {
     try {
       const tokens = await tokenStore.list();
+      const availableModels = modelRegistry.getAvailableModels();
+      const availableModelIds = availableModels.map((model) => model.id);
+      const defaultEligibleModelIds = selectDefaultEligibleModelIds(availableModels);
       const metrics = metricsStore
         ? await metricsStore.getMetricsBulk(tokens.map((t) => t.id))
         : {};
       res.json({
         tokens: tokens.map((t) => ({
           ...t,
+          eligible_models: resolveEligibleModels(t, availableModelIds, defaultEligibleModelIds),
           token_hash: undefined, // Never expose hash
           metrics: metrics[t.id] ?? { route_requests: 0, cache_hits: 0, throttled_requests: 0 },
         })),

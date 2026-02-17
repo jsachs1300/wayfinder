@@ -1090,10 +1090,25 @@ export async function createPersistentModelRegistry(
   registryLogger?: Logger,
   customModels?: ModelInfo[]
 ): Promise<DefaultModelRegistry> {
+  const generateNewRegistry = process.env.GENERATE_NEW_REGISTRY === 'true';
+
+  if (redis && generateNewRegistry) {
+    await redis.del(MODEL_REGISTRY_STATE_KEY);
+    registryLogger?.info('Cleared persisted model registry state due to GENERATE_NEW_REGISTRY=true', {
+      state_key: MODEL_REGISTRY_STATE_KEY,
+    });
+  }
+
   const registry = new DefaultModelRegistry(customModels ?? DEFAULT_MODELS, {
     redis,
     logger: registryLogger,
   });
-  await registry.loadPersistedState();
+
+  if (!generateNewRegistry) {
+    await registry.loadPersistedState();
+  } else {
+    registryLogger?.info('Skipping persisted model registry load due to GENERATE_NEW_REGISTRY=true');
+  }
+
   return registry;
 }
