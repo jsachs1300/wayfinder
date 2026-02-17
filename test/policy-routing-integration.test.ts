@@ -506,6 +506,44 @@ describe('Policy-Routing Integration', () => {
         router_model: 'consensus',
       });
     });
+
+    it('ignores persisted eligible_models for default tokens and uses current available registry models', async () => {
+      let receivedModels: string[] = [];
+
+      const testRouterLLM: RouterLLM = {
+        async invoke(_prompt: string, eligibleModels: string[]) {
+          receivedModels = eligibleModels;
+          const decision: RankedRouteDecision = {
+            intent: 'coding',
+            ranked_models: eligibleModels.map((model, idx) => ({
+              rank: idx + 1,
+              model,
+              score: Math.max(3, 8 - idx),
+              reason: idx === 0 ? 'Best for task' : 'Alternative',
+            })),
+          };
+          return buildMultiProviderResult(decision);
+        },
+      };
+
+      const engine = new DefaultRoutingEngine({
+        routerLLM: testRouterLLM,
+        policyEngine,
+        modelRegistry,
+        logger: mockLogger,
+      });
+
+      const availableModelIds = modelRegistry.getAvailableModels().map((model) => model.id);
+      const tokenConfig = createTokenConfig({
+        is_default: true,
+        eligible_models: ['legacy-preview-model', 'legacy-removed-model'],
+      });
+
+      await engine.route({ prompt: 'Write a function' }, tokenConfig);
+
+      expect(receivedModels).toEqual(availableModelIds);
+      expect(receivedModels).not.toContain('legacy-preview-model');
+    });
   });
 
   describe('Legacy RouterLLM Format Support', () => {

@@ -19,7 +19,7 @@ import type { Logger } from '../logging/logger';
 import type { SemanticCache } from '../cache';
 import { hashPrompt } from '../cache';
 import type { MultiProviderResult } from './router-llm';
-import { isDefaultToken } from '../tokens/utils';
+import { isDefaultToken, resolveEligibleModels } from '../tokens/utils';
 import { recordCacheHit, recordCacheMiss } from '../observability/metrics';
 
 /**
@@ -186,6 +186,13 @@ export class DefaultRoutingEngine implements RoutingEngine {
       });
     }
 
+    const effectiveTokenConfig: TokenConfig = isDefaultToken(tokenConfig)
+      ? {
+          ...tokenConfig,
+          eligible_models: [...resolveEligibleModels(tokenConfig, availableModelIds)],
+        }
+      : tokenConfig;
+
     // Apply policy evaluation to determine eligible models
     // NOTE: Intent-based policy rules present a timing challenge:
     //   - Intent is inferred by the router LLM (not available yet)
@@ -197,7 +204,7 @@ export class DefaultRoutingEngine implements RoutingEngine {
     const policyResult = this.deps.policyEngine.evaluate(
       'other',
       availableModelIds,
-      tokenConfig
+      effectiveTokenConfig
     );
 
     // Structured logging for policy evaluation
@@ -374,7 +381,7 @@ export class DefaultRoutingEngine implements RoutingEngine {
     // Cache miss - invoke router LLM with policy-filtered eligible models
     // Router LLM may return MultiProviderResult or legacy RankedRouteDecision (e.g., from StubRouterLLM)
     const rawDecision = await this.deps.routerLLM.invoke(request.prompt, eligibleModels, {
-      tokenConfig,
+      tokenConfig: effectiveTokenConfig,
       preferModel: request.prefer_model,
       requestMetadata: request.metadata,
       userLLMKeys, // Pass user's LLM keys if BYOLLM tier

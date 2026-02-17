@@ -2,6 +2,7 @@ export interface DefaultTokenLike {
   is_default?: boolean;
   name?: string | null;
   user_id?: string | null;
+  eligible_models?: string[] | null;
 }
 
 /**
@@ -23,4 +24,20 @@ export function isDefaultToken(config: DefaultTokenLike): boolean {
   }
   // Backward compatibility for legacy default tokens.
   return typeof config.user_id === 'string' && config.name === 'Default Token';
+}
+
+/**
+ * Resolve effective eligible models for a token.
+ *
+ * Default tokens are always dynamic and use the current available registry models,
+ * ignoring persisted eligible_models for backward compatibility with older records.
+ */
+export function resolveEligibleModels(
+  config: DefaultTokenLike,
+  availableModelIds: readonly string[]
+): readonly string[] {
+  if (isDefaultToken(config)) {
+    return availableModelIds;
+  }
+  return config.eligible_models ?? availableModelIds;
 }

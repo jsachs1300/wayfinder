@@ -18,6 +18,7 @@ import { verifyPassword, DUMMY_PASSWORD_HASH } from './password';
 import type { Logger } from '../logging/logger';
 import { sanitizeUser } from './sanitize';
 import { sanitizeToken } from '../tokens/sanitize';
+import { resolveEligibleModels } from '../tokens/utils';
 import type { UserVerificationStore } from './verification-store';
 import type { Mailer } from '../email';
 
@@ -523,7 +524,10 @@ export function createUserRoutes(
         event_type: 'token_created',
         token_id: tokenResult.id,
         user_id: updated.id,
-        eligible_models: tokenResult.config.eligible_models,
+        eligible_models: [...resolveEligibleModels(
+          tokenResult.config,
+          modelRegistry.getAvailableModels().map((model) => model.id)
+        )],
       });
       recordTokenCreated();
     } catch (error) {

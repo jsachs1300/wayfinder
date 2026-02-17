@@ -10,7 +10,7 @@ import {
   type RouterModelPreference,
 } from '../types';
 import { ModelRegistry, ModelValidationError } from '../models';
-import { isDefaultToken } from './utils';
+import { isDefaultToken, resolveEligibleModels } from './utils';
 import { User } from '../users/types';
 import { z } from 'zod';
 import { logTokenEvent } from '../observability/events';
@@ -82,6 +82,7 @@ export function createUserTokenRoutes(
       }
 
       const tokens = await tokenStore.listByUser(req.user.id);
+      const availableModelIds = modelRegistry.getAvailableModels().map((model) => model.id);
       const metrics = metricsStore
         ? await metricsStore.getMetricsBulk(tokens.map((t) => t.id))
         : {};
@@ -91,7 +92,7 @@ export function createUserTokenRoutes(
           id: t.id,
           name: t.name,
           environment: t.environment,
-          eligible_models: t.eligible_models ?? modelRegistry.getAvailableModels().map((model) => model.id),
+          eligible_models: resolveEligibleModels(t, availableModelIds),
           created_at: t.created_at,
           updated_at: t.updated_at,
           rotated_at: t.rotated_at,
