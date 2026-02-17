@@ -214,7 +214,7 @@ describe('ModelRegistrySyncService', () => {
     expect(summary.providers[0]?.total_fetched).toBe(5);
     expect(summary.providers[0]?.imported).toBe(2);
     expect(summary.providers[0]?.dropped).toBe(3);
-    expect(summary.providers[0]?.canonicalized).toBe(1);
+    expect(summary.providers[0]?.canonicalized).toBe(0);
   });
 
   it('can disable catalog trimming with MODEL_REGISTRY_TRIM_VARIANTS=false', async () => {
@@ -257,6 +257,47 @@ describe('ModelRegistrySyncService', () => {
     expect(summary.providers[0]?.imported).toBe(2);
     expect(summary.providers[0]?.dropped).toBe(0);
     expect(registry.getModel('gemini-2.5-flash-preview-09-2025')).not.toBeNull();
+  });
 
+  it('counts canonicalized models from retained winners only', async () => {
+    const registry = createModelRegistry();
+    const logger = createLogger('error');
+
+    const provider: ModelCatalogProvider = {
+      getProviderName: () => 'gemini',
+      listModels: async () => [
+        {
+          id: 'gemini-2.5-flash-latest',
+          provider: 'google',
+          cost_tier: 'medium',
+          speed_tier: 'fast',
+          context_window: 1000000,
+          available: true,
+          status: 'active',
+          global_eligible: true,
+          source: 'system_base',
+        },
+        {
+          id: 'gemini-2.5-flash-2025-01-01',
+          provider: 'google',
+          cost_tier: 'medium',
+          speed_tier: 'fast',
+          context_window: 1000000,
+          available: true,
+          status: 'active',
+          global_eligible: true,
+          source: 'system_base',
+        },
+      ],
+    };
+
+    const syncService = new ModelRegistrySyncService(registry, logger, [provider]);
+    const summary = await syncService.syncAll();
+
+    expect(summary.providers[0]?.total_fetched).toBe(2);
+    expect(summary.providers[0]?.imported).toBe(1);
+    expect(summary.providers[0]?.dropped).toBe(1);
+    expect(summary.providers[0]?.canonicalized).toBe(1);
+    expect(registry.getModel('gemini-2.5-flash')).not.toBeNull();
   });
 });

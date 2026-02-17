@@ -110,7 +110,6 @@ export function trimProviderCatalog(
   };
 
   const chosenByCanonicalId = new Map<string, Candidate>();
-  let canonicalized = 0;
 
   for (const model of models) {
     const originalId = model.id.trim();
@@ -126,9 +125,6 @@ export function trimProviderCatalog(
     const normalizedModel = canonicalId === originalId
       ? model
       : attachCatalogSourceId({ ...model, id: canonicalId }, originalId);
-    if (canonicalId !== originalId) {
-      canonicalized += 1;
-    }
 
     const candidate: Candidate = {
       model: normalizedModel,
@@ -144,6 +140,9 @@ export function trimProviderCatalog(
   }
 
   const trimmed = Array.from(chosenByCanonicalId.values()).map((entry) => entry.model);
+  const canonicalized = Array.from(chosenByCanonicalId.values()).reduce((count, entry) => (
+    entry.originalId !== entry.canonicalId ? count + 1 : count
+  ), 0);
 
   return {
     models: trimmed,
