@@ -10,6 +10,7 @@ import {
   type RouterModelPreference,
 } from '../types';
 import { ModelRegistry, ModelValidationError } from '../models';
+import type { DefaultTokenProfileStore } from './default-profile-store';
 import { isDefaultToken, resolveEligibleModels, selectDefaultEligibleModelIds } from './utils';
 import { User } from '../users/types';
 import { z } from 'zod';
@@ -64,9 +65,20 @@ export function createUserTokenRoutes(
   modelRegistry: ModelRegistry,
   logger: Logger,
   metricsStore?: TokenMetricsStore,
-  cache?: { clearByScope: (tokenId: string) => Promise<void> }
+  cache?: { clearByScope: (tokenId: string) => Promise<void> },
+  defaultTokenProfileStore?: DefaultTokenProfileStore
 ): Router {
   const router = Router();
+
+  const resolveDefaultEligibleModelIds = async (
+    availableModels: ReturnType<ModelRegistry['getAvailableModels']>
+  ): Promise<readonly string[]> => {
+    if (!defaultTokenProfileStore) {
+      return selectDefaultEligibleModelIds(availableModels);
+    }
+    const resolved = await defaultTokenProfileStore.resolveForModels(availableModels);
+    return resolved.effective_model_ids;
+  };
 
   // List user's tokens
   router.get('/', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
@@ -84,7 +96,7 @@ export function createUserTokenRoutes(
       const tokens = await tokenStore.listByUser(req.user.id);
       const availableModels = modelRegistry.getAvailableModels();
       const availableModelIds = availableModels.map((model) => model.id);
-      const defaultEligibleModelIds = selectDefaultEligibleModelIds(availableModels);
+      const defaultEligibleModelIds = await resolveDefaultEligibleModelIds(availableModels);
       const metrics = metricsStore
         ? await metricsStore.getMetricsBulk(tokens.map((t) => t.id))
         : {};

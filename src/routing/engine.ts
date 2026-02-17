@@ -20,6 +20,7 @@ import type { SemanticCache } from '../cache';
 import { hashPrompt } from '../cache';
 import type { MultiProviderResult } from './router-llm';
 import { isDefaultToken, resolveEligibleModels, selectDefaultEligibleModelIds } from '../tokens/utils';
+import type { DefaultTokenProfileStore } from '../tokens/default-profile-store';
 import { recordCacheHit, recordCacheMiss } from '../observability/metrics';
 
 /**
@@ -148,6 +149,7 @@ export interface RoutingEngineDependencies {
   modelRegistry: ModelRegistry;
   logger: Logger;
   cache?: SemanticCache;
+  defaultTokenProfileStore?: DefaultTokenProfileStore;
   userLLMKeyStore?: any; // Optional: UserLLMKeyStore from users/llm-keys (if BYOLLM enabled)
 }
 
@@ -180,8 +182,8 @@ export class DefaultRoutingEngine implements RoutingEngine {
     return selected;
   }
 
-  private getCacheScope(tokenConfig: TokenConfig): string {
-    return isDefaultToken(tokenConfig) ? 'global' : tokenConfig.id;
+  private getCacheScope(tokenConfig: TokenConfig, defaultTokenCacheScope = 'global'): string {
+    return isDefaultToken(tokenConfig) ? defaultTokenCacheScope : tokenConfig.id;
   }
 
   async route(
@@ -196,7 +198,10 @@ export class DefaultRoutingEngine implements RoutingEngine {
     // Get all available models from registry
     const availableModels = this.deps.modelRegistry.getAvailableModels();
     const availableModelIds = availableModels.map((m) => m.id);
-    const defaultEligibleModelIds = this.getDefaultEligibleModelIds(availableModels);
+    const tokenIsDefault = isDefaultToken(tokenConfig);
+    const defaultTokenProfile = tokenIsDefault && this.deps.defaultTokenProfileStore
+      ? await this.deps.defaultTokenProfileStore.resolveForModels(availableModels)
+      : null;
 
     // Warn if intent-based policy rules are configured (only once per token to avoid spam)
     const hasIntentBasedRules = tokenConfig.policy_rules?.some(
@@ -211,13 +216,13 @@ export class DefaultRoutingEngine implements RoutingEngine {
       });
     }
 
-    const effectiveTokenConfig: TokenConfig = isDefaultToken(tokenConfig)
+    const effectiveTokenConfig: TokenConfig = tokenIsDefault
       ? {
           ...tokenConfig,
           eligible_models: [...resolveEligibleModels(
             tokenConfig,
             availableModelIds,
-            defaultEligibleModelIds
+            defaultTokenProfile?.effective_model_ids ?? this.getDefaultEligibleModelIds(availableModels)
           )],
         }
       : tokenConfig;
@@ -335,7 +340,10 @@ export class DefaultRoutingEngine implements RoutingEngine {
     // Check cache AFTER policy evaluation, BEFORE router LLM invocation (REQUIREMENTS.md §8 step 8)
     // Cache is token-scoped with router model differentiation via attributes
     let routerModelUsed = effectiveRouter;
-    const cacheScope = this.getCacheScope(tokenConfig);
+    const cacheScope = this.getCacheScope(
+      tokenConfig,
+      defaultTokenProfile?.cache_scope ?? 'global'
+    );
     if (this.deps.cache) {
       const cachedResponse = await this.deps.cache.get(request.prompt, {
         scope: cacheScope,

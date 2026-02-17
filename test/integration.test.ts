@@ -263,6 +263,45 @@ describe('API Integration Tests', () => {
     });
   });
 
+  describe('Default Token Profile', () => {
+    it('should return default token profile', async () => {
+      const response = await request(app)
+        .get('/admin/default-token-profile')
+        .set('X-Admin-Api-Key', adminApiKey);
+
+      expect(response.status).toBe(200);
+      expect(response.body.profile).toBeDefined();
+      expect(response.body.profile.version).toBe(1);
+      expect(Array.isArray(response.body.profile.model_ids)).toBe(true);
+      expect(Array.isArray(response.body.effective_model_ids)).toBe(true);
+      expect(response.body.cache_scope).toBe('global:v1');
+    });
+
+    it('should update default token profile and bump version', async () => {
+      const modelsResponse = await request(app)
+        .get('/admin/models')
+        .set('X-Admin-Api-Key', adminApiKey);
+      const candidateModels = (modelsResponse.body.models as Array<{ id: string; available?: boolean; global_eligible?: boolean }>)
+        .filter((model) => model.available !== false && model.global_eligible !== false)
+        .slice(0, 2)
+        .map((model) => model.id);
+      expect(candidateModels.length).toBe(2);
+
+      const response = await request(app)
+        .put('/admin/default-token-profile')
+        .set('X-Admin-Api-Key', adminApiKey)
+        .send({
+          model_ids: candidateModels,
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.profile.version).toBe(2);
+      expect(response.body.profile.model_ids).toEqual(candidateModels);
+      expect(response.body.cache_scope).toBe('global:v2');
+      expect(response.body.cache_flush_recommended).toBe(true);
+    });
+  });
+
   describe('Token Metrics Integration', () => {
     it('should include metrics for admin token list', async () => {
       const createResponse = await request(app)
