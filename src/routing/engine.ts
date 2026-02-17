@@ -153,8 +153,32 @@ export interface RoutingEngineDependencies {
 
 export class DefaultRoutingEngine implements RoutingEngine {
   private warnedTokens = new Set<string>(); // Track tokens we've warned about intent-based rules
+  private defaultEligibleCache?: { signature: string; models: readonly string[] };
 
   constructor(private readonly deps: RoutingEngineDependencies) {}
+
+  private getDefaultEligibleModelIds(availableModels: Array<{
+    id: string;
+    provider: string;
+    cost_tier: 'low' | 'medium' | 'high';
+    speed_tier: 'fast' | 'medium' | 'slow';
+    updated_at?: string;
+  }>): readonly string[] {
+    const signature = availableModels
+      .map((model) => `${model.id}:${model.provider}:${model.cost_tier}:${model.speed_tier}:${model.updated_at ?? ''}`)
+      .join('|');
+
+    if (this.defaultEligibleCache?.signature === signature) {
+      return this.defaultEligibleCache.models;
+    }
+
+    const selected = selectDefaultEligibleModelIds(availableModels);
+    this.defaultEligibleCache = {
+      signature,
+      models: selected,
+    };
+    return selected;
+  }
 
   private getCacheScope(tokenConfig: TokenConfig): string {
     return isDefaultToken(tokenConfig) ? 'global' : tokenConfig.id;
@@ -172,7 +196,7 @@ export class DefaultRoutingEngine implements RoutingEngine {
     // Get all available models from registry
     const availableModels = this.deps.modelRegistry.getAvailableModels();
     const availableModelIds = availableModels.map((m) => m.id);
-    const defaultEligibleModelIds = selectDefaultEligibleModelIds(availableModels);
+    const defaultEligibleModelIds = this.getDefaultEligibleModelIds(availableModels);
 
     // Warn if intent-based policy rules are configured (only once per token to avoid spam)
     const hasIntentBasedRules = tokenConfig.policy_rules?.some(
