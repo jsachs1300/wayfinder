@@ -10,6 +10,7 @@ import type { TokenConfig } from '../../types/index';
 const DEFAULT_MODEL_METADATA_MAX_CHARS = 5000;
 const MODEL_METADATA_MAX_ITEMS = 25;
 const MODEL_METADATA_DESCRIPTION_MAX_CHARS = 240;
+const ROUTING_REASON_MAX_CHARS = 160;
 
 /**
  * Context for building the routing prompt
@@ -62,6 +63,7 @@ IMPORTANT RULES:
 - Ranks must be sequential integers: 1, 2, 3, ..., N
 - You MUST provide a confidence score (0-10 scale) for each model
 - You MUST provide a clear explanation for each ranking
+- Keep each reason to one concise sentence (max ${ROUTING_REASON_MAX_CHARS} characters)
 - DO NOT mention other model names in your reasons (e.g., don't say "not as good as X")
 - You MUST infer the user's intent (e.g., "coding", "creative writing", "data analysis")
 - Intent is advisory only - focus on ranking the models accurately
@@ -76,7 +78,7 @@ You MUST respond with valid JSON matching this exact schema:
       "rank": 1,
       "model": "model identifier from eligible models",
       "score": number between 0-10,
-      "reason": "explanation for this ranking (without mentioning other models)"
+      "reason": "single-sentence explanation <= ${ROUTING_REASON_MAX_CHARS} chars (without mentioning other models)"
     },
     {
       "rank": 2,

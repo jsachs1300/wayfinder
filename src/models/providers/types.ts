@@ -9,6 +9,8 @@ export interface ProviderSyncResult {
   provider: string;
   imported: number;
   total_fetched: number;
+  dropped?: number;
+  canonicalized?: number;
   error?: string;
 }
 
@@ -18,4 +20,3 @@ export interface ModelRegistrySyncSummary {
   imported_total: number;
   providers: ProviderSyncResult[];
 }
-

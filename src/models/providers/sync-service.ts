@@ -2,6 +2,7 @@ import type { Logger } from '../../logging/logger';
 import type { ModelRegistry } from '../registry';
 import type { ModelCatalogProvider, ModelRegistrySyncSummary, ProviderSyncResult } from './types';
 import { sanitizeSensitive } from './security';
+import { trimProviderCatalog } from './pruning';
 
 export class ModelRegistrySyncService {
   private syncInFlight?: Promise<ModelRegistrySyncSummary>;
@@ -39,8 +40,10 @@ export class ModelRegistrySyncService {
     const providerTasks = this.providers.map(async (provider): Promise<ProviderSyncResult> => {
       const providerName = provider.getProviderName();
       try {
-        const models = await provider.listModels();
-        for (const model of models) {
+        const fetchedModels = await provider.listModels();
+        const trimmed = trimProviderCatalog(providerName, fetchedModels);
+
+        for (const model of trimmed.models) {
           this.modelRegistry.registerModel({
             ...model,
             source: 'system_base',
@@ -50,8 +53,10 @@ export class ModelRegistrySyncService {
 
         const result: ProviderSyncResult = {
           provider: providerName,
-          imported: models.length,
-          total_fetched: models.length,
+          imported: trimmed.models.length,
+          total_fetched: fetchedModels.length,
+          dropped: trimmed.dropped,
+          canonicalized: trimmed.canonicalized,
         };
         this.logger.info('Model registry provider sync completed', { ...result });
         return result;

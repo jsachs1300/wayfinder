@@ -1483,6 +1483,7 @@ Use provider catalog sync to keep the system registry current. Sync can run at s
 |----------|-------------|---------|
 | `MODEL_REGISTRY_SYNC_ON_STARTUP` | Run provider sync on startup (`true`/`false`) | `true` (except `NODE_ENV=test`) |
 | `MODEL_REGISTRY_SYNC_TIMEOUT_MS` | Per-provider HTTP timeout for catalog fetch | `10000` |
+| `MODEL_REGISTRY_TRIM_VARIANTS` | Trim preview/media/dated catalog variants and canonicalize stable IDs | `true` |
 | `MODEL_REGISTRY_OPENAI_ENABLED` | Enable/disable OpenAI model catalog provider | auto-enabled when OpenAI catalog/router key is present; set `false` to disable |
 | `MODEL_REGISTRY_OPENAI_API_KEY` | OpenAI API key for catalog sync | falls back to `ROUTER_LLM_OPENAI_API_KEY` |
 | `MODEL_REGISTRY_OPENAI_BASE_URL` | OpenAI API base URL override | `https://api.openai.com/v1` |
@@ -1499,6 +1500,8 @@ Use provider catalog sync to keep the system registry current. Sync can run at s
 | `MODEL_REGISTRY_OLLAMA_ENABLED` | Enable Ollama local catalog provider | `false` |
 | `MODEL_REGISTRY_OLLAMA_BASE_URL` | Ollama API base URL | `http://localhost:11434` |
 | `MODEL_REGISTRY_OLLAMA_API_KEY` | Optional Bearer token for hosted Ollama | - |
+
+When `MODEL_REGISTRY_TRIM_VARIANTS=true`, provider sync removes preview/experimental/media variants (for example `*-preview-*`, `*-image`, `*-tts`) and normalizes `-latest` / dated suffixes to stable canonical IDs before importing into the registry.
 
 #### Redis & Storage
 

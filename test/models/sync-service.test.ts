@@ -1,10 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { createLogger } from '../../src/logging';
 import { createModelRegistry } from '../../src/models';
 import { ModelRegistrySyncService } from '../../src/models/providers/sync-service';
 import type { ModelCatalogProvider } from '../../src/models/providers/types';
 
 describe('ModelRegistrySyncService', () => {
+  afterEach(() => {
+    delete process.env.MODEL_REGISTRY_TRIM_VARIANTS;
+  });
+
   it('imports models from providers into system registry', async () => {
     const registry = createModelRegistry();
     const logger = createLogger('error');
@@ -131,5 +135,128 @@ describe('ModelRegistrySyncService', () => {
     const [first, second] = await Promise.all([syncService.syncAll(), syncService.syncAll()]);
     expect(first.completed_at).toBe(second.completed_at);
     expect(calls).toBe(1);
+  });
+
+  it('trims preview/media variants and canonicalizes latest/date suffixes', async () => {
+    const registry = createModelRegistry();
+    const logger = createLogger('error');
+
+    const provider: ModelCatalogProvider = {
+      getProviderName: () => 'gemini',
+      listModels: async () => [
+        {
+          id: 'gemini-2.5-flash',
+          provider: 'google',
+          cost_tier: 'medium',
+          speed_tier: 'fast',
+          context_window: 1000000,
+          available: true,
+          status: 'active',
+          global_eligible: true,
+          source: 'system_base',
+        },
+        {
+          id: 'gemini-2.5-flash-latest',
+          provider: 'google',
+          cost_tier: 'medium',
+          speed_tier: 'fast',
+          context_window: 1000000,
+          available: true,
+          status: 'active',
+          global_eligible: true,
+          source: 'system_base',
+        },
+        {
+          id: 'gemini-2.5-flash-preview-09-2025',
+          provider: 'google',
+          cost_tier: 'medium',
+          speed_tier: 'fast',
+          context_window: 1000000,
+          available: true,
+          status: 'active',
+          global_eligible: true,
+          source: 'system_base',
+        },
+        {
+          id: 'gemini-2.5-flash-lite',
+          provider: 'google',
+          cost_tier: 'low',
+          speed_tier: 'fast',
+          context_window: 1000000,
+          available: true,
+          status: 'active',
+          global_eligible: true,
+          source: 'system_base',
+        },
+        {
+          id: 'gemini-2.5-flash-image',
+          provider: 'google',
+          cost_tier: 'low',
+          speed_tier: 'fast',
+          context_window: 1000000,
+          available: true,
+          status: 'active',
+          global_eligible: true,
+          source: 'system_base',
+        },
+      ],
+    };
+
+    const syncService = new ModelRegistrySyncService(registry, logger, [provider]);
+    const summary = await syncService.syncAll();
+
+    const ids = registry.getAllModels().map((model) => model.id);
+    expect(ids).toContain('gemini-2.5-flash');
+    expect(ids).toContain('gemini-2.5-flash-lite');
+    expect(ids).not.toContain('gemini-2.5-flash-latest');
+    expect(ids).not.toContain('gemini-2.5-flash-preview-09-2025');
+    expect(ids).not.toContain('gemini-2.5-flash-image');
+    expect(summary.providers[0]?.total_fetched).toBe(5);
+    expect(summary.providers[0]?.imported).toBe(2);
+    expect(summary.providers[0]?.dropped).toBe(3);
+    expect(summary.providers[0]?.canonicalized).toBe(1);
+  });
+
+  it('can disable catalog trimming with MODEL_REGISTRY_TRIM_VARIANTS=false', async () => {
+    process.env.MODEL_REGISTRY_TRIM_VARIANTS = 'false';
+
+    const registry = createModelRegistry();
+    const logger = createLogger('error');
+
+    const provider: ModelCatalogProvider = {
+      getProviderName: () => 'gemini',
+      listModels: async () => [
+        {
+          id: 'gemini-2.5-flash',
+          provider: 'google',
+          cost_tier: 'medium',
+          speed_tier: 'fast',
+          context_window: 1000000,
+          available: true,
+          status: 'active',
+          global_eligible: true,
+          source: 'system_base',
+        },
+        {
+          id: 'gemini-2.5-flash-preview-09-2025',
+          provider: 'google',
+          cost_tier: 'medium',
+          speed_tier: 'fast',
+          context_window: 1000000,
+          available: true,
+          status: 'active',
+          global_eligible: true,
+          source: 'system_base',
+        },
+      ],
+    };
+
+    const syncService = new ModelRegistrySyncService(registry, logger, [provider]);
+    const summary = await syncService.syncAll();
+
+    expect(summary.providers[0]?.imported).toBe(2);
+    expect(summary.providers[0]?.dropped).toBe(0);
+    expect(registry.getModel('gemini-2.5-flash-preview-09-2025')).not.toBeNull();
+
   });
 });
