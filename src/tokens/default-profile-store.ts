@@ -149,11 +149,7 @@ class RedisDefaultTokenProfileStore implements DefaultTokenProfileStore {
     await this.redis.set(DEFAULT_TOKEN_PROFILE_KEY, JSON.stringify(profile));
   }
 
-  async getProfile(): Promise<DefaultTokenModelProfile | null> {
-    const raw = await this.redis.get(DEFAULT_TOKEN_PROFILE_KEY);
-    if (!raw) {
-      return null;
-    }
+  private parseProfileRaw(raw: string): DefaultTokenModelProfile | null {
     try {
       return parsePersistedProfile(raw);
     } catch (error) {
@@ -162,6 +158,54 @@ class RedisDefaultTokenProfileStore implements DefaultTokenProfileStore {
       });
       return null;
     }
+  }
+
+  private async ensureBootstrapProfile(
+    availableModels: readonly ModelInfo[]
+  ): Promise<DefaultTokenModelProfile> {
+    for (let attempt = 1; attempt <= DEFAULT_TOKEN_PROFILE_UPDATE_MAX_RETRIES; attempt += 1) {
+      await this.redis.watch(DEFAULT_TOKEN_PROFILE_KEY);
+      try {
+        const currentRaw = await this.redis.get(DEFAULT_TOKEN_PROFILE_KEY);
+        if (currentRaw) {
+          const existing = this.parseProfileRaw(currentRaw);
+          if (existing) {
+            return existing;
+          }
+          // Invalid persisted state is treated as missing and replaced atomically below.
+          this.logger?.warn('Replacing invalid persisted default token profile with bootstrap profile');
+        }
+
+        const bootstrap = buildBootstrapProfile(availableModels);
+        const tx = this.redis.multi();
+        tx.set(DEFAULT_TOKEN_PROFILE_KEY, JSON.stringify(bootstrap));
+        const execResult = await tx.exec();
+
+        if (execResult !== null) {
+          return bootstrap;
+        }
+
+        if (attempt < DEFAULT_TOKEN_PROFILE_UPDATE_MAX_RETRIES) {
+          this.logger?.warn('Default token profile bootstrap conflicted, retrying', {
+            attempt,
+            max_retries: DEFAULT_TOKEN_PROFILE_UPDATE_MAX_RETRIES,
+          });
+          continue;
+        }
+      } finally {
+        await this.redis.unwatch();
+      }
+    }
+
+    throw new Error('Failed to bootstrap default token profile due to concurrent updates');
+  }
+
+  async getProfile(): Promise<DefaultTokenModelProfile | null> {
+    const raw = await this.redis.get(DEFAULT_TOKEN_PROFILE_KEY);
+    if (!raw) {
+      return null;
+    }
+    return this.parseProfileRaw(raw);
   }
 
   recommendModelIds(availableModels: readonly ModelInfo[]): string[] {
@@ -209,12 +253,7 @@ class RedisDefaultTokenProfileStore implements DefaultTokenProfileStore {
   }
 
   async resolveForModels(availableModels: readonly ModelInfo[]): Promise<ResolvedDefaultTokenModelProfile> {
-    let profile = await this.getProfile();
-
-    if (!profile) {
-      profile = buildBootstrapProfile(availableModels);
-      await this.persistProfile(profile);
-    }
+    const profile = (await this.getProfile()) ?? (await this.ensureBootstrapProfile(availableModels));
 
     const resolved = resolveEffectiveModelIds(profile, availableModels);
     return {
