@@ -14,6 +14,7 @@ import type { RouterLLM } from '../src/routing/engine';
 import { createPolicyEngine } from '../src/policy';
 import { createModelRegistry } from '../src/models';
 import { selectDefaultEligibleModelIds } from '../src/tokens/utils';
+import type { DefaultTokenProfileStore } from '../src/tokens/default-profile-store';
 import type { TokenConfig, RouteRequest, RankedRouteDecision } from '../src/types';
 import type { MultiProviderResult } from '../src/routing/router-llm';
 import type { Logger } from '../src/logging/logger';
@@ -545,6 +546,67 @@ describe('Policy-Routing Integration', () => {
 
       expect(receivedModels).toEqual(expectedDefaultEligibleModels);
       expect(receivedModels).not.toContain('legacy-preview-model');
+    });
+
+    it('uses versioned global cache scope when default token profile store is configured', async () => {
+      const cache = {
+        get: vi.fn().mockResolvedValue(null),
+        set: vi.fn().mockResolvedValue(undefined),
+        getTTL: vi.fn().mockReturnValue(3600),
+      };
+
+      const profileStore: DefaultTokenProfileStore = {
+        getProfile: vi.fn().mockResolvedValue({
+          model_ids: ['gpt-4-turbo'],
+          version: 7,
+          updated_at: new Date().toISOString(),
+          updated_by: 'admin',
+        }),
+        resolveForModels: vi.fn().mockResolvedValue({
+          profile: {
+            model_ids: ['gpt-4-turbo'],
+            version: 7,
+            updated_at: new Date().toISOString(),
+            updated_by: 'admin',
+          },
+          effective_model_ids: ['gpt-4-turbo'],
+          missing_model_ids: [],
+          cache_scope: 'global:v7',
+        }),
+        setModelIds: vi.fn().mockRejectedValue(new Error('Not used in this test')),
+        recommendModelIds: vi.fn().mockReturnValue(['gpt-4-turbo']),
+      };
+
+      const testRouterLLM: RouterLLM = {
+        async invoke(_prompt: string, eligibleModels: string[]) {
+          const decision: RankedRouteDecision = {
+            intent: 'coding',
+            ranked_models: eligibleModels.map((model, idx) => ({
+              rank: idx + 1,
+              model,
+              score: Math.max(3, 8 - idx),
+              reason: idx === 0 ? 'Best for task' : 'Alternative',
+            })),
+          };
+          return buildMultiProviderResult(decision);
+        },
+      };
+
+      const engine = new DefaultRoutingEngine({
+        routerLLM: testRouterLLM,
+        policyEngine,
+        modelRegistry,
+        logger: mockLogger,
+        cache: cache as any,
+        defaultTokenProfileStore: profileStore,
+      });
+
+      await engine.route({ prompt: 'Write a function' }, createTokenConfig({ is_default: true }));
+
+      expect(cache.get).toHaveBeenCalledWith('Write a function', {
+        scope: 'global:v7',
+        router_model: 'consensus',
+      });
     });
   });
 

@@ -4,8 +4,15 @@ import helmet from 'helmet';
 import cors from 'cors';
 
 import { tokenAuthMiddleware, adminAuthMiddleware, requestIdMiddleware, userAuthMiddleware, hashToken } from './auth';
-import { createTokenStore, createAdminRoutes, createTokenMetricsStore, TokenStore } from './tokens';
+import {
+  createTokenStore,
+  createAdminRoutes,
+  createTokenMetricsStore,
+  createDefaultTokenProfileStore,
+  TokenStore,
+} from './tokens';
 import type { TokenMetricsStore } from './tokens/metrics';
+import type { DefaultTokenProfileStore } from './tokens/default-profile-store';
 import { createPolicyEngine, PolicyEngine } from './policy';
 import { createKnowledgeStore, KnowledgeStore } from './knowledge';
 import {
@@ -16,6 +23,7 @@ import {
   createUserModelRegistryRoutes,
   createModelCatalogProvidersFromEnv,
   ModelRegistrySyncService,
+  ModelValidationError,
 } from './models';
 import { createRoutingEngine, createRoutingRoutes, RoutingEngine, StubRouterLLM, MultiProviderRouterLLM } from './routing';
 import { createFeedbackHandler, createFeedbackRoutes, FeedbackHandler } from './feedback';
@@ -40,6 +48,7 @@ export interface AppDependencies {
   redis?: Redis;
   tokenStore: TokenStore;
   tokenMetricsStore?: TokenMetricsStore;
+  defaultTokenProfileStore?: DefaultTokenProfileStore;
   userStore?: UserStore;
   userLLMKeyStore?: UserLLMKeyStore;
   anonymousSessionStore?: AnonymousSessionStore;
@@ -222,6 +231,7 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
   }
   const tokenStore = deps?.tokenStore ?? createTokenStore(redis);
   const tokenMetricsStore = deps?.tokenMetricsStore ?? createTokenMetricsStore(redis);
+  const defaultTokenProfileStore = deps?.defaultTokenProfileStore ?? createDefaultTokenProfileStore(redis, logger);
 
   // Initialize user-related stores if user self-service feature is enabled
   let userStore: UserStore | undefined;
@@ -349,12 +359,15 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
       modelRegistry,
       logger,
       cache,
+      defaultTokenProfileStore,
       userLLMKeyStore, // Pass UserLLMKeyStore for BYOLLM support
     });
 
   const dependencies: AppDependencies = {
     redis,
     tokenStore,
+    tokenMetricsStore,
+    defaultTokenProfileStore,
     userStore,
     userLLMKeyStore,
     anonymousSessionStore,
@@ -418,7 +431,13 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
   const adminRouter = express.Router();
   adminRouter.use(rateLimiters.admin);
   adminRouter.use(adminAuthMiddleware(sessionStore, userStore));
-  adminRouter.use(createAdminRoutes(tokenStore, modelRegistry, tokenMetricsStore, cache));
+  adminRouter.use(createAdminRoutes(
+    tokenStore,
+    modelRegistry,
+    tokenMetricsStore,
+    cache,
+    defaultTokenProfileStore
+  ));
 
   // Knowledge stats endpoint (admin only)
   // Optional query params: ?scope=global|token&token_id=xxx
@@ -464,6 +483,99 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
       count: modelRegistry.getAllModels().length,
       default: modelRegistry.getDefaultModel(),
     });
+  });
+
+  adminRouter.get('/default-token-profile', async (_req: Request, res: Response): Promise<void> => {
+    try {
+      const availableModels = modelRegistry.getAvailableModels();
+      const resolved = await defaultTokenProfileStore.resolveForModels(availableModels);
+      res.json({
+        profile: resolved.profile,
+        effective_model_ids: resolved.effective_model_ids,
+        missing_model_ids: resolved.missing_model_ids,
+        cache_scope: resolved.cache_scope,
+        recommended_model_ids: defaultTokenProfileStore.recommendModelIds(availableModels),
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({
+        error: 'InternalError',
+        message: 'Failed to load default token profile',
+        details: { error: errorMessage },
+        timestamp: new Date().toISOString(),
+      });
+    }
+  });
+
+  adminRouter.put('/default-token-profile', async (req: Request, res: Response): Promise<void> => {
+    try {
+      const body = req.body as { model_ids?: unknown } | undefined;
+      if (!body || !Array.isArray(body.model_ids)) {
+        res.status(400).json({
+          error: 'ValidationError',
+          message: 'model_ids must be an array of model identifiers',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      const modelIds = body.model_ids
+        .filter((value): value is string => typeof value === 'string')
+        .map((modelId) => modelId.trim())
+        .filter((modelId) => modelId.length > 0);
+      if (modelIds.length === 0) {
+        res.status(400).json({
+          error: 'ValidationError',
+          message: 'model_ids must include at least one model identifier',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      const uniqueModelIds = [...new Set(modelIds)];
+      for (const modelId of uniqueModelIds) {
+        modelRegistry.assertModelExists(modelId, 'token_config');
+        modelRegistry.assertModelActive(modelId, 'token_config');
+        modelRegistry.assertModelGlobalEligible(modelId, 'token_config');
+      }
+
+      const updatedBy =
+        typeof req.user?.id === 'string' && req.user.id.length > 0
+          ? req.user.id
+          : 'admin';
+
+      const profile = await defaultTokenProfileStore.setModelIds(uniqueModelIds, updatedBy);
+      const resolved = await defaultTokenProfileStore.resolveForModels(modelRegistry.getAvailableModels());
+
+      res.status(200).json({
+        profile,
+        effective_model_ids: resolved.effective_model_ids,
+        missing_model_ids: resolved.missing_model_ids,
+        cache_scope: resolved.cache_scope,
+        cache_flush_recommended: true,
+        cache_flush_hint:
+          'Default-token cache scope advanced. Clear global cache if you want immediate cleanup of stale entries from previous profile versions.',
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      if (error instanceof ModelValidationError) {
+        res.status(400).json({
+          error: error.name,
+          message: error.message,
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({
+        error: 'InternalError',
+        message: 'Failed to update default token profile',
+        details: { error: errorMessage },
+        timestamp: new Date().toISOString(),
+      });
+    }
   });
 
   // Model registry management (admin only)
@@ -628,10 +740,23 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
         sessionStore,
         userAuthMiddleware(tokenStore, userStore, sessionStore),
         mailer,
-        tokenMetricsStore
+        tokenMetricsStore,
+        defaultTokenProfileStore
       ));
       if (sessionStore) {
-        app.use('/api/sessions', rateLimiters.auth, createSessionRoutes(sessionStore, userStore, tokenStore, modelRegistry, logger, tokenMetricsStore));
+        app.use(
+          '/api/sessions',
+          rateLimiters.auth,
+          createSessionRoutes(
+            sessionStore,
+            userStore,
+            tokenStore,
+            modelRegistry,
+            logger,
+            tokenMetricsStore,
+            defaultTokenProfileStore
+          )
+        );
       } else {
         logger.warn('Session routes not mounted because Redis is unavailable');
       }
@@ -640,7 +765,14 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
       // Protected routes (require user auth)
       app.use('/api/tokens',
         userAuthMiddleware(tokenStore, userStore, sessionStore),
-        createUserTokenRoutes(tokenStore, modelRegistry, logger, tokenMetricsStore, cache)
+        createUserTokenRoutes(
+          tokenStore,
+          modelRegistry,
+          logger,
+          tokenMetricsStore,
+          cache,
+          defaultTokenProfileStore
+        )
       );
 
       app.use('/api/llm-keys',

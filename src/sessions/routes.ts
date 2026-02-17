@@ -12,6 +12,7 @@ import type { SessionStore } from './store';
 import type { UserStore } from '../users/store';
 import type { TokenStore } from '../tokens/store';
 import type { TokenMetricsStore } from '../tokens/metrics';
+import type { DefaultTokenProfileStore } from '../tokens/default-profile-store';
 import type { ModelRegistry } from '../models';
 import { verifyPassword, DUMMY_PASSWORD_HASH } from '../users/password';
 import { sanitizeUser } from '../users/sanitize';
@@ -49,9 +50,20 @@ export function createSessionRoutes(
   tokenStore: TokenStore,
   modelRegistry: ModelRegistry,
   logger: Logger,
-  metricsStore?: TokenMetricsStore
+  metricsStore?: TokenMetricsStore,
+  defaultTokenProfileStore?: DefaultTokenProfileStore
 ): Router {
   const router = Router();
+
+  const resolveDefaultEligibleModelIds = async (
+    availableModels: ReturnType<ModelRegistry['getAvailableModels']>
+  ): Promise<readonly string[]> => {
+    if (!defaultTokenProfileStore) {
+      return selectDefaultEligibleModelIds(availableModels);
+    }
+    const resolved = await defaultTokenProfileStore.resolveForModels(availableModels);
+    return resolved.effective_model_ids;
+  };
 
   router.post('/login', async (req: Request, res: Response): Promise<void> => {
     try {
@@ -112,7 +124,7 @@ export function createSessionRoutes(
       const tokens = await tokenStore.listByUser(user.id);
       const availableModels = modelRegistry.getAvailableModels();
       const allModelIds = availableModels.map((model) => model.id);
-      const defaultEligibleModelIds = selectDefaultEligibleModelIds(availableModels);
+      const defaultEligibleModelIds = await resolveDefaultEligibleModelIds(availableModels);
       const metrics = metricsStore
         ? await metricsStore.getMetricsBulk(tokens.map((t) => t.id))
         : {};
@@ -199,7 +211,7 @@ export function createSessionRoutes(
       const tokens = await tokenStore.listByUser(user.id);
       const availableModels = modelRegistry.getAvailableModels();
       const allModelIds = availableModels.map((model) => model.id);
-      const defaultEligibleModelIds = selectDefaultEligibleModelIds(availableModels);
+      const defaultEligibleModelIds = await resolveDefaultEligibleModelIds(availableModels);
       const metrics = metricsStore
         ? await metricsStore.getMetricsBulk(tokens.map((t) => t.id))
         : {};

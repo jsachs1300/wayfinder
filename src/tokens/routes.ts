@@ -8,6 +8,7 @@ import {
   type RouterModelPreference,
 } from '../types';
 import { ModelRegistry, ModelValidationError } from '../models';
+import type { DefaultTokenProfileStore } from './default-profile-store';
 import { isDefaultToken, resolveEligibleModels, selectDefaultEligibleModelIds } from './utils';
 import { z } from 'zod';
 
@@ -48,9 +49,20 @@ export function createAdminRoutes(
   tokenStore: TokenStore,
   modelRegistry: ModelRegistry,
   metricsStore?: TokenMetricsStore,
-  cache?: { clearByScope: (tokenId: string) => Promise<void> }
+  cache?: { clearByScope: (tokenId: string) => Promise<void> },
+  defaultTokenProfileStore?: DefaultTokenProfileStore
 ): Router {
   const router = Router();
+
+  const resolveDefaultEligibleModelIds = async (
+    availableModels: ReturnType<ModelRegistry['getAvailableModels']>
+  ): Promise<readonly string[]> => {
+    if (!defaultTokenProfileStore) {
+      return selectDefaultEligibleModelIds(availableModels);
+    }
+    const resolved = await defaultTokenProfileStore.resolveForModels(availableModels);
+    return resolved.effective_model_ids;
+  };
 
   // Create a new token
   router.post('/tokens', async (req: Request, res: Response): Promise<void> => {
@@ -125,7 +137,7 @@ export function createAdminRoutes(
 
       const availableModels = modelRegistry.getAvailableModels();
       const availableModelIds = availableModels.map((model) => model.id);
-      const defaultEligibleModelIds = selectDefaultEligibleModelIds(availableModels);
+      const defaultEligibleModelIds = await resolveDefaultEligibleModelIds(availableModels);
       const metrics = metricsStore
         ? await metricsStore.getMetrics(config.id)
         : { route_requests: 0, cache_hits: 0, throttled_requests: 0 };
@@ -263,7 +275,7 @@ export function createAdminRoutes(
       const tokens = await tokenStore.list();
       const availableModels = modelRegistry.getAvailableModels();
       const availableModelIds = availableModels.map((model) => model.id);
-      const defaultEligibleModelIds = selectDefaultEligibleModelIds(availableModels);
+      const defaultEligibleModelIds = await resolveDefaultEligibleModelIds(availableModels);
       const metrics = metricsStore
         ? await metricsStore.getMetricsBulk(tokens.map((t) => t.id))
         : {};

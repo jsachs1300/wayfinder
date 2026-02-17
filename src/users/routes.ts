@@ -18,6 +18,7 @@ import { verifyPassword, DUMMY_PASSWORD_HASH } from './password';
 import type { Logger } from '../logging/logger';
 import { sanitizeUser } from './sanitize';
 import { sanitizeToken } from '../tokens/sanitize';
+import type { DefaultTokenProfileStore } from '../tokens/default-profile-store';
 import { resolveEligibleModels, selectDefaultEligibleModelIds } from '../tokens/utils';
 import type { UserVerificationStore } from './verification-store';
 import type { Mailer } from '../email';
@@ -101,9 +102,20 @@ export function createUserRoutes(
   sessionStore?: { deleteAllByUserId: (userId: string) => Promise<void> },
   userAuth?: (req: Request, res: Response, next: () => void) => void,
   mailer?: Mailer,
-  metricsStore?: TokenMetricsStore
+  metricsStore?: TokenMetricsStore,
+  defaultTokenProfileStore?: DefaultTokenProfileStore
 ): Router {
   const router = Router();
+
+  const resolveDefaultEligibleModelIds = async (
+    availableModels: ReturnType<ModelRegistry['getAvailableModels']>
+  ): Promise<readonly string[]> => {
+    if (!defaultTokenProfileStore) {
+      return selectDefaultEligibleModelIds(availableModels);
+    }
+    const resolved = await defaultTokenProfileStore.resolveForModels(availableModels);
+    return resolved.effective_model_ids;
+  };
 
   /**
    * POST /api/users/register
@@ -325,7 +337,7 @@ export function createUserRoutes(
       const tokens = await tokenStore.listByUser(user.id);
       const availableModels = modelRegistry.getAvailableModels();
       const allModelIds = availableModels.map((model) => model.id);
-      const defaultEligibleModelIds = selectDefaultEligibleModelIds(availableModels);
+      const defaultEligibleModelIds = await resolveDefaultEligibleModelIds(availableModels);
       const metrics = metricsStore
         ? await metricsStore.getMetricsBulk(tokens.map((t) => t.id))
         : {};
@@ -529,7 +541,7 @@ export function createUserRoutes(
         eligible_models: [...resolveEligibleModels(
           tokenResult.config,
           modelRegistry.getAvailableModels().map((model) => model.id),
-          selectDefaultEligibleModelIds(modelRegistry.getAvailableModels())
+          await resolveDefaultEligibleModelIds(modelRegistry.getAvailableModels())
         )],
       });
       recordTokenCreated();

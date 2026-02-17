@@ -36,7 +36,7 @@ export function isDefaultToken(config: DefaultTokenLike): boolean {
 /**
  * Resolve effective eligible models for a token.
  *
- * Default tokens are always dynamic and use the current available registry models,
+ * Default tokens are dynamic and use the provided defaultEligibleModelIds set,
  * ignoring persisted eligible_models for backward compatibility with older records.
  */
 export function resolveEligibleModels(
