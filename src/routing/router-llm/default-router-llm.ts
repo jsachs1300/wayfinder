@@ -154,6 +154,7 @@ export class DefaultRouterLLM implements RouterLLM {
           latencyMs,
           inputTokens: response.metadata.inputTokens,
           outputTokens: response.metadata.outputTokens,
+          finishReason: response.metadata.finishReason,
         });
 
         // Parse response as JSON
@@ -186,6 +187,7 @@ export class DefaultRouterLLM implements RouterLLM {
             model: response.metadata.model,
             outputTokens: response.metadata.outputTokens,
             inputTokens: response.metadata.inputTokens,
+            finishReason: response.metadata.finishReason,
             dumpPath,
           });
 
