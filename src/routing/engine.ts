@@ -198,12 +198,10 @@ export class DefaultRoutingEngine implements RoutingEngine {
     // Get all available models from registry
     const availableModels = this.deps.modelRegistry.getAvailableModels();
     const availableModelIds = availableModels.map((m) => m.id);
-    const defaultTokenProfile = this.deps.defaultTokenProfileStore
+    const tokenIsDefault = isDefaultToken(tokenConfig);
+    const defaultTokenProfile = tokenIsDefault && this.deps.defaultTokenProfileStore
       ? await this.deps.defaultTokenProfileStore.resolveForModels(availableModels)
       : null;
-    const defaultEligibleModelIds =
-      defaultTokenProfile?.effective_model_ids ??
-      this.getDefaultEligibleModelIds(availableModels);
 
     // Warn if intent-based policy rules are configured (only once per token to avoid spam)
     const hasIntentBasedRules = tokenConfig.policy_rules?.some(
@@ -218,13 +216,13 @@ export class DefaultRoutingEngine implements RoutingEngine {
       });
     }
 
-    const effectiveTokenConfig: TokenConfig = isDefaultToken(tokenConfig)
+    const effectiveTokenConfig: TokenConfig = tokenIsDefault
       ? {
           ...tokenConfig,
           eligible_models: [...resolveEligibleModels(
             tokenConfig,
             availableModelIds,
-            defaultEligibleModelIds
+            defaultTokenProfile?.effective_model_ids ?? this.getDefaultEligibleModelIds(availableModels)
           )],
         }
       : tokenConfig;
