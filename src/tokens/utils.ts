@@ -8,8 +8,8 @@ export interface DefaultTokenLike {
 export interface DefaultEligibleModelCandidate {
   id: string;
   provider: string;
-  cost_tier?: 'low' | 'medium' | 'high';
-  speed_tier?: 'fast' | 'medium' | 'slow';
+  cost_tier: 'low' | 'medium' | 'high';
+  speed_tier: 'fast' | 'medium' | 'slow';
 }
 
 /**

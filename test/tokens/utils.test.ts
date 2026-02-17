@@ -71,14 +71,14 @@ describe('token utils', () => {
       expect(selected).toEqual(['aaa']);
     });
 
-    it('handles missing cost_tier/speed_tier fields', () => {
+    it('uses cost/speed tiers to break ties when naming signals are similar', () => {
       const models: DefaultEligibleModelCandidate[] = [
-        { id: 'model-basic', provider: 'test' },
-        { id: 'model-mini', provider: 'test' },
+        { id: 'model-alpha-mini', provider: 'test', cost_tier: 'high', speed_tier: 'slow' },
+        { id: 'model-beta-mini', provider: 'test', cost_tier: 'low', speed_tier: 'fast' },
       ];
 
       const selected = selectDefaultEligibleModelIds(models);
-      expect(selected).toEqual(['model-mini']);
+      expect(selected).toEqual(['model-beta-mini']);
     });
   });
 
