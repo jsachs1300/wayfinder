@@ -13,6 +13,7 @@ import { DefaultRoutingEngine } from '../src/routing/engine';
 import type { RouterLLM } from '../src/routing/engine';
 import { createPolicyEngine } from '../src/policy';
 import { createModelRegistry } from '../src/models';
+import { selectDefaultEligibleModelIds } from '../src/tokens/utils';
 import type { TokenConfig, RouteRequest, RankedRouteDecision } from '../src/types';
 import type { MultiProviderResult } from '../src/routing/router-llm';
 import type { Logger } from '../src/logging/logger';
@@ -507,7 +508,7 @@ describe('Policy-Routing Integration', () => {
       });
     });
 
-    it('ignores persisted eligible_models for default tokens and uses current available registry models', async () => {
+    it('ignores persisted eligible_models for default tokens and uses compact provider-diverse model set', async () => {
       let receivedModels: string[] = [];
 
       const testRouterLLM: RouterLLM = {
@@ -533,7 +534,8 @@ describe('Policy-Routing Integration', () => {
         logger: mockLogger,
       });
 
-      const availableModelIds = modelRegistry.getAvailableModels().map((model) => model.id);
+      const availableModels = modelRegistry.getAvailableModels();
+      const expectedDefaultEligibleModels = selectDefaultEligibleModelIds(availableModels);
       const tokenConfig = createTokenConfig({
         is_default: true,
         eligible_models: ['legacy-preview-model', 'legacy-removed-model'],
@@ -541,7 +543,7 @@ describe('Policy-Routing Integration', () => {
 
       await engine.route({ prompt: 'Write a function' }, tokenConfig);
 
-      expect(receivedModels).toEqual(availableModelIds);
+      expect(receivedModels).toEqual(expectedDefaultEligibleModels);
       expect(receivedModels).not.toContain('legacy-preview-model');
     });
   });

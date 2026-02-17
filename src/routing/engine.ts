@@ -19,7 +19,7 @@ import type { Logger } from '../logging/logger';
 import type { SemanticCache } from '../cache';
 import { hashPrompt } from '../cache';
 import type { MultiProviderResult } from './router-llm';
-import { isDefaultToken, resolveEligibleModels } from '../tokens/utils';
+import { isDefaultToken, resolveEligibleModels, selectDefaultEligibleModelIds } from '../tokens/utils';
 import { recordCacheHit, recordCacheMiss } from '../observability/metrics';
 
 /**
@@ -172,6 +172,7 @@ export class DefaultRoutingEngine implements RoutingEngine {
     // Get all available models from registry
     const availableModels = this.deps.modelRegistry.getAvailableModels();
     const availableModelIds = availableModels.map((m) => m.id);
+    const defaultEligibleModelIds = selectDefaultEligibleModelIds(availableModels);
 
     // Warn if intent-based policy rules are configured (only once per token to avoid spam)
     const hasIntentBasedRules = tokenConfig.policy_rules?.some(
@@ -189,7 +190,11 @@ export class DefaultRoutingEngine implements RoutingEngine {
     const effectiveTokenConfig: TokenConfig = isDefaultToken(tokenConfig)
       ? {
           ...tokenConfig,
-          eligible_models: [...resolveEligibleModels(tokenConfig, availableModelIds)],
+          eligible_models: [...resolveEligibleModels(
+            tokenConfig,
+            availableModelIds,
+            defaultEligibleModelIds
+          )],
         }
       : tokenConfig;
 

@@ -6,9 +6,17 @@ const EMPTY_ELIGIBLE_MODELS: readonly string[] = [];
 /**
  * Sanitize token for API response (remove token_hash and sensitive fields).
  */
-export function sanitizeToken(token: TokenConfigExtended, allModelIds?: readonly string[]) {
+export function sanitizeToken(
+  token: TokenConfigExtended,
+  allModelIds?: readonly string[],
+  defaultEligibleModelIds?: readonly string[]
+) {
   const availableModelIds = allModelIds ?? EMPTY_ELIGIBLE_MODELS;
-  const fallbackEligibleModels = resolveEligibleModels(token, availableModelIds);
+  const fallbackEligibleModels = resolveEligibleModels(
+    token,
+    availableModelIds,
+    defaultEligibleModelIds ?? availableModelIds
+  );
   return {
     id: token.id,
     name: token.name || null,

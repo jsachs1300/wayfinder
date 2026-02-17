@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { ModelInfo } from '../../src/types';
 import { createPersistentModelRegistry } from '../../src/models/registry';
 
@@ -17,6 +17,11 @@ class FakeRedis {
     this.store.set(key, value);
     return 'OK';
   }
+
+  async del(key: string): Promise<number> {
+    const existed = this.store.delete(key);
+    return existed ? 1 : 0;
+  }
 }
 
 const BASE_MODELS: ModelInfo[] = [
@@ -33,6 +38,16 @@ const BASE_MODELS: ModelInfo[] = [
 ];
 
 describe('Model Registry Redis Persistence', () => {
+  const originalGenerateNewRegistry = process.env.GENERATE_NEW_REGISTRY;
+
+  afterEach(() => {
+    if (originalGenerateNewRegistry === undefined) {
+      delete process.env.GENERATE_NEW_REGISTRY;
+    } else {
+      process.env.GENERATE_NEW_REGISTRY = originalGenerateNewRegistry;
+    }
+  });
+
   it('persists mutable registry layers and reloads them on startup', async () => {
     const redis = new FakeRedis() as any;
     const registry = await createPersistentModelRegistry(redis, undefined, BASE_MODELS);
@@ -77,5 +92,18 @@ describe('Model Registry Redis Persistence', () => {
 
     const loaded = await createPersistentModelRegistry(redis, undefined, BASE_MODELS);
     expect(loaded.getModel('base-model')?.description).toBe('v2');
+  });
+
+  it('drops persisted state when GENERATE_NEW_REGISTRY=true', async () => {
+    const redis = new FakeRedis() as any;
+
+    const registry = await createPersistentModelRegistry(redis, undefined, BASE_MODELS);
+    registry.setSystemCuratedOverride('base-model', { description: 'persist-me' });
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    process.env.GENERATE_NEW_REGISTRY = 'true';
+    const fresh = await createPersistentModelRegistry(redis, undefined, BASE_MODELS);
+
+    expect(fresh.getModel('base-model')?.description).not.toBe('persist-me');
   });
 });

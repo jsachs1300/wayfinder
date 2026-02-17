@@ -18,7 +18,7 @@ import { verifyPassword, DUMMY_PASSWORD_HASH } from './password';
 import type { Logger } from '../logging/logger';
 import { sanitizeUser } from './sanitize';
 import { sanitizeToken } from '../tokens/sanitize';
-import { resolveEligibleModels } from '../tokens/utils';
+import { resolveEligibleModels, selectDefaultEligibleModelIds } from '../tokens/utils';
 import type { UserVerificationStore } from './verification-store';
 import type { Mailer } from '../email';
 
@@ -323,7 +323,9 @@ export function createUserRoutes(
 
       // Get user's tokens
       const tokens = await tokenStore.listByUser(user.id);
-      const allModelIds = modelRegistry.getAvailableModels().map((model) => model.id);
+      const availableModels = modelRegistry.getAvailableModels();
+      const allModelIds = availableModels.map((model) => model.id);
+      const defaultEligibleModelIds = selectDefaultEligibleModelIds(availableModels);
       const metrics = metricsStore
         ? await metricsStore.getMetricsBulk(tokens.map((t) => t.id))
         : {};
@@ -339,7 +341,7 @@ export function createUserRoutes(
       res.status(200).json({
         user: sanitizeUser(user),
         tokens: tokens.map((token) => ({
-          ...sanitizeToken(token, allModelIds),
+          ...sanitizeToken(token, allModelIds, defaultEligibleModelIds),
           metrics: metrics[token.id] ?? { route_requests: 0, cache_hits: 0, throttled_requests: 0 },
         })),
       });
@@ -526,7 +528,8 @@ export function createUserRoutes(
         user_id: updated.id,
         eligible_models: [...resolveEligibleModels(
           tokenResult.config,
-          modelRegistry.getAvailableModels().map((model) => model.id)
+          modelRegistry.getAvailableModels().map((model) => model.id),
+          selectDefaultEligibleModelIds(modelRegistry.getAvailableModels())
         )],
       });
       recordTokenCreated();
