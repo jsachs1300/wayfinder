@@ -145,10 +145,6 @@ class InMemoryDefaultTokenProfileStore implements DefaultTokenProfileStore {
 class RedisDefaultTokenProfileStore implements DefaultTokenProfileStore {
   constructor(private readonly redis: Redis, private readonly logger?: Logger) {}
 
-  private async persistProfile(profile: DefaultTokenModelProfile): Promise<void> {
-    await this.redis.set(DEFAULT_TOKEN_PROFILE_KEY, JSON.stringify(profile));
-  }
-
   private parseProfileRaw(raw: string): DefaultTokenModelProfile | null {
     try {
       return parsePersistedProfile(raw);
