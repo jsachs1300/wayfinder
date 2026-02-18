@@ -82,6 +82,29 @@ describe('API Integration Tests', () => {
     });
   });
 
+  describe('Public LLM Spec Endpoint', () => {
+    it('should return integration spec without authentication', async () => {
+      const response = await request(app).get('/llm-spec');
+
+      expect(response.status).toBe(200);
+      expect(response.body.name).toBe('Wayfinder LLM Integration Spec');
+      expect(response.body.auth_headers).toBeDefined();
+      expect(Array.isArray(response.body.core_endpoints)).toBe(true);
+      expect(response.body.core_endpoints.some((e: { path: string }) => e.path === '/route')).toBe(true);
+      expect(response.body.admin_endpoints.some((e: { path: string }) => e.path === '/admin/default-token-profile')).toBe(true);
+      expect(response.body.integration_patterns.length).toBeGreaterThan(0);
+    });
+
+    it('should return plain text LLM spec', async () => {
+      const response = await request(app).get('/llms.txt');
+
+      expect(response.status).toBe(200);
+      expect(response.text).toContain('Wayfinder LLM Integration Spec');
+      expect(response.text).toContain('POST /route');
+      expect(response.text).toContain('PUT /admin/default-token-profile');
+    });
+  });
+
   describe('Admin Token Management', () => {
     it('should create a new token', async () => {
       const response = await request(app)
