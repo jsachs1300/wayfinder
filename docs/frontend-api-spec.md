@@ -36,6 +36,40 @@ Response (200):
 }
 ```
 
+### GET /llm-spec
+No auth required.
+
+Purpose:
+- Machine-readable integration guide for LLM app builders.
+- Includes auth headers, core/admin endpoint summaries, routing contract, and recommended implementation patterns.
+
+Response (200):
+```json
+{
+  "name": "Wayfinder LLM Integration Spec",
+  "version": "1.0",
+  "auth_headers": [
+    { "header": "X-Wayfinder-Token", "used_for": ["/route", "/feedback"] }
+  ],
+  "core_endpoints": [
+    { "method": "POST", "path": "/route", "auth": "token", "purpose": "Get model routing decision for a prompt" }
+  ],
+  "admin_endpoints": [
+    { "method": "PUT", "path": "/admin/default-token-profile", "auth": "admin", "purpose": "Update default-token model set" }
+  ],
+  "integration_patterns": [
+    { "name": "Chat Orchestrator", "why": "...", "implementation": ["..."] }
+  ]
+}
+```
+
+### GET /llms.txt
+No auth required.
+
+Purpose:
+- Plain-text/LLM-friendly rendering of the same `/llm-spec` content.
+- Best URL to hand directly to a coding assistant for integration guidance.
+
 ---
 
 ## User Registration & Login
@@ -133,6 +167,7 @@ Authenticate a user and create a session.
 }
 ```
 Note: this fails with `403` until the email is verified.
+Default-token note: any default token returned here has `eligible_models` resolved from the current system default-token profile.
 
 ### POST /api/sessions/validate
 Headers: `X-Session-Token`
@@ -151,6 +186,7 @@ Response (200):
   ]
 }
 ```
+Default-token note: any default token returned here has `eligible_models` resolved from the current system default-token profile.
 
 ### POST /api/sessions/logout
 Headers: `X-Session-Token`
@@ -245,6 +281,10 @@ Response (200):
   "count": 1
 }
 ```
+Notes:
+- `eligible_models` is always returned.
+- For **default tokens**, `eligible_models` is resolved from the system default-token profile (admin-managed), not from token-local config.
+- For non-default tokens, `eligible_models` reflects the token configuration.
 
 ### POST /api/tokens
 Headers: `X-Session-Token`
@@ -255,6 +295,7 @@ Request:
 Validation note:
 - `eligible_models` is validated against the effective model registry.
 - If omitted/empty, backend defaults to all available registry models.
+- This endpoint creates non-default tokens. The system default token model list is controlled separately by admin via `/admin/default-token-profile`.
 - On invalid model IDs, API returns `400` with `error` like `InvalidModelError` and a detailed `message`.
 
 ### DELETE /api/tokens/:id
@@ -305,6 +346,9 @@ Request:
 
 ### GET /admin/tokens
 Headers: `X-Admin-Api-Key`
+Notes:
+- Includes `eligible_models` for every token.
+- For default tokens, `eligible_models` is resolved from the current default-token profile.
 
 ### POST /admin/tokens
 Headers: `X-Admin-Api-Key`
@@ -315,6 +359,8 @@ Request:
 
 ### GET /admin/tokens/:id
 Headers: `X-Admin-Api-Key`
+Note:
+- For default tokens, `eligible_models` is resolved from the current default-token profile.
 
 ### PATCH /admin/tokens/:id
 Headers: `X-Admin-Api-Key`
@@ -454,15 +500,69 @@ Headers: `X-Admin-Api-Key` (or elevated `X-Session-Token`)
 ```json
 { "models": [ { "id": "...", "provider": "..." } ], "count": 42, "default": "gpt-4o-mini" }
 ```
+Use this as the canonical admin view for all registry models and metadata.
 
 #### POST /admin/registry
 Create system curated override (`id` required).
+This creates or updates a system-level model entry/override.
+
+Request:
+```json
+{
+  "id": "gpt-4o-mini",
+  "display_name": "GPT-4o mini",
+  "description": "Fast and low-cost default candidate",
+  "cost_tier": "low",
+  "speed_tier": "fast",
+  "context_window": 128000,
+  "available": true,
+  "status": "active",
+  "global_eligible": true
+}
+```
+Response (201):
+```json
+{
+  "model": {
+    "id": "gpt-4o-mini",
+    "provider": "openai",
+    "cost_tier": "low",
+    "speed_tier": "fast",
+    "context_window": 128000,
+    "available": true,
+    "status": "active",
+    "global_eligible": true
+  },
+  "timestamp": "..."
+}
+```
 
 #### PATCH /admin/registry/:id
 Patch system curated override.
+Use for partial metadata updates.
+
+Request:
+```json
+{
+  "description": "Updated copy for admin catalog UI",
+  "speed_tier": "medium"
+}
+```
+Response (200):
+```json
+{
+  "model": {
+    "id": "gpt-4o-mini",
+    "description": "Updated copy for admin catalog UI",
+    "speed_tier": "medium"
+  },
+  "timestamp": "..."
+}
+```
 
 #### DELETE /admin/registry/:id
 Response: `204 No Content`
+Removes the system curated override entry.
 
 #### POST /admin/registry/refresh
 Triggers provider catalog sync and import into system registry.
@@ -481,6 +581,77 @@ Success (200):
   "timestamp": "..."
 }
 ```
+
+### Admin Default Token Eligible Models (`/admin/default-token-profile`)
+Headers: `X-Admin-Api-Key` (or elevated `X-Session-Token`)
+
+This is the system-wide source of truth for default-token `eligible_models`.
+All default tokens resolve from this profile.
+
+#### GET /admin/default-token-profile
+Response (200):
+```json
+{
+  "profile": {
+    "model_ids": ["gpt-4o-mini", "gemini-2.5-flash"],
+    "version": 3,
+    "updated_at": "...",
+    "updated_by": "..."
+  },
+  "effective_model_ids": ["gpt-4o-mini", "gemini-2.5-flash"],
+  "missing_model_ids": [],
+  "cache_scope": "global:v3",
+  "recommended_model_ids": ["gpt-4o-mini", "gemini-2.5-flash"],
+  "timestamp": "..."
+}
+```
+Field meanings:
+- `profile.model_ids`: configured target list.
+- `effective_model_ids`: usable list after filtering against currently available models.
+- `missing_model_ids`: configured IDs not currently available.
+- `cache_scope`: versioned default-token cache scope used by routing.
+- `recommended_model_ids`: backend recommendation (compact provider-diverse defaults).
+
+#### PUT /admin/default-token-profile
+Request:
+```json
+{
+  "model_ids": ["gpt-4o-mini", "gemini-2.5-flash"]
+}
+```
+Validation:
+- model must exist
+- model must be active
+- model must be `global_eligible`
+
+Response (200):
+```json
+{
+  "profile": {
+    "model_ids": ["gpt-4o-mini", "gemini-2.5-flash"],
+    "version": 4,
+    "updated_at": "...",
+    "updated_by": "..."
+  },
+  "effective_model_ids": ["gpt-4o-mini", "gemini-2.5-flash"],
+  "missing_model_ids": [],
+  "cache_scope": "global:v4",
+  "cache_flush_recommended": true,
+  "cache_flush_hint": "Default-token cache scope advanced. Clear global cache if you want immediate cleanup of stale entries from previous profile versions.",
+  "timestamp": "..."
+}
+```
+Notes:
+- Updating this profile changes default-token model selection globally.
+- Backend recommends (but does not force) cache clear after profile changes.
+- This is the admin control the frontend should use to manage default-token `eligible_models`.
+
+Suggested admin UX sequence:
+1. Load `GET /admin/default-token-profile`.
+2. Load candidate models from `GET /admin/registry` (or `GET /admin/models`).
+3. Show current `profile.model_ids`, `effective_model_ids`, and `missing_model_ids`.
+4. Save updates with `PUT /admin/default-token-profile`.
+5. Surface `cache_scope`, `cache_flush_recommended`, and `cache_flush_hint` after save.
 
 No providers configured (503):
 ```json
@@ -504,9 +675,16 @@ Recommended flow:
 4. Show immediate valid/invalid state and suggestions (by id/display_name/provider).
 5. Submit with `POST /api/tokens`; treat backend validation as final authority.
 
+Admin UI (default-token profile editor):
+1. Load `GET /admin/default-token-profile` for current configured/effective IDs.
+2. Load registry source via `GET /admin/registry` (or `GET /admin/models`) for model pickers and metadata.
+3. Validate selected IDs client-side before submit.
+4. Save with `PUT /admin/default-token-profile`.
+5. Show returned `cache_scope`, `cache_flush_recommended`, and `cache_flush_hint`.
+
 Important:
 - There is currently no separate `POST /api/registry/validate` endpoint.
-- For legacy tokens, `GET /api/tokens` may omit `eligible_models`; frontend should interpret missing as "all effective registry models".
+- `GET /api/tokens` and session token payloads include `eligible_models`; default-token values come from `/admin/default-token-profile`.
 
 ---
 
