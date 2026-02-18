@@ -430,13 +430,16 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
 
   // Public LLM integration spec endpoint (no auth)
   app.get('/llm-spec', (_req: Request, res: Response) => {
+    res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=300');
     res.json(buildLLMIntegrationSpec(FEATURE_FLAGS.USER_SELF_SERVICE));
   });
 
   // Plain text alias for direct LLM consumption (no auth)
   app.get('/llms.txt', (_req: Request, res: Response) => {
     const spec = buildLLMIntegrationSpec(FEATURE_FLAGS.USER_SELF_SERVICE);
-    res.type('text/plain').send(renderLLMSpecText(spec));
+    res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=300');
+    res.set('Content-Type', 'text/plain; charset=utf-8');
+    res.send(renderLLMSpecText(spec));
   });
 
   // Admin routes (require admin auth + rate limiting)

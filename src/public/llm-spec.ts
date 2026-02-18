@@ -28,7 +28,7 @@ export interface LLMIntegrationSpec {
   };
   routing_contract: {
     request: {
-      prompt: 'string';
+      prompt: string;
       router_model: RouterModelPreference;
     };
     response_fields: string[];
@@ -79,6 +79,7 @@ export function renderLLMSpecText(spec: LLMIntegrationSpec): string {
   lines.push('## /route Contract');
   lines.push(`- Request fields: ${Object.keys(spec.routing_contract.request).join(', ')}`);
   lines.push(`- Response fields: ${spec.routing_contract.response_fields.join(', ')}`);
+  lines.push('');
   lines.push('## Cache Behavior');
   for (const note of spec.routing_contract.cache_behavior) {
     lines.push(`- ${note}`);
@@ -277,7 +278,7 @@ export function buildLLMIntegrationSpec(userSelfServiceEnabled: boolean): LLMInt
     },
     routing_contract: {
       request: {
-        prompt: 'string',
+        prompt: 'Example prompt text',
         router_model: 'consensus',
       },
       response_fields: [
