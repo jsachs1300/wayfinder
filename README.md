@@ -496,6 +496,8 @@ Every routing request follows this deterministic flow:
 
 ### Public Endpoints
 - `GET /health` - Health check (no authentication required)
+- `GET /llm-spec` - Machine-readable integration spec for LLM/coding agents
+- `GET /llms.txt` - Plain-text LLM integration guide (best URL to hand to coding assistants)
 
 ### User Endpoints (Token Auth Required)
 - `POST /route` - Route a request to the appropriate model

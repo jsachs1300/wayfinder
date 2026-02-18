@@ -40,6 +40,7 @@ import { createSessionStore, type SessionStore } from './sessions';
 import { createUserVerificationStore, type UserVerificationStore } from './users/verification-store';
 import { ConsoleMailer, PostmarkMailer, type Mailer } from './email';
 import { getSharedRedis } from './redis/shared';
+import { buildLLMIntegrationSpec, renderLLMSpecText } from './public/llm-spec';
 
 /**
  * Application dependencies container
@@ -425,6 +426,20 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
       ...(cacheStatus?.last_error_at ? { langcache_last_error_at: cacheStatus.last_error_at } : {}),
       ...(cacheStatus?.last_success_at ? { langcache_last_success_at: cacheStatus.last_success_at } : {}),
     });
+  });
+
+  // Public LLM integration spec endpoint (no auth)
+  app.get('/llm-spec', (_req: Request, res: Response) => {
+    res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=300');
+    res.json(buildLLMIntegrationSpec(FEATURE_FLAGS.USER_SELF_SERVICE));
+  });
+
+  // Plain text alias for direct LLM consumption (no auth)
+  app.get('/llms.txt', (_req: Request, res: Response) => {
+    const spec = buildLLMIntegrationSpec(FEATURE_FLAGS.USER_SELF_SERVICE);
+    res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=300');
+    res.set('Content-Type', 'text/plain; charset=utf-8');
+    res.send(renderLLMSpecText(spec));
   });
 
   // Admin routes (require admin auth + rate limiting)
