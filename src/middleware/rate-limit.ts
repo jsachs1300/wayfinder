@@ -191,6 +191,26 @@ export function createRateLimiters(redis?: Redis) {
     ),
 
     /**
+     * Session route playground limiter - per token_id keying.
+     * Uses the same limits/window as /route for consistency.
+     */
+    routingByTokenId: rateLimit(
+      createRateLimiterOptions(
+        config.routingWindowMs,
+        config.routingMaxRequests,
+        storeRedis,
+        (req: Request) => {
+          const tokenId = req.tokenConfig?.id || req.params?.token_id;
+          if (tokenId) {
+            return `token:${tokenId}`;
+          }
+          return ipKeyGenerator(req.ip ?? 'unknown');
+        },
+        '/api/tokens/:token_id/route'
+      )
+    ),
+
+    /**
      * Admin endpoints rate limiter - uses IP as key
      */
     admin: rateLimit(

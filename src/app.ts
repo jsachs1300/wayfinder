@@ -3,7 +3,7 @@ import Redis from 'ioredis';
 import helmet from 'helmet';
 import cors from 'cors';
 
-import { tokenAuthMiddleware, adminAuthMiddleware, requestIdMiddleware, userAuthMiddleware, hashToken } from './auth';
+import { tokenAuthMiddleware, adminAuthMiddleware, requestIdMiddleware, userAuthMiddleware, sessionAuthMiddleware, hashToken } from './auth';
 import {
   createTokenStore,
   createAdminRoutes,
@@ -41,6 +41,7 @@ import { createUserVerificationStore, type UserVerificationStore } from './users
 import { ConsoleMailer, PostmarkMailer, type Mailer } from './email';
 import { getSharedRedis } from './redis/shared';
 import { buildLLMIntegrationSpec, renderLLMSpecText } from './public/llm-spec';
+import { sessionRouteTokenMiddleware } from './tokens/session-route-middleware';
 
 /**
  * Application dependencies container
@@ -103,6 +104,22 @@ function createRouteThrottleMetricsMiddleware(
             error: error instanceof Error ? error.message : String(error),
           });
         });
+    });
+    next();
+  };
+}
+
+function createSessionRouteAuditMiddleware(logger: Logger) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const start = Date.now();
+    res.on('finish', () => {
+      logger.info('Session route request completed', {
+        user_id: req.user?.id,
+        token_id: req.tokenConfig?.id ?? req.params.token_id,
+        request_id: req.requestId,
+        status: res.statusCode,
+        latency_ms: Date.now() - start,
+      });
     });
     next();
   };
@@ -725,6 +742,20 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
     tierRateLimiter,
     createRoutingRoutes(routingEngine, logger, tokenMetricsStore)
   );
+
+  // Session-based route endpoint for first-party console UX.
+  // Allows selecting a token by id without exposing token secrets in frontend responses.
+  if (FEATURE_FLAGS.USER_SELF_SERVICE && sessionStore && userStore) {
+    app.use('/api/tokens/:token_id/route',
+      sessionAuthMiddleware(sessionStore, userStore),
+      sessionRouteTokenMiddleware(tokenStore),
+      createSessionRouteAuditMiddleware(logger),
+      createRouteThrottleMetricsMiddleware(tokenStore, tokenMetricsStore, logger),
+      rateLimiters.routingByTokenId,
+      tierRateLimiter,
+      createRoutingRoutes(routingEngine, logger, tokenMetricsStore, { validationStatusCode: 422 })
+    );
+  }
 
   app.use('/feedback',
     rateLimiters.feedback,
