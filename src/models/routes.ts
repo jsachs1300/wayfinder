@@ -103,7 +103,16 @@ export function createAdminModelRegistryRoutes(
       return;
     }
 
-    const { id, ...metadata } = parsed.data;
+    const id = parsed.data.id.trim();
+    if (!id) {
+      res.status(400).json({
+        error: 'ValidationError',
+        message: 'Model id must not be empty',
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+    const { id: _ignoredId, ...metadata } = parsed.data;
     modelRegistry.setSystemCuratedOverride(id, metadata);
 
     logger.info('System model registry override created', { model_id: id });
@@ -240,7 +249,16 @@ export function createUserModelRegistryRoutes(modelRegistry: ModelRegistry, logg
       return;
     }
 
-    const { id, ...metadata } = parsed.data;
+    const id = parsed.data.id.trim();
+    if (!id) {
+      res.status(400).json({
+        error: 'ValidationError',
+        message: 'Model id must not be empty',
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+    const { id: _ignoredId, ...metadata } = parsed.data;
     modelRegistry.setUserModelOverlay(req.user.id, id, metadata);
 
     logger.info('User registry model overlay created', {
