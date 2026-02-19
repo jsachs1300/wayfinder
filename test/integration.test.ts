@@ -105,6 +105,94 @@ describe('API Integration Tests', () => {
     });
   });
 
+  describe('Session Token Route Endpoint', () => {
+    async function createUserWithTokenAndSession(emailPrefix: string) {
+      if (!deps.userStore || !deps.sessionStore) {
+        throw new Error('User/session stores are not available');
+      }
+
+      const user = await deps.userStore.create({
+        email: `${emailPrefix}-${Date.now()}@example.com`,
+        password: 'Testpass1!',
+      });
+      const tokenResult = await deps.tokenStore.createForUser(
+        user.id,
+        `${emailPrefix}-token`,
+        { eligible_models: ['gpt-4-turbo'] }
+      );
+      const sessionResult = await deps.sessionStore.create(user.id);
+
+      return { user, tokenResult, sessionResult };
+    }
+
+    it('should route using selected token_id and session token', async () => {
+      const { tokenResult, sessionResult } = await createUserWithTokenAndSession('playground');
+
+      const response = await request(app)
+        .post(`/api/tokens/${tokenResult.id}/route`)
+        .set('X-Session-Token', sessionResult.token)
+        .send({ prompt: 'Write a small Python helper function' });
+
+      expect(response.status).toBe(200);
+      expect(response.body.primary).toBeDefined();
+      expect(response.body.alternate).toBeDefined();
+      expect(response.body.request_id).toBeDefined();
+      expect(response.body.router_model_used).toBeDefined();
+    });
+
+    it('should reject requests without session token', async () => {
+      const { tokenResult } = await createUserWithTokenAndSession('missing-session');
+
+      const response = await request(app)
+        .post(`/api/tokens/${tokenResult.id}/route`)
+        .send({ prompt: 'test' });
+
+      expect(response.status).toBe(401);
+    });
+
+    it('should reject routing when token is not owned by session user', async () => {
+      const owner = await createUserWithTokenAndSession('owner');
+      const otherUser = await createUserWithTokenAndSession('other');
+
+      const response = await request(app)
+        .post(`/api/tokens/${owner.tokenResult.id}/route`)
+        .set('X-Session-Token', otherUser.sessionResult.token)
+        .send({ prompt: 'test prompt' });
+
+      expect(response.status).toBe(403);
+    });
+
+    it('should return 422 for invalid route request payload', async () => {
+      const { tokenResult, sessionResult } = await createUserWithTokenAndSession('invalid-payload');
+
+      const response = await request(app)
+        .post(`/api/tokens/${tokenResult.id}/route`)
+        .set('X-Session-Token', sessionResult.token)
+        .send({});
+
+      expect(response.status).toBe(422);
+      expect(response.body.error).toBe('ValidationError');
+    });
+
+    it('should attribute route metrics to selected token', async () => {
+      const { tokenResult, sessionResult } = await createUserWithTokenAndSession('metrics');
+
+      const routeResponse = await request(app)
+        .post(`/api/tokens/${tokenResult.id}/route`)
+        .set('X-Session-Token', sessionResult.token)
+        .send({ prompt: 'cache test' });
+
+      expect(routeResponse.status).toBe(200);
+
+      const metricsResponse = await request(app)
+        .get(`/admin/tokens/${tokenResult.id}`)
+        .set('X-Admin-Api-Key', adminApiKey);
+
+      expect(metricsResponse.status).toBe(200);
+      expect(metricsResponse.body.metrics.route_requests).toBe(1);
+    });
+  });
+
   describe('Admin Token Management', () => {
     it('should create a new token', async () => {
       const response = await request(app)

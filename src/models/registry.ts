@@ -61,20 +61,22 @@ export interface ModelRegistry {
   clearUserModelOverlay(userId: string, modelId: string): boolean;
 
   // Validation API (fail-fast assertions)
-  assertModelExists(modelId: string, context?: ValidationContext): void;
-  assertModelActive(modelId: string, context?: ValidationContext): void;
-  assertModelGlobalEligible(modelId: string, context?: ValidationContext): void;
+  assertModelExists(modelId: string, context?: ValidationContext, userId?: string): void;
+  assertModelActive(modelId: string, context?: ValidationContext, userId?: string): void;
+  assertModelGlobalEligible(modelId: string, context?: ValidationContext, userId?: string): void;
   assertModelAllowedForToken(
     modelId: string,
     tokenConfig: TokenConfig,
-    context?: ValidationContext
+    context?: ValidationContext,
+    userId?: string
   ): void;
   assertModelListValid(
     modelIds: string[],
     knowledgeScope: KnowledgeScope,
-    context?: ValidationContext
+    context?: ValidationContext,
+    userId?: string
   ): void;
-  validateTokenConfig(tokenConfig: Partial<TokenConfig>): void;
+  validateTokenConfig(tokenConfig: Partial<TokenConfig>, userId?: string): void;
 }
 
 /**
@@ -613,6 +615,35 @@ export class DefaultModelRegistry implements ModelRegistry {
     return this.userOverlays.get(userId);
   }
 
+  private materializeUserOverlayModel(
+    modelId: string,
+    userId: string,
+    overlay: Partial<ModelInfo>
+  ): ModelInfo {
+    const now = new Date().toISOString();
+    return {
+      id: modelId,
+      provider: overlay.provider ?? 'custom',
+      cost_tier: overlay.cost_tier ?? 'medium',
+      speed_tier: overlay.speed_tier ?? 'medium',
+      context_window: overlay.context_window ?? 32768,
+      available: overlay.available ?? true,
+      status: overlay.status ?? 'active',
+      global_eligible: overlay.global_eligible ?? false,
+      ...overlay,
+      source: 'user_overlay',
+      user_id: userId,
+      updated_at: overlay.updated_at ?? now,
+    };
+  }
+
+  private getModelForValidation(modelId: string, userId?: string): ModelInfo | null {
+    if (userId) {
+      return this.getEffectiveModelForUser(modelId, userId);
+    }
+    return this.getSystemModel(modelId);
+  }
+
   // ===== Read Operations =====
 
   getModel(id: string): ModelInfo | null {
@@ -654,16 +685,7 @@ export class DefaultModelRegistry implements ModelRegistry {
         return null;
       }
       if (!systemModel) {
-        // Overlay-only model in override mode must provide required fields.
-        if (!this.isCompleteModelInfo(userModelOverlay)) {
-          return null;
-        }
-        return {
-          ...(userModelOverlay as ModelInfo),
-          source: 'user_overlay',
-          user_id: userId,
-          updated_at: userModelOverlay.updated_at ?? new Date().toISOString(),
-        };
+        return this.materializeUserOverlayModel(modelId, userId, userModelOverlay);
       }
     }
 
@@ -671,16 +693,8 @@ export class DefaultModelRegistry implements ModelRegistry {
       return null;
     }
     if (!systemModel && userModelOverlay) {
-      // augment mode + overlay-only model: allow if complete.
-      if (!this.isCompleteModelInfo(userModelOverlay)) {
-        return null;
-      }
-      return {
-        ...(userModelOverlay as ModelInfo),
-        source: 'user_overlay',
-        user_id: userId,
-        updated_at: userModelOverlay.updated_at ?? new Date().toISOString(),
-      };
+      // augment mode + overlay-only model
+      return this.materializeUserOverlayModel(modelId, userId, userModelOverlay);
     }
 
     if (systemModel && userModelOverlay) {
@@ -809,8 +823,8 @@ export class DefaultModelRegistry implements ModelRegistry {
    * Assert that a model ID exists in the registry
    * @throws InvalidModelError if model does not exist
    */
-  assertModelExists(modelId: string, context?: ValidationContext): void {
-    if (!this.getSystemModel(modelId)) {
+  assertModelExists(modelId: string, context?: ValidationContext, userId?: string): void {
+    if (!this.getModelForValidation(modelId, userId)) {
       throw new InvalidModelError(modelId, context);
     }
   }
@@ -820,8 +834,8 @@ export class DefaultModelRegistry implements ModelRegistry {
    * @throws InvalidModelError if model doesn't exist
    * @throws DisabledModelError if model is disabled
    */
-  assertModelActive(modelId: string, context?: ValidationContext): void {
-    const model = this.getSystemModel(modelId);
+  assertModelActive(modelId: string, context?: ValidationContext, userId?: string): void {
+    const model = this.getModelForValidation(modelId, userId);
     if (!model) {
       throw new InvalidModelError(modelId, context);
     }
@@ -847,9 +861,10 @@ export class DefaultModelRegistry implements ModelRegistry {
    */
   assertModelGlobalEligible(
     modelId: string,
-    context?: ValidationContext
+    context?: ValidationContext,
+    userId?: string
   ): void {
-    const model = this.getSystemModel(modelId);
+    const model = this.getModelForValidation(modelId, userId);
     if (!model) {
       throw new InvalidModelError(modelId, context);
     }
@@ -867,11 +882,12 @@ export class DefaultModelRegistry implements ModelRegistry {
   assertModelAllowedForToken(
     modelId: string,
     tokenConfig: TokenConfig,
-    context?: ValidationContext
+    context?: ValidationContext,
+    userId?: string
   ): void {
     // First check model exists and is active
-    this.assertModelExists(modelId, context);
-    this.assertModelActive(modelId, context);
+    this.assertModelExists(modelId, context, userId);
+    this.assertModelActive(modelId, context, userId);
 
     // Check allowed_models (if specified, model must be in the list)
     if (tokenConfig.allowed_models && tokenConfig.allowed_models.length > 0) {
@@ -902,15 +918,16 @@ export class DefaultModelRegistry implements ModelRegistry {
   assertModelListValid(
     modelIds: string[],
     knowledgeScope: KnowledgeScope,
-    context?: ValidationContext
+    context?: ValidationContext,
+    userId?: string
   ): void {
     for (const modelId of modelIds) {
-      this.assertModelExists(modelId, context);
-      this.assertModelActive(modelId, context);
+      this.assertModelExists(modelId, context, userId);
+      this.assertModelActive(modelId, context, userId);
 
       // For global scope, ensure all models are global-eligible
       if (knowledgeScope === 'global') {
-        this.assertModelGlobalEligible(modelId, context);
+        this.assertModelGlobalEligible(modelId, context, userId);
       }
     }
   }
@@ -920,18 +937,19 @@ export class DefaultModelRegistry implements ModelRegistry {
    * Validates all model references and checks for contradictions
    * @throws ModelValidationError subclasses or ModelConfigurationError
    */
-  validateTokenConfig(tokenConfig: Partial<TokenConfig>): void {
+  validateTokenConfig(tokenConfig: Partial<TokenConfig>, userId?: string): void {
     const knowledgeScope = tokenConfig.knowledge_scope ?? 'global';
 
     // Validate trusted_anchor_model
     if (tokenConfig.trusted_anchor_model) {
-      this.assertModelExists(tokenConfig.trusted_anchor_model, 'token_config');
-      this.assertModelActive(tokenConfig.trusted_anchor_model, 'token_config');
+      this.assertModelExists(tokenConfig.trusted_anchor_model, 'token_config', userId);
+      this.assertModelActive(tokenConfig.trusted_anchor_model, 'token_config', userId);
 
       if (knowledgeScope === 'global') {
         this.assertModelGlobalEligible(
           tokenConfig.trusted_anchor_model,
-          'token_config'
+          'token_config',
+          userId
         );
       }
     }
@@ -941,7 +959,8 @@ export class DefaultModelRegistry implements ModelRegistry {
       this.assertModelListValid(
         tokenConfig.eligible_models,
         knowledgeScope,
-        'token_config'
+        'token_config',
+        userId
       );
 
       // Ensure at least one model
@@ -957,7 +976,8 @@ export class DefaultModelRegistry implements ModelRegistry {
       this.assertModelListValid(
         tokenConfig.allowed_models,
         knowledgeScope,
-        'token_config'
+        'token_config',
+        userId
       );
     }
 
@@ -966,7 +986,8 @@ export class DefaultModelRegistry implements ModelRegistry {
       this.assertModelListValid(
         tokenConfig.denied_models,
         knowledgeScope,
-        'token_config'
+        'token_config',
+        userId
       );
     }
 
@@ -1045,7 +1066,7 @@ export class DefaultModelRegistry implements ModelRegistry {
     // Validate policy rules
     if (tokenConfig.policy_rules) {
       for (const rule of tokenConfig.policy_rules) {
-        this.assertModelListValid(rule.models, knowledgeScope, 'policy_rule');
+        this.assertModelListValid(rule.models, knowledgeScope, 'policy_rule', userId);
       }
     }
   }

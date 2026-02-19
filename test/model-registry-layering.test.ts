@@ -114,7 +114,7 @@ describe('Model Registry Layering', () => {
     expect(effective[0]?.source).toBe('user_overlay');
   });
 
-  it('drops incomplete overlay-only entries in override mode', () => {
+  it('materializes incomplete overlay-only entries in override mode with defaults', () => {
     const registry = createModelRegistry(BASE_MODELS);
 
     registry.setUserRegistryMode('user-3', 'override');
@@ -125,6 +125,11 @@ describe('Model Registry Layering', () => {
     });
 
     const effective = registry.getEffectiveModelsForUser('user-3');
-    expect(effective).toEqual([]);
+    expect(effective).toHaveLength(1);
+    expect(effective[0]?.id).toBe('invalid-model');
+    expect(effective[0]?.provider).toBe('custom');
+    expect(effective[0]?.available).toBe(true);
+    expect(effective[0]?.status).toBe('active');
+    expect(effective[0]?.global_eligible).toBe(false);
   });
 });

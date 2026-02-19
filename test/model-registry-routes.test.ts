@@ -4,6 +4,8 @@ import request from 'supertest';
 import { createAdminModelRegistryRoutes, createModelRegistry, createUserModelRegistryRoutes } from '../src/models';
 import { createLogger } from '../src/logging';
 import type { User } from '../src/users/types';
+import { InMemoryTokenStore } from '../src/tokens/store';
+import { createUserTokenRoutes } from '../src/tokens/user-routes';
 
 function createMockUser(id: string): User {
   const now = new Date().toISOString();
@@ -170,5 +172,98 @@ describe('Model Registry Routes', () => {
     const gptModel = list.body.models.find((model: { id: string }) => model.id === 'gpt-4o-mini');
     expect(gptModel).toBeDefined();
     expect(gptModel.description).toBe('User-specific description');
+  });
+
+  it('returns non-null model for overlay-only create and includes it in immediate GET', async () => {
+    const app = express();
+    app.use(express.json());
+    app.use((req, _res, next) => {
+      req.user = createMockUser('user-overlay');
+      next();
+    });
+    app.use('/api/registry', createUserModelRegistryRoutes(modelRegistry, logger));
+
+    const createOverlay = await request(app)
+      .post('/api/registry')
+      .send({
+        id: 'my-custom-model-mini',
+        description: 'custom model for this user',
+      });
+
+    expect(createOverlay.status).toBe(201);
+    expect(createOverlay.body.model).toBeTruthy();
+    expect(createOverlay.body.model.id).toBe('my-custom-model-mini');
+    expect(createOverlay.body.model.available).toBe(true);
+    expect(createOverlay.body.model.status).toBe('active');
+    expect(createOverlay.body.model.global_eligible).toBe(false);
+
+    const list = await request(app).get('/api/registry');
+    expect(list.status).toBe(200);
+    expect(list.body.models.some((model: { id: string }) => model.id === 'my-custom-model-mini')).toBe(true);
+  });
+
+  it('keeps user overlays isolated between users', async () => {
+    const app = express();
+    app.use(express.json());
+    app.use((req, _res, next) => {
+      const userId = (req.headers['x-user-id'] as string | undefined) ?? 'user-default';
+      req.user = createMockUser(userId);
+      next();
+    });
+    app.use('/api/registry', createUserModelRegistryRoutes(modelRegistry, logger));
+
+    const createA = await request(app)
+      .post('/api/registry')
+      .set('x-user-id', 'user-a')
+      .send({ id: 'user-a-model' });
+    expect(createA.status).toBe(201);
+
+    const createB = await request(app)
+      .post('/api/registry')
+      .set('x-user-id', 'user-b')
+      .send({ id: 'user-b-model' });
+    expect(createB.status).toBe(201);
+
+    const listA = await request(app)
+      .get('/api/registry')
+      .set('x-user-id', 'user-a');
+    const listB = await request(app)
+      .get('/api/registry')
+      .set('x-user-id', 'user-b');
+
+    expect(listA.body.models.some((model: { id: string }) => model.id === 'user-a-model')).toBe(true);
+    expect(listA.body.models.some((model: { id: string }) => model.id === 'user-b-model')).toBe(false);
+    expect(listB.body.models.some((model: { id: string }) => model.id === 'user-b-model')).toBe(true);
+    expect(listB.body.models.some((model: { id: string }) => model.id === 'user-a-model')).toBe(false);
+  });
+
+  it('allows /api/tokens creation with overlay-only model id for same user', async () => {
+    const tokenStore = new InMemoryTokenStore();
+    const app = express();
+    app.use(express.json());
+    app.use((req, _res, next) => {
+      req.user = createMockUser('token-user');
+      next();
+    });
+    app.use('/api/registry', createUserModelRegistryRoutes(modelRegistry, logger));
+    app.use('/api/tokens', createUserTokenRoutes(tokenStore, modelRegistry, logger));
+
+    const createOverlay = await request(app)
+      .post('/api/registry')
+      .send({
+        id: 'overlay-only-model',
+      });
+    expect(createOverlay.status).toBe(201);
+
+    const createToken = await request(app)
+      .post('/api/tokens')
+      .send({
+        name: 'Custom Model Token',
+        eligible_models: ['overlay-only-model'],
+        knowledge_scope: 'token',
+      });
+
+    expect(createToken.status).toBe(201);
+    expect(createToken.body.config.eligible_models).toEqual(['overlay-only-model']);
   });
 });

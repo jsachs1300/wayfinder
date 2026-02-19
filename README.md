@@ -523,6 +523,7 @@ When `FEATURE_USER_SELF_SERVICE=true`:
 **User Token Management (Token Auth Required)**
 - `GET /api/tokens` - List user's tokens
 - `POST /api/tokens` - Create new token
+- `POST /api/tokens/:token_id/route` - Route with selected token using session auth (no token secret required)
 - `DELETE /api/tokens/:id` - Delete token
 - `POST /api/tokens/:id/rotate` - Rotate token
 

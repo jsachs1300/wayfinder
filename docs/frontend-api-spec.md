@@ -298,6 +298,42 @@ Validation note:
 - This endpoint creates non-default tokens. The system default token model list is controlled separately by admin via `/admin/default-token-profile`.
 - On invalid model IDs, API returns `400` with `error` like `InvalidModelError` and a detailed `message`.
 
+### POST /api/tokens/:token_id/route
+Headers: `X-Session-Token`
+
+Purpose:
+- Route from frontend Route Playground without requiring token secret access in browser state.
+- Uses selected `token_id` + authenticated user session.
+
+Request body:
+```json
+{
+  "prompt": "Summarize this customer support thread and propose a response",
+  "prefer_model": "gpt-4o-mini",
+  "router_model": "consensus"
+}
+```
+
+Behavior:
+- Validates session token.
+- Validates selected token exists and belongs to session user.
+- Applies same routing logic as `POST /route`:
+  - policy/eligibility checks
+  - router selection/fallback
+  - cache lookup/store behavior
+  - rate limiting and tier quotas
+  - token usage metrics attribution
+
+Success response:
+- Same schema as `POST /route` (`primary`, `alternate`, `request_id`, `router_model_used`, `from_cache`).
+
+Errors:
+- `401` missing/invalid/expired session
+- `403` token not usable for this session
+- `404` token not found
+- `422` invalid route payload
+- `429` rate limited
+
 ### DELETE /api/tokens/:id
 Headers: `X-Session-Token`
 Response (403):

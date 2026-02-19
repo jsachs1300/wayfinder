@@ -234,6 +234,12 @@ export function buildLLMIntegrationSpec(userSelfServiceEnabled: boolean): LLMInt
       },
       {
         method: 'POST',
+        path: '/api/tokens/:token_id/route',
+        auth: 'session',
+        purpose: 'Route using selected token id without exposing token secret to the frontend',
+      },
+      {
+        method: 'POST',
         path: '/api/tokens',
         auth: 'session',
         purpose: 'Create additional user token',
