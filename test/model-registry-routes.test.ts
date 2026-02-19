@@ -195,6 +195,7 @@ describe('Model Registry Routes', () => {
     expect(createOverlay.body.model.id).toBe('my-custom-model-mini');
     expect(createOverlay.body.model.available).toBe(true);
     expect(createOverlay.body.model.status).toBe('active');
+    expect(createOverlay.body.model.global_eligible).toBe(false);
 
     const list = await request(app).get('/api/registry');
     expect(list.status).toBe(200);
@@ -259,6 +260,7 @@ describe('Model Registry Routes', () => {
       .send({
         name: 'Custom Model Token',
         eligible_models: ['overlay-only-model'],
+        knowledge_scope: 'token',
       });
 
     expect(createToken.status).toBe(201);

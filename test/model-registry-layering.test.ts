@@ -130,5 +130,6 @@ describe('Model Registry Layering', () => {
     expect(effective[0]?.provider).toBe('custom');
     expect(effective[0]?.available).toBe(true);
     expect(effective[0]?.status).toBe('active');
+    expect(effective[0]?.global_eligible).toBe(false);
   });
 });

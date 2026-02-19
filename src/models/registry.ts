@@ -629,7 +629,7 @@ export class DefaultModelRegistry implements ModelRegistry {
       context_window: overlay.context_window ?? 32768,
       available: overlay.available ?? true,
       status: overlay.status ?? 'active',
-      global_eligible: overlay.global_eligible ?? true,
+      global_eligible: overlay.global_eligible ?? false,
       ...overlay,
       source: 'user_overlay',
       user_id: userId,
