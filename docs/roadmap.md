@@ -51,4 +51,4 @@ These are intentional non-goals that keep the system focused and maintainable.
 
 ## License
 
-MIT
+GNU Affero General Public License v3.0 (`AGPL-3.0-only`). See `LICENSE`.
