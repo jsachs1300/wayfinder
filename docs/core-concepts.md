@@ -1,67 +1,6 @@
-# Wayfinder
+# Core Concepts
 
-Wayfinder is an LLM routing service. It accepts a prompt and returns ranked model recommendations (`primary` and `alternate`) based on token policy, model registry constraints, and learned knowledge.
-
-Wayfinder can be used:
-- directly from your app backend via the `/route` API
-- from the Wayfinder web app (`https://wyfndr.ai`) for admin/user operations and route testing
-
-## Quick Start
-
-### UI Quick Start (`https://wyfndr.ai`)
-1. Open `https://wyfndr.ai`.
-2. Register and verify your email.
-3. Complete registration, set your password, and sign in.
-4. Go to token management in the console and create/rotate a token.
-5. Use Route Playground to test routing, or copy the token for API usage.
-
-### API Quick Start (`POST https://wyfndr.ai/route`)
-1. Get a Wayfinder token from the UI (or from an admin).
-2. Export it locally:
-
-```bash
-export WAYFINDER_TOKEN="wf_your_token_here"
-```
-
-3. Send a route request:
-
-```bash
-curl -sS https://wyfndr.ai/route \
-  -H "Content-Type: application/json" \
-  -H "X-Wayfinder-Token: $WAYFINDER_TOKEN" \
-  -d '{
-    "prompt": "Write a TypeScript function to deduplicate an array of objects by id",
-    "router_model": "consensus"
-  }'
-<<<<<<< docs-refactor
-=======
-
-# The response includes a token you can use immediately
-# Use the token to route requests
-curl -X POST http://localhost:3000/route \
-  -H "X-Wayfinder-Token: wf_xxxxx" \
-  -H "Content-Type: application/json" \
-  -d '{"prompt": "Write a function to reverse a string"}'
-```
-
-Response:
-```json
-{
-  "primary": {
-    "model": "gpt-4-turbo",
-    "score": 8.2,
-    "reason": "Excellent for coding tasks with strong reasoning capabilities"
-  },
-  "alternate": {
-    "model": "gemini-2.5-flash",
-    "score": 7.8,
-    "reason": "Alternative with comparable coding ability and different strengths"
-  },
-  "request_id": "req_a1b2c3d4-e5f6-7890",
-  "router_model_used": "consensus",
-  "from_cache": false
-}
-```
+_Extracted from the previous README. This page contains core behavior and routing concepts._
 
 ## Core Concepts
 
@@ -442,141 +381,101 @@ Every routing request follows this deterministic flow:
 - Intent is advisory metadata only—never used for routing
 - Routing is deterministic given same inputs and cached state
 
-## API Endpoints Summary
 
-### Public Endpoints
-- `GET /health` - Health check (no authentication required)
-- `GET /llm-spec` - Machine-readable integration spec for LLM/coding agents
-- `GET /llms.txt` - Plain-text LLM integration guide (best URL to hand to coding assistants)
+## Intent (Metadata Only)
 
-### User Endpoints (Token Auth Required)
-- `POST /route` - Route a request to the appropriate model
-- `POST /feedback` - Submit feedback on a routing decision
+The router LLM infers intent from the user prompt as part of its decision-making process. Intent is logged for internal observability and analysis, but MUST NOT influence routing logic.
 
-### User Self-Service Endpoints (Optional Feature)
+**Important:** Removing or changing intent inference MUST NOT change routing behavior.
 
-When `FEATURE_USER_SELF_SERVICE=true`:
+### Intent Labels
 
-**Authentication (No Auth Required)**
-- `POST /api/users/register` - Email-only registration (sends verification link)
-- `POST /api/users/verify-email` - Validate verification token
-- `POST /api/users/complete-registration` - Set password and activate account
-- `POST /api/users/login` - Authenticate and get user data
-- `POST /api/users/password/forgot` - Request password reset
-- `POST /api/users/password/validate` - Validate reset token
-- `POST /api/users/password/reset` - Reset password
+The router LLM returns one of these canonical intent labels:
 
-**User Profile (Token Auth Required)**
-- `GET /api/users/me` - Get current user profile
-- `PATCH /api/users/me` - Update user profile
+- `code_change` - Writing or modifying code
+- `debugging` - Finding and fixing bugs
+- `architecture_design` - System design and architecture decisions
+- `explanation` - Understanding concepts and explaining behavior
+- `summarization` - Condensing content
+- `data_analysis` - Working with data and statistics
+- `content_generation` - Creating new content
+- `planning` - Task planning and organization
+- `other:<subcategory>` - Fallback for other intents
 
-**User Token Management (Token Auth Required)**
-- `GET /api/tokens` - List user's tokens
-- `POST /api/tokens` - Create new token
-- `POST /api/tokens/:token_id/route` - Route with selected token using session auth (no token secret required)
-- `DELETE /api/tokens/:id` - Delete token
-- `POST /api/tokens/:id/rotate` - Rotate token
+Intent is purely advisory and used only for:
+- Observational telemetry
+- Internal analysis and metrics
+- Future feature development
 
-**User Model Registry (Token Auth Required)**
-- `GET /api/registry` - Get effective model registry for the authenticated user
-- `POST /api/registry/mode` - Set registry mode (`augment` or `override`)
-- `POST /api/registry` - Create/update a user-scoped model overlay entry
-- `PATCH /api/registry/:id` - Patch user-scoped model metadata
-- `DELETE /api/registry/:id` - Delete a user-scoped model overlay entry
+Removing intent from the routing decision does NOT break the system.
 
-**BYOLLM Key Management (Token Auth Required, paid_byollm tier only)**
-- `GET /api/llm-keys` - List configured LLM provider keys
-- `POST /api/llm-keys` - Add/update LLM provider key
-- `DELETE /api/llm-keys/:provider` - Remove LLM provider key
-- `POST /api/llm-keys/:provider/validate` - Validate LLM key
+## Error Responses
 
-### Admin Endpoints (Admin Auth Required)
-
-**Token Management**
-- `POST /admin/tokens` - Create a new token
-- `GET /admin/tokens` - List all tokens
-- `GET /admin/tokens/:id` - Get token by ID
-- `PATCH /admin/tokens/:id` - Update token configuration
-- `POST /admin/tokens/:id/rotate` - Rotate token (generates new token string)
-- `DELETE /admin/tokens/:id` - Delete a token
-
-**Knowledge Store**
-- `GET /admin/knowledge/stats` - Get knowledge store statistics
-- `POST /admin/knowledge/decay` - Deprecated; decay is now applied lazily on reads
-
-**Models**
-- `GET /admin/models` - List all available models
-
-**Model Registry**
-- `GET /admin/registry` - List system-effective registry entries
-- `POST /admin/registry` - Create/update curated system override for a model
-- `PATCH /admin/registry/:id` - Patch curated system override metadata
-- `DELETE /admin/registry/:id` - Remove curated system override
-- `POST /admin/registry/refresh` - Trigger provider catalog sync and import
-
-## API Reference
-
-### Authentication
-
-Wayfinder supports two authentication models:
-
-#### Admin Authentication (Traditional)
-
-Admin operations require the `X-Admin-Api-Key` header:
-
-```bash
-curl http://localhost:3000/admin/tokens \
-  -H "X-Admin-Api-Key: your-admin-key"
-```
-
-Used for:
-- Creating/managing tokens via admin API
-- Viewing knowledge store statistics
-- Managing models
-
-#### Token Authentication
-
-All routing and feedback requests require a Wayfinder token via the `X-Wayfinder-Token` header:
-
-```bash
-curl http://localhost:3000/route \
-  -H "X-Wayfinder-Token: wf_xxxxx" \
-  -H "Content-Type: application/json" \
-  -d '{"prompt": "Your prompt here"}'
->>>>>>> main
-```
-
-Expected response shape:
+All API endpoints return consistent error responses with the following structure:
 
 ```json
 {
-  "primary": { "model": "...", "score": 0, "reason": "..." },
-  "alternate": { "model": "...", "score": 0, "reason": "..." },
-  "request_id": "...",
-  "router_model_used": "consensus",
-  "from_cache": false
+  "error": "ErrorType",
+  "message": "Human-readable error description",
+  "details": {},
+  "timestamp": "2025-12-17T10:30:00.123Z"
 }
 ```
 
-## API Reference
+### Common Error Types
 
-Complete backend API reference:
-- `docs/api-reference.md`
+| Status Code | Error Type | Description |
+|-------------|------------|-------------|
+| 400 | `ValidationError` | Invalid request body or parameters |
+| 401 | `Unauthorized` | Missing or invalid authentication credentials |
+| 404 | `NotFound` | Resource not found (token, endpoint, etc.) |
+| 500 | `InternalError` | Server error during processing |
 
-Frontend-oriented API spec:
-- `docs/frontend-api-spec.md`
+### Example Error Responses
 
-## Documentation
+**Validation Error (400)**
+```json
+{
+  "error": "ValidationError",
+  "message": "Invalid request body",
+  "details": {
+    "issues": [
+      {
+        "path": ["prompt"],
+        "message": "Required"
+      }
+    ]
+  },
+  "timestamp": "2025-12-17T10:30:00.123Z"
+}
+```
 
-- `docs/index.md` - Documentation index
-- `docs/quick-start.md` - Expanded setup and local dev
-- `docs/core-concepts.md` - Routing/policy/cache/model concepts
-- `docs/configuration.md` - Environment and runtime config
-- `docs/examples.md` - Curl and workflow examples
-- `docs/architecture.md` - Service architecture and structure
-- `docs/troubleshooting.md` - Troubleshooting guide
-- `PRODUCTION.md` - Deployment and production operations
+**Authentication Error (401)**
+```json
+{
+  "error": "Unauthorized",
+  "message": "Invalid admin API key",
+  "timestamp": "2025-12-17T10:30:00.123Z"
+}
+```
 
-## License
+**Not Found Error (404)**
+```json
+{
+  "error": "NotFound",
+  "message": "Token not found",
+  "timestamp": "2025-12-17T10:30:00.123Z"
+}
+```
 
-GNU Affero General Public License v3.0 (`AGPL-3.0-only`). See `LICENSE`.
+
+## Design Principles
+
+1. **LLM-Driven Routing** - All routing decisions originate from the router LLM, never from local heuristics
+2. **Policy as Constraint** - Policy filters eligible models; it never selects or ranks them
+3. **Intent as Metadata** - Intent is inferred by the LLM for logging and analysis, but MUST NOT influence routing
+4. **Token-Scoped Policies** - Each token is a complete policy boundary with its own configuration
+5. **Fail Fast on Invalid Configuration** - Policy violations and configuration errors are surfaced immediately
+6. **Explainable Decisions** - Every routing response includes confidence scores and reasoning from the LLM
+7. **Deterministic Behavior** - Given the same inputs and cached state, routing produces the same results
+
