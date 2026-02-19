@@ -165,12 +165,15 @@ export function createUserTokenRoutes(
         eligible_models:
           parsed.data.eligible_models && parsed.data.eligible_models.length > 0
             ? parsed.data.eligible_models
-            : modelRegistry.getAvailableModels().map((model) => model.id),
+            : modelRegistry
+              .getEffectiveModelsForUser(req.user.id)
+              .filter((model) => model.available)
+              .map((model) => model.id),
       };
 
       // Validate all model identifiers against the registry
       try {
-        modelRegistry.validateTokenConfig(request);
+        modelRegistry.validateTokenConfig(request, req.user.id);
       } catch (error) {
         if (error instanceof ModelValidationError) {
           res.status(400).json({

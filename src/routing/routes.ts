@@ -47,16 +47,18 @@ const RouteRequestSchema = z.object({
 export function createRoutingRoutes(
   routingEngine: RoutingEngine,
   logger: Logger,
-  metricsStore?: TokenMetricsStore
+  metricsStore?: TokenMetricsStore,
+  options?: { validationStatusCode?: number }
 ): Router {
   const router = Router();
+  const validationStatusCode = options?.validationStatusCode ?? 400;
 
   router.post('/', async (req: Request, res: Response): Promise<void> => {
     try {
       // Validate request body
       const parsed = RouteRequestSchema.safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({
+        res.status(validationStatusCode).json({
           error: 'ValidationError',
           message: 'Invalid request body',
           details: parsed.error.errors,
