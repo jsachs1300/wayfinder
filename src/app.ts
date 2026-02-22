@@ -504,10 +504,14 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
     });
   });
 
-  app.use('/mcp',
-    rateLimiters.mcp,
-    createMcpRoutes(routingEngine, tokenStore, userStore, logger, tokenMetricsStore)
-  );
+  app.use('/mcp', createMcpRoutes(
+    routingEngine,
+    tokenStore,
+    userStore,
+    logger,
+    tokenMetricsStore,
+    rateLimiters.mcp
+  ));
 
   // Admin routes (require admin auth + rate limiting)
   const adminRouter = express.Router();

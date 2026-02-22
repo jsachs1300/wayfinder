@@ -1,11 +1,11 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, type RequestHandler } from 'express';
 import { z } from 'zod';
 import packageJson from '../../package.json';
 import type { RoutingEngine } from '../routing';
 import { projectRouteResponse } from '../routing/projection';
 import type { TokenStore } from '../tokens/store';
 import type { UserStore } from '../users/store';
-import type { RouteRequest, RouterModelPreference, TokenConfig } from '../types';
+import type { RouteRequest, RouterModelPreference } from '../types';
 import { VALID_ROUTER_MODEL_PREFERENCES } from '../types';
 import { hashToken, extractWayfinderToken } from '../auth';
 import { logRoutingUsage } from '../observability/events';
@@ -52,10 +52,9 @@ function sendRpc(res: Response, payload: Record<string, unknown>): void {
 }
 
 
-function getTokenUserId(tokenConfig: TokenConfig): string | undefined {
-  const extended = tokenConfig as TokenConfigExtended;
-  return typeof extended.user_id === 'string' && extended.user_id.length > 0
-    ? extended.user_id
+function getTokenUserId(tokenConfig: TokenConfigExtended): string | undefined {
+  return typeof tokenConfig.user_id === 'string' && tokenConfig.user_id.length > 0
+    ? tokenConfig.user_id
     : undefined;
 }
 
@@ -65,6 +64,7 @@ export function createMcpRoutes(
   userStore?: UserStore,
   logger?: Logger,
   metricsStore?: TokenMetricsStore,
+  mcpRateLimiter?: RequestHandler,
 ): Router {
   const router = Router();
 
@@ -81,7 +81,7 @@ export function createMcpRoutes(
     });
   });
 
-  router.post('/', async (req: Request, res: Response): Promise<void> => {
+  router.post('/', mcpRateLimiter ?? ((_req, _res, next) => next()), async (req: Request, res: Response): Promise<void> => {
     const parsed = JsonRpcRequestSchema.safeParse(req.body);
     const requestId = parsed.success ? parsed.data.id : undefined;
     let requestedRouterForMetrics = 'consensus';
@@ -170,7 +170,7 @@ export function createMcpRoutes(
         }
 
         let userContext: { user: unknown; userTier: string } | undefined;
-        const tokenUserId = getTokenUserId(tokenConfig);
+        const tokenUserId = getTokenUserId(tokenConfig as TokenConfigExtended);
         if (tokenUserId && userStore) {
           const user = await userStore.getById(tokenUserId);
           if (!user || user.status !== 'active') {
@@ -192,7 +192,10 @@ export function createMcpRoutes(
         requestedRouterForMetrics = requestedRouter;
         recordRoutingRequest({ router_model_requested: requestedRouter });
 
-        const wfRequestId = req.requestId || `mcp-${Date.now()}`;
+        const wfRequestId = req.requestId;
+        if (!wfRequestId) {
+          throw new Error('requestId missing on MCP request');
+        }
         const routingStart = Date.now();
         const result = await routingEngine.route(routeRequest, tokenConfig, wfRequestId, userContext);
         const routingDurationMs = Date.now() - routingStart;
