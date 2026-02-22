@@ -98,6 +98,50 @@ describe('MCP endpoint and LLM discovery files', () => {
     expect(toolsListRes.status).toBe(200);
   });
 
+
+  it('records throttled MCP route tool calls in token metrics', async () => {
+    process.env.RATE_LIMIT_ROUTING_MAX = '1';
+    const { app, dependencies } = await createTestApp();
+    const created = await dependencies.tokenStore.create({ environment: 'dev' });
+
+    const firstCall = await request(app)
+      .post('/mcp')
+      .set('Authorization', `Bearer ${created.token}`)
+      .send({
+        jsonrpc: '2.0',
+        id: 10,
+        method: 'tools/call',
+        params: {
+          name: 'wayfinder_route',
+          arguments: {
+            prompt: 'first call',
+          },
+        },
+      });
+
+    expect(firstCall.status).toBe(200);
+
+    const secondCall = await request(app)
+      .post('/mcp')
+      .set('Authorization', `Bearer ${created.token}`)
+      .send({
+        jsonrpc: '2.0',
+        id: 11,
+        method: 'tools/call',
+        params: {
+          name: 'wayfinder_route',
+          arguments: {
+            prompt: 'second call',
+          },
+        },
+      });
+
+    expect(secondCall.status).toBe(429);
+
+    const metrics = await dependencies.tokenMetricsStore?.getMetrics(created.id);
+    expect(metrics?.throttled_requests).toBe(1);
+  });
+
   it('returns 204 with no body for notifications/initialized', async () => {
     const { app } = await createTestApp();
 

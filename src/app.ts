@@ -1,9 +1,17 @@
-import express, { Express, Request, Response, NextFunction } from 'express';
+import express, { Express, Request, Response, NextFunction, RequestHandler } from 'express';
 import Redis from 'ioredis';
 import helmet from 'helmet';
 import cors from 'cors';
 
-import { tokenAuthMiddleware, adminAuthMiddleware, requestIdMiddleware, userAuthMiddleware, sessionAuthMiddleware, hashToken } from './auth';
+import {
+  tokenAuthMiddleware,
+  adminAuthMiddleware,
+  requestIdMiddleware,
+  userAuthMiddleware,
+  sessionAuthMiddleware,
+  hashToken,
+  extractWayfinderTokenForRateLimit,
+} from './auth';
 import {
   createTokenStore,
   createAdminRoutes,
@@ -44,6 +52,7 @@ import { buildLLMIntegrationSpec, renderLLMSpecText } from './public/llm-spec';
 import { buildOpenApiSpec } from './public/openapi-spec';
 import { createMcpRoutes } from './public/mcp';
 import { sessionRouteTokenMiddleware } from './tokens/session-route-middleware';
+import type { TokenConfigExtended } from './tokens/types';
 
 /**
  * Application dependencies container
@@ -124,6 +133,53 @@ function createSessionRouteAuditMiddleware(logger: Logger) {
       });
     });
     next();
+  };
+}
+
+function createMcpTokenContextMiddleware(tokenStore: TokenStore, userStore?: UserStore, logger?: Logger) {
+  return async (req: Request, _res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const token = extractWayfinderTokenForRateLimit(req);
+      if (!token) {
+        next();
+        return;
+      }
+
+      const tokenConfig = await tokenStore.getByHash(hashToken(token));
+      if (!tokenConfig) {
+        next();
+        return;
+      }
+
+      req.tokenConfig = tokenConfig;
+
+      const tokenUserId = (tokenConfig as TokenConfigExtended).user_id;
+      if (tokenUserId && userStore) {
+        const user = await userStore.getById(tokenUserId);
+        if (user) {
+          req.user = user;
+          req.userTier = user.tier;
+        }
+      }
+    } catch (error) {
+      logger?.warn('Failed to resolve MCP token context', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    next();
+  };
+}
+
+function applyMcpRouteToolMiddleware(middleware: RequestHandler) {
+  return (req: Request, res: Response, next: NextFunction): void | Promise<void> => {
+    const method = req.body?.method;
+    const toolName = req.body?.params?.name;
+    if (req.method !== 'POST' || method !== 'tools/call' || toolName !== 'wayfinder_route') {
+      next();
+      return;
+    }
+    return middleware(req, res, next);
   };
 }
 
@@ -511,15 +567,6 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
     });
   });
 
-  app.use('/mcp', createMcpRoutes(
-    routingEngine,
-    tokenStore,
-    userStore,
-    logger,
-    tokenMetricsStore,
-    rateLimiters.mcp
-  ));
-
   // Admin routes (require admin auth + rate limiting)
   const adminRouter = express.Router();
   adminRouter.use(rateLimiters.admin);
@@ -794,6 +841,20 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
   const tierRateLimiter = FEATURE_FLAGS.USER_SELF_SERVICE
     ? createTierRateLimiter(redis, logger)
     : (_req: Request, _res: Response, next: NextFunction) => next(); // No-op if feature disabled
+
+  app.use('/mcp',
+    applyMcpRouteToolMiddleware(createRouteThrottleMetricsMiddleware(tokenStore, tokenMetricsStore, logger)),
+    applyMcpRouteToolMiddleware(createMcpTokenContextMiddleware(tokenStore, userStore, logger)),
+    applyMcpRouteToolMiddleware(tierRateLimiter),
+    createMcpRoutes(
+      routingEngine,
+      tokenStore,
+      userStore,
+      logger,
+      tokenMetricsStore,
+      rateLimiters.mcp
+    )
+  );
 
   // Routing endpoint: Apply both standard rate limiter and tier-aware limiter
   app.use('/route',
