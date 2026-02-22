@@ -7,3 +7,5 @@ export {
   sessionAuthMiddleware,
   hashToken
 } from './middleware';
+
+export { extractWayfinderToken, extractWayfinderTokenForRateLimit } from './mcp-token';

@@ -140,6 +140,59 @@ describe('MCP endpoint and LLM discovery files', () => {
     expect(response.body.error.message).toBe('Internal error');
   });
 
+
+  it('returns initialize handshake metadata', async () => {
+    const { app } = await createTestApp();
+
+    const response = await request(app)
+      .post('/mcp')
+      .send({ jsonrpc: '2.0', id: 'init-1', method: 'initialize' });
+
+    expect(response.status).toBe(200);
+    expect(response.body.result.protocolVersion).toBe('2025-03-26');
+    expect(response.body.result.serverInfo.name).toBe('wayfinder-mcp');
+    expect(response.body.result.serverInfo.version).toBeTypeOf('string');
+  });
+
+  it('returns cache-tool error when semantic cache is disabled', async () => {
+    const { app } = await createTestApp();
+
+    const response = await request(app)
+      .post('/mcp')
+      .send({
+        jsonrpc: '2.0',
+        id: 6,
+        method: 'tools/call',
+        params: {
+          name: 'wayfinder_cache_stats',
+          arguments: { admin_api_key: 'test-admin-key' },
+        },
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.error.code).toBe(-32004);
+  });
+
+  it('returns cache-tool disabled error even when ADMIN_API_KEY is unset', async () => {
+    const { app } = await createTestApp();
+    delete process.env.ADMIN_API_KEY;
+
+    const response = await request(app)
+      .post('/mcp')
+      .send({
+        jsonrpc: '2.0',
+        id: 8,
+        method: 'tools/call',
+        params: {
+          name: 'wayfinder_cache_stats',
+          arguments: {},
+        },
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.error.code).toBe(-32004);
+  });
+
   it('lists MCP tools and routes a prompt', async () => {
     const { app, dependencies } = await createTestApp();
 

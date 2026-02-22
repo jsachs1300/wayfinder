@@ -9,7 +9,7 @@ This endpoint allows agent runtimes to:
 
 ## Endpoint Summary
 
-- **Discovery**: `GET /mcp`
+- **Discovery**: `GET /mcp` (Wayfinder convenience endpoint; not an MCP standard discovery format)
 - **RPC Transport**: `POST /mcp`
 - **Content-Type**: `application/json`
 - **Protocol Style**: JSON-RPC 2.0 envelopes
@@ -61,6 +61,8 @@ For `wayfinder_route`, token extraction priority is:
 3. `params.arguments.token`
 
 This priority is intentionally aligned with MCP rate-limiter keying.
+
+For `wayfinder_cache_stats`, treat `admin_api_key` as a secret: inject from environment/secret manager and avoid logging full MCP request payloads containing credentials.
 
 ## Rate Limiting
 

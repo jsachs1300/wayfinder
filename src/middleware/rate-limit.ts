@@ -16,6 +16,7 @@ import rateLimit, { Options, ipKeyGenerator } from 'express-rate-limit';
 import { RedisStore, type RedisReply, type SendCommandFn } from 'rate-limit-redis';
 import type { Request } from 'express';
 import type Redis from 'ioredis';
+import { extractWayfinderTokenForRateLimit } from '../auth';
 
 /**
  * Rate limit configuration from environment variables
@@ -103,38 +104,6 @@ function loadRateLimitConfig(): RateLimitConfig {
 /**
  * Create rate limiter options with optional Redis store
  */
-
-function extractBearerToken(authorizationHeader: unknown): string | undefined {
-  if (typeof authorizationHeader !== 'string') {
-    return undefined;
-  }
-
-  if (!authorizationHeader.startsWith('Bearer ')) {
-    return undefined;
-  }
-
-  const token = authorizationHeader.slice('Bearer '.length).trim();
-  return token.length > 0 ? token : undefined;
-}
-
-function extractMcpBodyToken(body: unknown): string | undefined {
-  if (typeof body !== 'object' || body === null) {
-    return undefined;
-  }
-
-  const maybeParams = (body as Record<string, unknown>).params;
-  if (typeof maybeParams !== 'object' || maybeParams === null) {
-    return undefined;
-  }
-
-  const maybeArgs = (maybeParams as Record<string, unknown>).arguments;
-  if (typeof maybeArgs !== 'object' || maybeArgs === null) {
-    return undefined;
-  }
-
-  const maybeToken = (maybeArgs as Record<string, unknown>).token;
-  return typeof maybeToken === 'string' && maybeToken.length > 0 ? maybeToken : undefined;
-}
 
 function createRateLimiterOptions(
   windowMs: number,
@@ -253,19 +222,9 @@ export function createRateLimiters(redis?: Redis) {
         config.routingMaxRequests,
         storeRedis,
         (req: Request) => {
-          const headerToken = req.headers['x-wayfinder-token'] as string | undefined;
-          if (headerToken) {
-            return `token:${headerToken}`;
-          }
-
-          const bearerToken = extractBearerToken(req.headers.authorization);
-          if (bearerToken) {
-            return `token:${bearerToken}`;
-          }
-
-          const bodyToken = extractMcpBodyToken(req.body);
-          if (bodyToken) {
-            return `token:${bodyToken}`;
+          const token = extractWayfinderTokenForRateLimit(req);
+          if (token) {
+            return `token:${token}`;
           }
 
           return ipKeyGenerator(req.ip ?? 'unknown');

@@ -502,15 +502,12 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
         type: 'openapi',
         url: '/llm-spec',
       },
-      logo_url: '',
-      contact_email: '',
-      legal_info_url: '',
     });
   });
 
   app.use('/mcp',
     rateLimiters.mcp,
-    createMcpRoutes(routingEngine, tokenStore, cache, userStore)
+    createMcpRoutes(routingEngine, tokenStore, cache, userStore, logger, tokenMetricsStore)
   );
 
   // Admin routes (require admin auth + rate limiting)
