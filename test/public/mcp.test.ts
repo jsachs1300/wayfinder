@@ -67,6 +67,22 @@ describe('MCP endpoint and LLM discovery files', () => {
     expect(aiPluginRes.body.api.url).toBe('/llm-spec');
   });
 
+
+
+  it('returns 204 with no body for notifications/initialized', async () => {
+    const { app } = await createTestApp();
+
+    const response = await request(app)
+      .post('/mcp')
+      .send({
+        jsonrpc: '2.0',
+        method: 'notifications/initialized',
+      });
+
+    expect(response.status).toBe(204);
+    expect(response.text).toBe('');
+  });
+
   it('lists MCP tools and routes a prompt', async () => {
     const { app, dependencies } = await createTestApp();
 

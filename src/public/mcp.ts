@@ -1,4 +1,4 @@
-import { createHash, timingSafeEqual } from 'crypto';
+import { timingSafeEqual } from 'crypto';
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import type { RoutingEngine } from '../routing';
@@ -8,6 +8,7 @@ import type { TokenStore } from '../tokens/store';
 import type { UserStore } from '../users/store';
 import type { RouteRequest, RouterModelPreference } from '../types';
 import { VALID_ROUTER_MODEL_PREFERENCES } from '../types';
+import { hashToken } from '../auth';
 
 const JsonRpcRequestSchema = z.object({
   jsonrpc: z.literal('2.0'),
@@ -34,9 +35,6 @@ const CacheStatsToolArgsSchema = z.object({
   admin_api_key: z.string().optional(),
 });
 
-function hashToken(token: string): string {
-  return createHash('sha256').update(token).digest('hex');
-}
 
 function jsonRpcResult(id: string | number | undefined, result: unknown): Record<string, unknown> {
   return { jsonrpc: '2.0', id: id ?? null, result };
@@ -136,7 +134,7 @@ export function createMcpRoutes(
     }
 
     if (method === 'notifications/initialized') {
-      sendRpc(res, jsonRpcResult(id, {}));
+      res.status(204).end();
       return;
     }
 
