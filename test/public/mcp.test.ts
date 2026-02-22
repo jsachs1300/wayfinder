@@ -151,6 +151,40 @@ describe('MCP endpoint and LLM discovery files', () => {
     expect(metrics?.throttled_requests).toBe(1);
   });
 
+  it('reuses hydrated MCP token context without a second token-store lookup', async () => {
+    const { app, dependencies } = await createTestApp();
+    const created = await dependencies.tokenStore.create({ environment: 'dev' });
+
+    const originalGetByHash = dependencies.tokenStore.getByHash.bind(dependencies.tokenStore);
+    let getByHashCalls = 0;
+    dependencies.tokenStore.getByHash = async (...args: Parameters<typeof originalGetByHash>) => {
+      getByHashCalls += 1;
+      return originalGetByHash(...args);
+    };
+
+    try {
+      const response = await request(app)
+        .post('/mcp')
+        .set('Authorization', `Bearer ${created.token}`)
+        .send({
+          jsonrpc: '2.0',
+          id: 14,
+          method: 'tools/call',
+          params: {
+            name: 'wayfinder_route',
+            arguments: {
+              prompt: 'single lookup check',
+            },
+          },
+        });
+
+      expect(response.status).toBe(200);
+      expect(getByHashCalls).toBe(1);
+    } finally {
+      dependencies.tokenStore.getByHash = originalGetByHash;
+    }
+  });
+
   it('preserves admin tier for legacy MCP tokens when self-service is enabled', async () => {
     process.env.FEATURE_USER_SELF_SERVICE = 'true';
     process.env.RATE_LIMIT_FREE_BURST = '1';

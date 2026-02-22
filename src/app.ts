@@ -156,7 +156,7 @@ function createMcpTokenContextMiddleware(tokenStore: TokenStore, userStore?: Use
       const tokenUserId = (tokenConfig as TokenConfigExtended).user_id;
       if (tokenUserId && userStore) {
         const user = await userStore.getById(tokenUserId);
-        if (user) {
+        if (user?.status === 'active') {
           req.user = user;
           req.userTier = user.tier;
         }
