@@ -1,0 +1,98 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import request from 'supertest';
+import Redis from 'ioredis-mock';
+
+type EnvSnapshot = {
+  featureUserSelfService?: string;
+  llmKeyEncryptionKey?: string;
+  adminApiKey?: string;
+};
+
+const envSnapshot: EnvSnapshot = {
+  featureUserSelfService: process.env.FEATURE_USER_SELF_SERVICE,
+  llmKeyEncryptionKey: process.env.LLM_KEY_ENCRYPTION_KEY,
+  adminApiKey: process.env.ADMIN_API_KEY,
+};
+
+function restoreEnv(): void {
+  if (envSnapshot.featureUserSelfService === undefined) {
+    delete process.env.FEATURE_USER_SELF_SERVICE;
+  } else {
+    process.env.FEATURE_USER_SELF_SERVICE = envSnapshot.featureUserSelfService;
+  }
+  if (envSnapshot.llmKeyEncryptionKey === undefined) {
+    delete process.env.LLM_KEY_ENCRYPTION_KEY;
+  } else {
+    process.env.LLM_KEY_ENCRYPTION_KEY = envSnapshot.llmKeyEncryptionKey;
+  }
+  if (envSnapshot.adminApiKey === undefined) {
+    delete process.env.ADMIN_API_KEY;
+  } else {
+    process.env.ADMIN_API_KEY = envSnapshot.adminApiKey;
+  }
+}
+
+async function createTestApp() {
+  process.env.FEATURE_USER_SELF_SERVICE = 'false';
+  process.env.ADMIN_API_KEY = 'test-admin-key';
+  process.env.LLM_KEY_ENCRYPTION_KEY = 'a'.repeat(64);
+  vi.resetModules();
+  const { createApp } = await import('../../src/app');
+  const redis = new Redis();
+  const { app, dependencies } = await createApp({ redis });
+  return { app, dependencies };
+}
+
+describe('MCP endpoint and LLM discovery files', () => {
+  afterEach(() => {
+    restoreEnv();
+    vi.resetModules();
+  });
+
+  it('serves /prompt.txt and /.well-known/ai-plugin.json', async () => {
+    const { app } = await createTestApp();
+
+    const promptRes = await request(app).get('/prompt.txt');
+    expect(promptRes.status).toBe(200);
+    expect(promptRes.headers['content-type']).toContain('text/plain; charset=utf-8');
+    expect(promptRes.text).toContain('wayfinder_route');
+
+    const wellKnownRes = await request(app).get('/.well-known/ai-plugin.json');
+    expect(wellKnownRes.status).toBe(200);
+    expect(wellKnownRes.body.name_for_model).toBe('wayfinder_mcp');
+    expect(wellKnownRes.body.api.url).toBe('/llm-spec');
+  });
+
+  it('lists MCP tools and routes a prompt', async () => {
+    const { app, dependencies } = await createTestApp();
+
+    const created = await dependencies.tokenStore.create({ environment: 'dev' });
+
+    const listRes = await request(app)
+      .post('/mcp')
+      .send({ jsonrpc: '2.0', id: 1, method: 'tools/list' });
+
+    expect(listRes.status).toBe(200);
+    expect(listRes.body.result.tools.some((t: { name: string }) => t.name === 'wayfinder_route')).toBe(true);
+
+    const callRes = await request(app)
+      .post('/mcp')
+      .send({
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'tools/call',
+        params: {
+          name: 'wayfinder_route',
+          arguments: {
+            token: created.token,
+            prompt: 'Write unit tests for this function',
+          },
+        },
+      });
+
+    expect(callRes.status).toBe(200);
+    expect(callRes.body.result.structuredContent.primary.model).toBeTypeOf('string');
+    expect(callRes.body.result.structuredContent.alternate.model).toBeTypeOf('string');
+    expect(callRes.body.result.structuredContent.request_id).toBeTypeOf('string');
+  });
+});
