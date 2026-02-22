@@ -28,7 +28,7 @@ const ToolCallSchema = z.object({
 
 const RouteToolArgsSchema = z.object({
   token: z.string().min(1).optional(),
-  prompt: z.string().min(1),
+  prompt: z.string().min(1).max(10_000),
   router_model: z.enum([...VALID_ROUTER_MODEL_PREFERENCES] as [RouterModelPreference, ...RouterModelPreference[]]).optional(),
   prefer_model: z.string().optional(),
   context: z.record(z.unknown()).optional(),
@@ -69,6 +69,7 @@ export function createMcpRoutes(
   const router = Router();
 
   router.get('/', (_req: Request, res: Response) => {
+    res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=300');
     res.json({
       protocol: 'mcp',
       protocol_version: '2025-03-26',

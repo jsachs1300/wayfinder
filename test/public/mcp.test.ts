@@ -119,27 +119,29 @@ describe('MCP endpoint and LLM discovery files', () => {
       throw new Error('token store unavailable');
     };
 
-    const response = await request(app)
-      .post('/mcp')
-      .set('Authorization', `Bearer ${created.token}`)
-      .send({
-        jsonrpc: '2.0',
-        id: 5,
-        method: 'tools/call',
-        params: {
-          name: 'wayfinder_route',
-          arguments: {
-            prompt: 'trigger failure',
+    try {
+      const response = await request(app)
+        .post('/mcp')
+        .set('Authorization', `Bearer ${created.token}`)
+        .send({
+          jsonrpc: '2.0',
+          id: 5,
+          method: 'tools/call',
+          params: {
+            name: 'wayfinder_route',
+            arguments: {
+              prompt: 'trigger failure',
+            },
           },
-        },
-      });
+        });
 
-    dependencies.tokenStore.getByHash = originalGetByHash;
-
-    expect(response.status).toBe(200);
-    expect(response.body.error.code).toBe(-32603);
-    expect(response.body.error.message).toBe('Internal error');
-    expect(response.body.error.data).toBeUndefined();
+      expect(response.status).toBe(200);
+      expect(response.body.error.code).toBe(-32603);
+      expect(response.body.error.message).toBe('Internal error');
+      expect(response.body.error.data).toBeUndefined();
+    } finally {
+      dependencies.tokenStore.getByHash = originalGetByHash;
+    }
   });
 
 
@@ -156,6 +158,31 @@ describe('MCP endpoint and LLM discovery files', () => {
     expect(response.body.result.serverInfo.version).toBeTypeOf('string');
   });
 
+
+
+
+  it('rejects oversized prompt payloads', async () => {
+    const { app, dependencies } = await createTestApp();
+    const created = await dependencies.tokenStore.create({ environment: 'dev' });
+
+    const response = await request(app)
+      .post('/mcp')
+      .set('Authorization', `Bearer ${created.token}`)
+      .send({
+        jsonrpc: '2.0',
+        id: 9,
+        method: 'tools/call',
+        params: {
+          name: 'wayfinder_route',
+          arguments: {
+            prompt: 'x'.repeat(10001),
+          },
+        },
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.error.code).toBe(-32602);
+  });
 
   it('lists MCP tools and routes a prompt', async () => {
     const { app, dependencies } = await createTestApp();

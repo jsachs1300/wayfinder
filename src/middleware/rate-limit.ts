@@ -222,6 +222,8 @@ export function createRateLimiters(redis?: Redis) {
         config.routingMaxRequests,
         storeRedis,
         (req: Request) => {
+          // Depends on Express JSON middleware running before this limiter so
+          // req.body.params.arguments.token is available for MCP body-token callers.
           const token = extractWayfinderTokenForRateLimit(req);
           if (token) {
             return `token:${token}`;
