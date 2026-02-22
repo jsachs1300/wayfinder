@@ -49,7 +49,7 @@ describe('MCP endpoint and LLM discovery files', () => {
     vi.resetModules();
   });
 
-  it('serves /prompt.txt and /.well-known/ai-plugin.json', async () => {
+  it('serves /prompt.txt and well-known descriptors', async () => {
     const { app } = await createTestApp();
 
     const promptRes = await request(app).get('/prompt.txt');
@@ -57,10 +57,14 @@ describe('MCP endpoint and LLM discovery files', () => {
     expect(promptRes.headers['content-type']).toContain('text/plain; charset=utf-8');
     expect(promptRes.text).toContain('wayfinder_route');
 
-    const wellKnownRes = await request(app).get('/.well-known/ai-plugin.json');
-    expect(wellKnownRes.status).toBe(200);
-    expect(wellKnownRes.body.name_for_model).toBe('wayfinder_mcp');
-    expect(wellKnownRes.body.api.url).toBe('/llm-spec');
+    const mcpWellKnownRes = await request(app).get('/.well-known/mcp.json');
+    expect(mcpWellKnownRes.status).toBe(200);
+    expect(mcpWellKnownRes.body.endpoint).toBe('/mcp');
+
+    const aiPluginRes = await request(app).get('/.well-known/ai-plugin.json');
+    expect(aiPluginRes.status).toBe(200);
+    expect(aiPluginRes.body.name_for_model).toBe('wayfinder_mcp');
+    expect(aiPluginRes.body.api.url).toBe('/llm-spec');
   });
 
   it('lists MCP tools and routes a prompt', async () => {
@@ -77,6 +81,7 @@ describe('MCP endpoint and LLM discovery files', () => {
 
     const callRes = await request(app)
       .post('/mcp')
+      .set('Authorization', `Bearer ${created.token}`)
       .send({
         jsonrpc: '2.0',
         id: 2,
@@ -84,7 +89,6 @@ describe('MCP endpoint and LLM discovery files', () => {
         params: {
           name: 'wayfinder_route',
           arguments: {
-            token: created.token,
             prompt: 'Write unit tests for this function',
           },
         },
@@ -94,5 +98,23 @@ describe('MCP endpoint and LLM discovery files', () => {
     expect(callRes.body.result.structuredContent.primary.model).toBeTypeOf('string');
     expect(callRes.body.result.structuredContent.alternate.model).toBeTypeOf('string');
     expect(callRes.body.result.structuredContent.request_id).toBeTypeOf('string');
+
+    const invalidTokenCallRes = await request(app)
+      .post('/mcp')
+      .set('Authorization', 'Bearer wf_invalid')
+      .send({
+        jsonrpc: '2.0',
+        id: 3,
+        method: 'tools/call',
+        params: {
+          name: 'wayfinder_route',
+          arguments: {
+            prompt: 'hello',
+          },
+        },
+      });
+
+    expect(invalidTokenCallRes.status).toBe(200);
+    expect(invalidTokenCallRes.body.error.code).toBe(-32001);
   });
 });

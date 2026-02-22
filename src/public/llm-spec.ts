@@ -366,7 +366,7 @@ export function buildLLMIntegrationSpec(userSelfServiceEnabled: boolean): LLMInt
       llms_txt: '/llms.txt',
       prompt_txt: '/prompt.txt',
       mcp_endpoint: '/mcp',
-      well_known: ['/.well-known/ai-plugin.json'],
+      well_known: ['/.well-known/mcp.json', '/.well-known/ai-plugin.json'],
     },
   };
 }

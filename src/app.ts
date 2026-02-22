@@ -476,7 +476,21 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
     );
   });
 
+
+  app.get('/.well-known/mcp.json', (_req: Request, res: Response) => {
+    res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=300');
+    res.json({
+      name: 'wayfinder-mcp',
+      description: 'Remote MCP server for Wayfinder routing and cache tools.',
+      protocol: 'jsonrpc',
+      endpoint: '/mcp',
+      prompt: '/prompt.txt',
+      llms: '/llms.txt',
+      tools: ['wayfinder_route', 'wayfinder_cache_stats'],
+    });
+  });
   app.get('/.well-known/ai-plugin.json', (_req: Request, res: Response) => {
+    res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=300');
     res.json({
       schema_version: 'v1',
       name_for_human: 'Wayfinder MCP',
