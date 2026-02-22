@@ -139,6 +139,7 @@ describe('MCP endpoint and LLM discovery files', () => {
     expect(response.status).toBe(200);
     expect(response.body.error.code).toBe(-32603);
     expect(response.body.error.message).toBe('Internal error');
+    expect(response.body.error.data).toBeUndefined();
   });
 
 

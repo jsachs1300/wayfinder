@@ -5,13 +5,14 @@ import type { RoutingEngine } from '../routing';
 import { projectRouteResponse } from '../routing/projection';
 import type { TokenStore } from '../tokens/store';
 import type { UserStore } from '../users/store';
-import type { RouteRequest, RouterModelPreference } from '../types';
+import type { RouteRequest, RouterModelPreference, TokenConfig } from '../types';
 import { VALID_ROUTER_MODEL_PREFERENCES } from '../types';
 import { hashToken, extractWayfinderToken } from '../auth';
 import { logRoutingUsage } from '../observability/events';
 import { recordRoutingError, recordRoutingRequest } from '../observability/metrics';
 import type { Logger } from '../logging/logger';
 import type { TokenMetricsStore } from '../tokens/metrics';
+import type { TokenConfigExtended } from '../tokens/types';
 
 const JsonRpcRequestSchema = z.object({
   jsonrpc: z.literal('2.0'),
@@ -50,6 +51,14 @@ function sendRpc(res: Response, payload: Record<string, unknown>): void {
   res.status(200).json(payload);
 }
 
+
+function getTokenUserId(tokenConfig: TokenConfig): string | undefined {
+  const extended = tokenConfig as TokenConfigExtended;
+  return typeof extended.user_id === 'string' && extended.user_id.length > 0
+    ? extended.user_id
+    : undefined;
+}
+
 export function createMcpRoutes(
   routingEngine: RoutingEngine,
   tokenStore: TokenStore,
@@ -74,6 +83,7 @@ export function createMcpRoutes(
   router.post('/', async (req: Request, res: Response): Promise<void> => {
     const parsed = JsonRpcRequestSchema.safeParse(req.body);
     const requestId = parsed.success ? parsed.data.id : undefined;
+    let requestedRouterForMetrics = 'consensus';
 
     try {
       if (!parsed.success) {
@@ -159,9 +169,9 @@ export function createMcpRoutes(
         }
 
         let userContext: { user: unknown; userTier: string } | undefined;
-        const tokenWithUser = tokenConfig as { user_id?: string };
-        if (tokenWithUser.user_id && userStore) {
-          const user = await userStore.getById(tokenWithUser.user_id);
+        const tokenUserId = getTokenUserId(tokenConfig);
+        if (tokenUserId && userStore) {
+          const user = await userStore.getById(tokenUserId);
           if (!user || user.status !== 'active') {
             sendRpc(res, jsonRpcError(id, -32003, 'Token owner is not active'));
             return;
@@ -178,6 +188,7 @@ export function createMcpRoutes(
         };
 
         const requestedRouter = routeRequest.router_model || tokenConfig.router_model_preference || 'consensus';
+        requestedRouterForMetrics = requestedRouter;
         recordRoutingRequest({ router_model_requested: requestedRouter });
 
         const wfRequestId = req.requestId || `mcp-${Date.now()}`;
@@ -225,7 +236,7 @@ export function createMcpRoutes(
         request_id: requestId,
         error: error instanceof Error ? error.message : String(error),
       });
-      recordRoutingError({ error_type: 'internal', router_model_requested: 'consensus' });
+      recordRoutingError({ error_type: 'internal', router_model_requested: requestedRouterForMetrics });
       sendRpc(res, jsonRpcError(requestId, -32603, 'Internal error'));
       return;
     }
