@@ -7,6 +7,7 @@ type EnvSnapshot = {
   llmKeyEncryptionKey?: string;
   adminApiKey?: string;
   rateLimitRoutingMax?: string;
+  rateLimitFreeBurst?: string;
 };
 
 const envSnapshot: EnvSnapshot = {
@@ -14,6 +15,7 @@ const envSnapshot: EnvSnapshot = {
   llmKeyEncryptionKey: process.env.LLM_KEY_ENCRYPTION_KEY,
   adminApiKey: process.env.ADMIN_API_KEY,
   rateLimitRoutingMax: process.env.RATE_LIMIT_ROUTING_MAX,
+  rateLimitFreeBurst: process.env.RATE_LIMIT_FREE_BURST,
 };
 
 function restoreEnv(): void {
@@ -38,11 +40,18 @@ function restoreEnv(): void {
   } else {
     process.env.RATE_LIMIT_ROUTING_MAX = envSnapshot.rateLimitRoutingMax;
   }
+  if (envSnapshot.rateLimitFreeBurst === undefined) {
+    delete process.env.RATE_LIMIT_FREE_BURST;
+  } else {
+    process.env.RATE_LIMIT_FREE_BURST = envSnapshot.rateLimitFreeBurst;
+  }
 }
 
 
 async function createTestApp() {
-  process.env.FEATURE_USER_SELF_SERVICE = 'false';
+  if (!process.env.FEATURE_USER_SELF_SERVICE) {
+    process.env.FEATURE_USER_SELF_SERVICE = 'false';
+  }
   process.env.ADMIN_API_KEY = 'test-admin-key';
   process.env.LLM_KEY_ENCRYPTION_KEY = 'a'.repeat(64);
   vi.resetModules();
@@ -140,6 +149,47 @@ describe('MCP endpoint and LLM discovery files', () => {
 
     const metrics = await dependencies.tokenMetricsStore?.getMetrics(created.id);
     expect(metrics?.throttled_requests).toBe(1);
+  });
+
+  it('preserves admin tier for legacy MCP tokens when self-service is enabled', async () => {
+    process.env.FEATURE_USER_SELF_SERVICE = 'true';
+    process.env.RATE_LIMIT_FREE_BURST = '1';
+    const { app, dependencies } = await createTestApp();
+    const created = await dependencies.tokenStore.create({ environment: 'dev' });
+
+    const firstCall = await request(app)
+      .post('/mcp')
+      .set('Authorization', `Bearer ${created.token}`)
+      .send({
+        jsonrpc: '2.0',
+        id: 12,
+        method: 'tools/call',
+        params: {
+          name: 'wayfinder_route',
+          arguments: {
+            prompt: 'legacy token first call',
+          },
+        },
+      });
+
+    expect(firstCall.status).toBe(200);
+
+    const secondCall = await request(app)
+      .post('/mcp')
+      .set('Authorization', `Bearer ${created.token}`)
+      .send({
+        jsonrpc: '2.0',
+        id: 13,
+        method: 'tools/call',
+        params: {
+          name: 'wayfinder_route',
+          arguments: {
+            prompt: 'legacy token second call',
+          },
+        },
+      });
+
+    expect(secondCall.status).toBe(200);
   });
 
   it('returns 204 with no body for notifications/initialized', async () => {

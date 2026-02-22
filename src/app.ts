@@ -160,6 +160,10 @@ function createMcpTokenContextMiddleware(tokenStore: TokenStore, userStore?: Use
           req.user = user;
           req.userTier = user.tier;
         }
+      } else {
+        // Preserve legacy token behavior: tokens without a user association
+        // should continue to receive admin-tier routing limits.
+        req.userTier = 'admin';
       }
     } catch (error) {
       logger?.warn('Failed to resolve MCP token context', {
