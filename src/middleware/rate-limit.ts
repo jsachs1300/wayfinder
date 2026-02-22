@@ -103,6 +103,39 @@ function loadRateLimitConfig(): RateLimitConfig {
 /**
  * Create rate limiter options with optional Redis store
  */
+
+function extractBearerToken(authorizationHeader: unknown): string | undefined {
+  if (typeof authorizationHeader !== 'string') {
+    return undefined;
+  }
+
+  if (!authorizationHeader.startsWith('Bearer ')) {
+    return undefined;
+  }
+
+  const token = authorizationHeader.slice('Bearer '.length).trim();
+  return token.length > 0 ? token : undefined;
+}
+
+function extractMcpBodyToken(body: unknown): string | undefined {
+  if (typeof body !== 'object' || body === null) {
+    return undefined;
+  }
+
+  const maybeParams = (body as Record<string, unknown>).params;
+  if (typeof maybeParams !== 'object' || maybeParams === null) {
+    return undefined;
+  }
+
+  const maybeArgs = (maybeParams as Record<string, unknown>).arguments;
+  if (typeof maybeArgs !== 'object' || maybeArgs === null) {
+    return undefined;
+  }
+
+  const maybeToken = (maybeArgs as Record<string, unknown>).token;
+  return typeof maybeToken === 'string' && maybeToken.length > 0 ? maybeToken : undefined;
+}
+
 function createRateLimiterOptions(
   windowMs: number,
   max: number,
@@ -210,6 +243,37 @@ export function createRateLimiters(redis?: Redis) {
       )
     ),
 
+
+    /**
+     * MCP endpoint limiter - shares /route limits and supports MCP auth forms.
+     */
+    mcp: rateLimit(
+      createRateLimiterOptions(
+        config.routingWindowMs,
+        config.routingMaxRequests,
+        storeRedis,
+        (req: Request) => {
+          const headerToken = req.headers['x-wayfinder-token'] as string | undefined;
+          if (headerToken) {
+            return `token:${headerToken}`;
+          }
+
+          const bearerToken = extractBearerToken(req.headers.authorization);
+          if (bearerToken) {
+            return `token:${bearerToken}`;
+          }
+
+          const bodyToken = extractMcpBodyToken(req.body);
+          if (bodyToken) {
+            return `token:${bodyToken}`;
+          }
+
+          return ipKeyGenerator(req.ip ?? 'unknown');
+        },
+        '/mcp'
+      )
+    ),
+
     /**
      * Admin endpoints rate limiter - uses IP as key
      */
@@ -260,6 +324,11 @@ export function getRateLimitConfigSummary(): Record<string, unknown> {
       window_seconds: config.routingWindowMs / 1000,
       max_requests: config.routingMaxRequests,
       note: 'Per token (conservative due to LLM costs)',
+    },
+    mcp: {
+      window_seconds: config.routingWindowMs / 1000,
+      max_requests: config.routingMaxRequests,
+      note: 'Shares routing limits; keying uses token header, bearer token, MCP args token, then IP',
     },
     admin: {
       window_seconds: config.adminWindowMs / 1000,

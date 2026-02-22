@@ -155,6 +155,51 @@ describe('Rate Limiting', () => {
     });
   });
 
+
+
+  describe('Rate Limit Enforcement - MCP Endpoint', () => {
+    it('should block MCP requests after exceeding routing-equivalent limit', async () => {
+      const limit = parseInt(process.env.RATE_LIMIT_ROUTING_MAX || '20', 10);
+
+      for (let i = 0; i < limit; i++) {
+        const response = await request(app)
+          .post('/mcp')
+          .set('Authorization', `Bearer ${testToken}`)
+          .send({
+            jsonrpc: '2.0',
+            id: i + 1,
+            method: 'tools/call',
+            params: {
+              name: 'wayfinder_route',
+              arguments: {
+                prompt: `test ${i}`,
+              },
+            },
+          });
+
+        expect(response.status).not.toBe(429);
+      }
+
+      const blockedResponse = await request(app)
+        .post('/mcp')
+        .set('Authorization', `Bearer ${testToken}`)
+        .send({
+          jsonrpc: '2.0',
+          id: 999,
+          method: 'tools/call',
+          params: {
+            name: 'wayfinder_route',
+            arguments: {
+              prompt: 'should be blocked',
+            },
+          },
+        });
+
+      expect(blockedResponse.status).toBe(429);
+      expect(blockedResponse.body.error).toBe('TooManyRequests');
+    });
+  });
+
   describe('Rate Limit Enforcement - Admin Endpoint', () => {
     it('should block admin requests after exceeding limit', async () => {
       const limit = parseInt(process.env.RATE_LIMIT_ADMIN_MAX || '50', 10);
