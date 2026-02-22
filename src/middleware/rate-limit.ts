@@ -16,6 +16,7 @@ import rateLimit, { Options, ipKeyGenerator } from 'express-rate-limit';
 import { RedisStore, type RedisReply, type SendCommandFn } from 'rate-limit-redis';
 import type { Request } from 'express';
 import type Redis from 'ioredis';
+import { extractWayfinderTokenForRateLimit } from '../auth';
 
 /**
  * Rate limit configuration from environment variables
@@ -103,6 +104,7 @@ function loadRateLimitConfig(): RateLimitConfig {
 /**
  * Create rate limiter options with optional Redis store
  */
+
 function createRateLimiterOptions(
   windowMs: number,
   max: number,
@@ -210,6 +212,29 @@ export function createRateLimiters(redis?: Redis) {
       )
     ),
 
+
+    /**
+     * MCP endpoint limiter - shares /route limits and supports MCP auth forms.
+     */
+    mcp: rateLimit(
+      createRateLimiterOptions(
+        config.routingWindowMs,
+        config.routingMaxRequests,
+        storeRedis,
+        (req: Request) => {
+          // Depends on Express JSON middleware running before this limiter so
+          // req.body.params.arguments.token is available for MCP body-token callers.
+          const token = extractWayfinderTokenForRateLimit(req);
+          if (token) {
+            return `token:${token}`;
+          }
+
+          return ipKeyGenerator(req.ip ?? 'unknown');
+        },
+        '/mcp'
+      )
+    ),
+
     /**
      * Admin endpoints rate limiter - uses IP as key
      */
@@ -260,6 +285,11 @@ export function getRateLimitConfigSummary(): Record<string, unknown> {
       window_seconds: config.routingWindowMs / 1000,
       max_requests: config.routingMaxRequests,
       note: 'Per token (conservative due to LLM costs)',
+    },
+    mcp: {
+      window_seconds: config.routingWindowMs / 1000,
+      max_requests: config.routingMaxRequests,
+      note: 'Shares routing limits; keying uses token header, bearer token, MCP args token, then IP',
     },
     admin: {
       window_seconds: config.adminWindowMs / 1000,

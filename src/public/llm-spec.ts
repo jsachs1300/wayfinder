@@ -40,6 +40,12 @@ export interface LLMIntegrationSpec {
     implementation: string[];
   }>;
   implementation_checklist: string[];
+  llm_discovery: {
+    llms_txt: string;
+    prompt_txt: string;
+    mcp_endpoint: string;
+    well_known: string[];
+  };
 }
 
 export function renderLLMSpecText(spec: LLMIntegrationSpec): string {
@@ -92,6 +98,12 @@ export function renderLLMSpecText(spec: LLMIntegrationSpec): string {
       lines.push(`  - ${step}`);
     }
   }
+  lines.push('');
+  lines.push('## LLM Discovery');
+  lines.push(`- llms.txt: ${spec.llm_discovery.llms_txt}`);
+  lines.push(`- prompt.txt: ${spec.llm_discovery.prompt_txt}`);
+  lines.push(`- MCP endpoint: ${spec.llm_discovery.mcp_endpoint}`);
+  lines.push(`- Well-known: ${spec.llm_discovery.well_known.join(', ')}`);
   lines.push('');
   lines.push('## Implementation Checklist');
   for (const item of spec.implementation_checklist) {
@@ -350,5 +362,11 @@ export function buildLLMIntegrationSpec(userSelfServiceEnabled: boolean): LLMInt
       'Support switching router_model (openai/gemini/consensus) per request when needed.',
       'Add telemetry for selected model, latency, and downstream outcome.',
     ],
+    llm_discovery: {
+      llms_txt: '/llms.txt',
+      prompt_txt: '/prompt.txt',
+      mcp_endpoint: '/mcp',
+      well_known: ['/.well-known/mcp.json', '/.well-known/ai-plugin.json'],
+    },
   };
 }

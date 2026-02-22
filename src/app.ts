@@ -41,6 +41,8 @@ import { createUserVerificationStore, type UserVerificationStore } from './users
 import { ConsoleMailer, PostmarkMailer, type Mailer } from './email';
 import { getSharedRedis } from './redis/shared';
 import { buildLLMIntegrationSpec, renderLLMSpecText } from './public/llm-spec';
+import { buildOpenApiSpec } from './public/openapi-spec';
+import { createMcpRoutes } from './public/mcp';
 import { sessionRouteTokenMiddleware } from './tokens/session-route-middleware';
 
 /**
@@ -445,8 +447,14 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
     });
   });
 
-  // Public LLM integration spec endpoint (no auth)
+  // Machine-readable OpenAPI contract endpoint (no auth)
   app.get('/llm-spec', (_req: Request, res: Response) => {
+    res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=300');
+    res.json(buildOpenApiSpec());
+  });
+
+  // Legacy JSON integration spec (retained for compatibility)
+  app.get('/llm-integration-spec', (_req: Request, res: Response) => {
     res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=300');
     res.json(buildLLMIntegrationSpec(FEATURE_FLAGS.USER_SELF_SERVICE));
   });
@@ -458,6 +466,59 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
     res.set('Content-Type', 'text/plain; charset=utf-8');
     res.send(renderLLMSpecText(spec));
   });
+
+  app.get('/prompt.txt', (_req: Request, res: Response) => {
+    res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=300');
+    res.set('Content-Type', 'text/plain; charset=utf-8');
+    res.send(
+      'You are connected to Wayfinder, an LLM routing service.\n' +
+      'Prefer using the MCP tools when available:\n' +
+      '- wayfinder_route: get primary and alternate model recommendations for a prompt.\n' +
+      'Guidelines:\n' +
+      '1. Call wayfinder_route before selecting a model for user prompts.\n' +
+      '2. Respect returned model ranking and rationale.\n' +
+      '3. Treat request_id as trace metadata for logs/feedback.\n' +
+      '4. Never expose API tokens or admin keys in outputs.\n'
+    );
+  });
+
+
+  app.get('/.well-known/mcp.json', (_req: Request, res: Response) => {
+    res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=300');
+    res.json({
+      name: 'wayfinder-mcp',
+      description: 'Remote MCP server for Wayfinder routing and cache tools.',
+      protocol: 'jsonrpc',
+      endpoint: '/mcp',
+      prompt: '/prompt.txt',
+      llms: '/llms.txt',
+      tools: ['wayfinder_route'],
+    });
+  });
+  app.get('/.well-known/ai-plugin.json', (_req: Request, res: Response) => {
+    res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=300');
+    res.json({
+      schema_version: 'v1',
+      name_for_human: 'Wayfinder MCP',
+      name_for_model: 'wayfinder_mcp',
+      description_for_human: 'Route prompts across LLM providers with semantic cache support.',
+      description_for_model: 'Use the /mcp endpoint for tool discovery and calls to Wayfinder routing and cache tools.',
+      auth: { type: 'user_http', authorization_type: 'bearer' },
+      api: {
+        type: 'openapi',
+        url: '/llm-spec',
+      },
+    });
+  });
+
+  app.use('/mcp', createMcpRoutes(
+    routingEngine,
+    tokenStore,
+    userStore,
+    logger,
+    tokenMetricsStore,
+    rateLimiters.mcp
+  ));
 
   // Admin routes (require admin auth + rate limiting)
   const adminRouter = express.Router();
