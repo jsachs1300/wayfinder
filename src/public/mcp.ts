@@ -81,7 +81,13 @@ export function createMcpRoutes(
     });
   });
 
-  router.post('/', mcpRateLimiter ?? ((_req, _res, next) => next()), async (req: Request, res: Response): Promise<void> => {
+  router.post('/', (req: Request, res: Response, next) => {
+    const method = typeof req.body?.method === 'string' ? req.body.method : undefined;
+    if (method === 'notifications/initialized') {
+      return next();
+    }
+    return (mcpRateLimiter ?? ((_req, _res, continueNext) => continueNext()))(req, res, next);
+  }, async (req: Request, res: Response): Promise<void> => {
     const parsed = JsonRpcRequestSchema.safeParse(req.body);
     const requestId = parsed.success ? parsed.data.id : undefined;
     let requestedRouterForMetrics = 'consensus';

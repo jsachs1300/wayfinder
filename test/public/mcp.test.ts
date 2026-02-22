@@ -6,12 +6,14 @@ type EnvSnapshot = {
   featureUserSelfService?: string;
   llmKeyEncryptionKey?: string;
   adminApiKey?: string;
+  rateLimitRoutingMax?: string;
 };
 
 const envSnapshot: EnvSnapshot = {
   featureUserSelfService: process.env.FEATURE_USER_SELF_SERVICE,
   llmKeyEncryptionKey: process.env.LLM_KEY_ENCRYPTION_KEY,
   adminApiKey: process.env.ADMIN_API_KEY,
+  rateLimitRoutingMax: process.env.RATE_LIMIT_ROUTING_MAX,
 };
 
 function restoreEnv(): void {
@@ -30,7 +32,14 @@ function restoreEnv(): void {
   } else {
     process.env.ADMIN_API_KEY = envSnapshot.adminApiKey;
   }
+
+  if (envSnapshot.rateLimitRoutingMax === undefined) {
+    delete process.env.RATE_LIMIT_ROUTING_MAX;
+  } else {
+    process.env.RATE_LIMIT_ROUTING_MAX = envSnapshot.rateLimitRoutingMax;
+  }
 }
+
 
 async function createTestApp() {
   process.env.FEATURE_USER_SELF_SERVICE = 'false';
@@ -69,6 +78,25 @@ describe('MCP endpoint and LLM discovery files', () => {
   });
 
 
+
+
+
+  it('does not count notifications/initialized against MCP POST rate limit', async () => {
+    process.env.RATE_LIMIT_ROUTING_MAX = '1';
+    const { app } = await createTestApp();
+
+    const notificationRes = await request(app)
+      .post('/mcp')
+      .send({ jsonrpc: '2.0', method: 'notifications/initialized' });
+
+    expect(notificationRes.status).toBe(204);
+
+    const toolsListRes = await request(app)
+      .post('/mcp')
+      .send({ jsonrpc: '2.0', id: 'list-1', method: 'tools/list' });
+
+    expect(toolsListRes.status).toBe(200);
+  });
 
   it('returns 204 with no body for notifications/initialized', async () => {
     const { app } = await createTestApp();

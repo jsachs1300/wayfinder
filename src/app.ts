@@ -41,6 +41,7 @@ import { createUserVerificationStore, type UserVerificationStore } from './users
 import { ConsoleMailer, PostmarkMailer, type Mailer } from './email';
 import { getSharedRedis } from './redis/shared';
 import { buildLLMIntegrationSpec, renderLLMSpecText } from './public/llm-spec';
+import { buildOpenApiSpec } from './public/openapi-spec';
 import { createMcpRoutes } from './public/mcp';
 import { sessionRouteTokenMiddleware } from './tokens/session-route-middleware';
 
@@ -446,8 +447,14 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
     });
   });
 
-  // Public LLM integration spec endpoint (no auth)
+  // Machine-readable OpenAPI contract endpoint (no auth)
   app.get('/llm-spec', (_req: Request, res: Response) => {
+    res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=300');
+    res.json(buildOpenApiSpec());
+  });
+
+  // Legacy JSON integration spec (retained for compatibility)
+  app.get('/llm-integration-spec', (_req: Request, res: Response) => {
     res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=300');
     res.json(buildLLMIntegrationSpec(FEATURE_FLAGS.USER_SELF_SERVICE));
   });

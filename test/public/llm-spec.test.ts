@@ -49,17 +49,17 @@ describe('Public LLM Spec Endpoints', () => {
     vi.resetModules();
   });
 
-  it('returns /llm-spec with cache headers and expected contract fields', async () => {
+  it('returns /llm-spec as OpenAPI JSON with cache headers', async () => {
     const app = await createTestApp(false);
     const response = await request(app).get('/llm-spec');
 
     expect(response.status).toBe(200);
     expect(response.headers['content-type']).toContain('application/json');
     expect(response.headers['cache-control']).toContain('max-age=300');
-    expect(response.body.name).toBe('Wayfinder LLM Integration Spec');
-    expect(response.body.routing_contract.request.prompt).toBeTypeOf('string');
-    expect(response.body.routing_contract.request.prompt.length).toBeGreaterThan(0);
-    expect(response.body.routing_contract.request.router_model).toBe('consensus');
+    expect(response.body.openapi).toBe('3.1.0');
+    expect(response.body.info.title).toBe('Wayfinder API');
+    expect(response.body.paths['/route']).toBeDefined();
+    expect(response.body.paths['/mcp']).toBeDefined();
   });
 
   it('returns /llms.txt as UTF-8 text with cache headers', async () => {
@@ -73,9 +73,9 @@ describe('Public LLM Spec Endpoints', () => {
     expect(response.text).toContain('## Cache Behavior');
   });
 
-  it('keeps /llm-spec and /llms.txt content aligned for endpoint paths', async () => {
+  it('keeps /llm-integration-spec and /llms.txt content aligned for endpoint paths', async () => {
     const app = await createTestApp(false);
-    const jsonRes = await request(app).get('/llm-spec');
+    const jsonRes = await request(app).get('/llm-integration-spec');
     const textRes = await request(app).get('/llms.txt');
 
     expect(jsonRes.status).toBe(200);
@@ -91,14 +91,14 @@ describe('Public LLM Spec Endpoints', () => {
     }
   });
 
-  it('reflects user self-service feature flag in /llm-spec output', async () => {
+  it('reflects user self-service feature flag in /llm-integration-spec output', async () => {
     const appDisabled = await createTestApp(false);
-    const disabledRes = await request(appDisabled).get('/llm-spec');
+    const disabledRes = await request(appDisabled).get('/llm-integration-spec');
     expect(disabledRes.status).toBe(200);
     expect(disabledRes.body.user_self_service.enabled).toBe(false);
 
     const appEnabled = await createTestApp(true);
-    const enabledRes = await request(appEnabled).get('/llm-spec');
+    const enabledRes = await request(appEnabled).get('/llm-integration-spec');
     expect(enabledRes.status).toBe(200);
     expect(enabledRes.body.user_self_service.enabled).toBe(true);
     expect(Array.isArray(enabledRes.body.user_self_service.endpoints)).toBe(true);
