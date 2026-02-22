@@ -49,8 +49,9 @@ function jsonRpcError(id: string | number | undefined, code: number, message: st
 }
 
 function extractToken(req: Request, argsToken?: string): string | undefined {
-  if (argsToken) {
-    return argsToken;
+  const tokenHeader = req.headers['x-wayfinder-token'];
+  if (typeof tokenHeader === 'string' && tokenHeader.length > 0) {
+    return tokenHeader;
   }
 
   const auth = req.headers.authorization;
@@ -61,9 +62,8 @@ function extractToken(req: Request, argsToken?: string): string | undefined {
     }
   }
 
-  const tokenHeader = req.headers['x-wayfinder-token'];
-  if (typeof tokenHeader === 'string' && tokenHeader.length > 0) {
-    return tokenHeader;
+  if (argsToken) {
+    return argsToken;
   }
 
   return undefined;
@@ -111,163 +111,170 @@ export function createMcpRoutes(
   });
 
   router.post('/', async (req: Request, res: Response): Promise<void> => {
-    const parsed = JsonRpcRequestSchema.safeParse(req.body);
-    if (!parsed.success) {
-      sendRpc(res, jsonRpcError(undefined, -32600, 'Invalid Request'));
-      return;
-    }
-
-    const { id, method } = parsed.data;
-
-    if (method === 'initialize') {
-      sendRpc(res, jsonRpcResult(id, {
-        protocolVersion: '2025-03-26',
-        serverInfo: {
-          name: 'wayfinder-mcp',
-          version: '1.1.0',
-        },
-        capabilities: {
-          tools: {},
-        },
-      }));
-      return;
-    }
-
-    if (method === 'notifications/initialized') {
-      res.status(204).end();
-      return;
-    }
-
-    if (method === 'tools/list') {
-      sendRpc(res, jsonRpcResult(id, {
-        tools: [
-          {
-            name: 'wayfinder_route',
-            description: 'Route a prompt through Wayfinder and return recommended primary/alternate models.',
-            inputSchema: {
-              type: 'object',
-              required: ['prompt'],
-              properties: {
-                token: { type: 'string', description: 'Optional Wayfinder API token (wf_...). Prefer Authorization: Bearer.' },
-                prompt: { type: 'string', description: 'User prompt to route.' },
-                router_model: { type: 'string', enum: VALID_ROUTER_MODEL_PREFERENCES },
-                prefer_model: { type: 'string' },
-                context: { type: 'object', additionalProperties: true },
-                metadata: { type: 'object', additionalProperties: true },
-              },
-            },
-          },
-          {
-            name: 'wayfinder_cache_stats',
-            description: 'Get semantic cache statistics and connection status.',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                admin_api_key: { type: 'string', description: 'Required when ADMIN_API_KEY is configured.' },
-              },
-            },
-          },
-        ],
-      }));
-      return;
-    }
-
-    if (method !== 'tools/call') {
-      sendRpc(res, jsonRpcError(id, -32601, `Method not found: ${method}`));
-      return;
-    }
-
-    const toolCallParsed = ToolCallSchema.safeParse(parsed.data.params);
-    if (!toolCallParsed.success) {
-      sendRpc(res, jsonRpcError(id, -32602, 'Invalid params'));
-      return;
-    }
-
-    const { name, arguments: rawArguments } = toolCallParsed.data;
-
-    if (name === 'wayfinder_route') {
-      const routeArgs = RouteToolArgsSchema.safeParse(rawArguments ?? {});
-      if (!routeArgs.success) {
-        sendRpc(res, jsonRpcError(id, -32602, 'Invalid route arguments', routeArgs.error.flatten()));
-        return;
-      }
-
-      const providedToken = extractToken(req, routeArgs.data.token);
-      if (!providedToken) {
-        sendRpc(res, jsonRpcError(id, -32001, 'Missing Wayfinder token (token arg, Authorization Bearer, or X-Wayfinder-Token header)'));
-        return;
-      }
-
-      const tokenConfig = await tokenStore.getByHash(hashToken(providedToken));
-      if (!tokenConfig) {
-        sendRpc(res, jsonRpcError(id, -32001, 'Invalid Wayfinder token'));
-        return;
-      }
-
-      let userContext: { user: unknown; userTier: string } | undefined;
-      const tokenWithUser = tokenConfig as { user_id?: string };
-      if (tokenWithUser.user_id && userStore) {
-        const user = await userStore.getById(tokenWithUser.user_id);
-        if (!user || user.status !== 'active') {
-          sendRpc(res, jsonRpcError(id, -32003, 'Token owner is not active'));
+    try {
+        const parsed = JsonRpcRequestSchema.safeParse(req.body);
+        if (!parsed.success) {
+          sendRpc(res, jsonRpcError(undefined, -32600, 'Invalid Request'));
           return;
         }
-        userContext = { user, userTier: user.tier };
-      }
 
-      const requestId = req.requestId || `mcp-${Date.now()}`;
-      const routeRequest: RouteRequest = {
-        prompt: routeArgs.data.prompt,
-        router_model: routeArgs.data.router_model,
-        prefer_model: routeArgs.data.prefer_model,
-        context: routeArgs.data.context,
-        metadata: routeArgs.data.metadata,
-      };
+        const { id, method } = parsed.data;
 
-      const result = await routingEngine.route(routeRequest, tokenConfig, requestId, userContext);
-      const response = projectRouteResponse(
-        result.decision,
-        requestId,
-        result.router_model_used || routeArgs.data.router_model || tokenConfig.router_model_preference || 'consensus',
-        result.cache_hit || false,
-      );
+        if (method === 'initialize') {
+          sendRpc(res, jsonRpcResult(id, {
+            protocolVersion: '2025-03-26',
+            serverInfo: {
+              name: 'wayfinder-mcp',
+              version: '1.1.0',
+            },
+            capabilities: {
+              tools: {},
+            },
+          }));
+          return;
+        }
 
-      sendRpc(res, jsonRpcResult(id, {
-        content: [{ type: 'text', text: JSON.stringify(response) }],
-        structuredContent: response,
+        if (method === 'notifications/initialized') {
+          res.status(204).end();
+          return;
+        }
+
+        if (method === 'tools/list') {
+          sendRpc(res, jsonRpcResult(id, {
+            tools: [
+              {
+                name: 'wayfinder_route',
+                description: 'Route a prompt through Wayfinder and return recommended primary/alternate models.',
+                inputSchema: {
+                  type: 'object',
+                  required: ['prompt'],
+                  properties: {
+                    token: { type: 'string', description: 'Optional Wayfinder API token (wf_...). Prefer Authorization: Bearer.' },
+                    prompt: { type: 'string', description: 'User prompt to route.' },
+                    router_model: { type: 'string', enum: VALID_ROUTER_MODEL_PREFERENCES },
+                    prefer_model: { type: 'string' },
+                    context: { type: 'object', additionalProperties: true },
+                    metadata: { type: 'object', additionalProperties: true },
+                  },
+                },
+              },
+              {
+                name: 'wayfinder_cache_stats',
+                description: 'Get semantic cache statistics and connection status.',
+                inputSchema: {
+                  type: 'object',
+                  properties: {
+                    admin_api_key: { type: 'string', description: 'Required when ADMIN_API_KEY is configured.' },
+                  },
+                },
+              },
+            ],
+          }));
+          return;
+        }
+
+        if (method !== 'tools/call') {
+          sendRpc(res, jsonRpcError(id, -32601, `Method not found: ${method}`));
+          return;
+        }
+
+        const toolCallParsed = ToolCallSchema.safeParse(parsed.data.params);
+        if (!toolCallParsed.success) {
+          sendRpc(res, jsonRpcError(id, -32602, 'Invalid params'));
+          return;
+        }
+
+        const { name, arguments: rawArguments } = toolCallParsed.data;
+
+        if (name === 'wayfinder_route') {
+          const routeArgs = RouteToolArgsSchema.safeParse(rawArguments ?? {});
+          if (!routeArgs.success) {
+            sendRpc(res, jsonRpcError(id, -32602, 'Invalid route arguments', routeArgs.error.flatten()));
+            return;
+          }
+
+          const providedToken = extractToken(req, routeArgs.data.token);
+          if (!providedToken) {
+            sendRpc(res, jsonRpcError(id, -32001, 'Missing Wayfinder token (token arg, Authorization Bearer, or X-Wayfinder-Token header)'));
+            return;
+          }
+
+          const tokenConfig = await tokenStore.getByHash(hashToken(providedToken));
+          if (!tokenConfig) {
+            sendRpc(res, jsonRpcError(id, -32001, 'Invalid Wayfinder token'));
+            return;
+          }
+
+          let userContext: { user: unknown; userTier: string } | undefined;
+          const tokenWithUser = tokenConfig as { user_id?: string };
+          if (tokenWithUser.user_id && userStore) {
+            const user = await userStore.getById(tokenWithUser.user_id);
+            if (!user || user.status !== 'active') {
+              sendRpc(res, jsonRpcError(id, -32003, 'Token owner is not active'));
+              return;
+            }
+            userContext = { user, userTier: user.tier };
+          }
+
+          const requestId = req.requestId || `mcp-${Date.now()}`;
+          const routeRequest: RouteRequest = {
+            prompt: routeArgs.data.prompt,
+            router_model: routeArgs.data.router_model,
+            prefer_model: routeArgs.data.prefer_model,
+            context: routeArgs.data.context,
+            metadata: routeArgs.data.metadata,
+          };
+
+          const result = await routingEngine.route(routeRequest, tokenConfig, requestId, userContext);
+          const response = projectRouteResponse(
+            result.decision,
+            requestId,
+            result.router_model_used || routeArgs.data.router_model || tokenConfig.router_model_preference || 'consensus',
+            result.cache_hit || false,
+          );
+
+          sendRpc(res, jsonRpcResult(id, {
+            content: [{ type: 'text', text: JSON.stringify(response) }],
+            structuredContent: response,
+          }));
+          return;
+        }
+
+        if (name === 'wayfinder_cache_stats') {
+          if (!cache) {
+            sendRpc(res, jsonRpcError(id, -32004, 'Semantic cache is not enabled'));
+            return;
+          }
+
+          const cacheArgs = CacheStatsToolArgsSchema.safeParse(rawArguments ?? {});
+          if (!cacheArgs.success) {
+            sendRpc(res, jsonRpcError(id, -32602, 'Invalid cache arguments'));
+            return;
+          }
+
+          if (!isAdminKeyValid(cacheArgs.data.admin_api_key)) {
+            sendRpc(res, jsonRpcError(id, -32002, 'Invalid admin API key'));
+            return;
+          }
+
+          const stats = await cache.getStats();
+          const status = cache.getConnectionStatus();
+          const payload = { ...stats, connection: status };
+
+          sendRpc(res, jsonRpcResult(id, {
+            content: [{ type: 'text', text: JSON.stringify(payload) }],
+            structuredContent: payload,
+          }));
+          return;
+        }
+
+        sendRpc(res, jsonRpcError(id, -32601, `Unknown tool: ${name}`));
+    } catch (error) {
+      sendRpc(res, jsonRpcError(undefined, -32603, 'Internal error', {
+        message: error instanceof Error ? error.message : String(error),
       }));
       return;
     }
-
-    if (name === 'wayfinder_cache_stats') {
-      if (!cache) {
-        sendRpc(res, jsonRpcError(id, -32004, 'Semantic cache is not enabled'));
-        return;
-      }
-
-      const cacheArgs = CacheStatsToolArgsSchema.safeParse(rawArguments ?? {});
-      if (!cacheArgs.success) {
-        sendRpc(res, jsonRpcError(id, -32602, 'Invalid cache arguments'));
-        return;
-      }
-
-      if (!isAdminKeyValid(cacheArgs.data.admin_api_key)) {
-        sendRpc(res, jsonRpcError(id, -32002, 'Invalid admin API key'));
-        return;
-      }
-
-      const stats = await cache.getStats();
-      const status = cache.getConnectionStatus();
-      const payload = { ...stats, connection: status };
-
-      sendRpc(res, jsonRpcResult(id, {
-        content: [{ type: 'text', text: JSON.stringify(payload) }],
-        structuredContent: payload,
-      }));
-      return;
-    }
-
-    sendRpc(res, jsonRpcError(id, -32601, `Unknown tool: ${name}`));
   });
 
   return router;

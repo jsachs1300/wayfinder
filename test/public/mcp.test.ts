@@ -83,6 +83,63 @@ describe('MCP endpoint and LLM discovery files', () => {
     expect(response.text).toBe('');
   });
 
+
+
+  it('prefers X-Wayfinder-Token over conflicting args token', async () => {
+    const { app, dependencies } = await createTestApp();
+    const created = await dependencies.tokenStore.create({ environment: 'dev' });
+
+    const response = await request(app)
+      .post('/mcp')
+      .set('X-Wayfinder-Token', created.token)
+      .send({
+        jsonrpc: '2.0',
+        id: 4,
+        method: 'tools/call',
+        params: {
+          name: 'wayfinder_route',
+          arguments: {
+            token: 'wf_invalid',
+            prompt: 'Prefer header token',
+          },
+        },
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.result.structuredContent.primary.model).toBeTypeOf('string');
+  });
+
+  it('returns JSON-RPC internal error when dependencies throw', async () => {
+    const { app, dependencies } = await createTestApp();
+    const created = await dependencies.tokenStore.create({ environment: 'dev' });
+
+    const originalGetByHash = dependencies.tokenStore.getByHash.bind(dependencies.tokenStore);
+    dependencies.tokenStore.getByHash = async () => {
+      throw new Error('token store unavailable');
+    };
+
+    const response = await request(app)
+      .post('/mcp')
+      .set('Authorization', `Bearer ${created.token}`)
+      .send({
+        jsonrpc: '2.0',
+        id: 5,
+        method: 'tools/call',
+        params: {
+          name: 'wayfinder_route',
+          arguments: {
+            prompt: 'trigger failure',
+          },
+        },
+      });
+
+    dependencies.tokenStore.getByHash = originalGetByHash;
+
+    expect(response.status).toBe(200);
+    expect(response.body.error.code).toBe(-32603);
+    expect(response.body.error.message).toBe('Internal error');
+  });
+
   it('lists MCP tools and routes a prompt', async () => {
     const { app, dependencies } = await createTestApp();
 

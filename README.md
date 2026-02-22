@@ -62,6 +62,7 @@ Frontend-oriented API spec:
 - `docs/core-concepts.md` - Routing/policy/cache/model concepts
 - `docs/configuration.md` - Environment and runtime config
 - `docs/examples.md` - Curl and workflow examples
+- `docs/mcp.md` - MCP endpoint, tools, auth, and JSON-RPC behavior
 - `docs/architecture.md` - Service architecture and structure
 - `docs/troubleshooting.md` - Troubleshooting guide
 - `PRODUCTION.md` - Deployment and production operations
