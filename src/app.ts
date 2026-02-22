@@ -467,7 +467,6 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
       'You are connected to Wayfinder, an LLM routing service.\n' +
       'Prefer using the MCP tools when available:\n' +
       '- wayfinder_route: get primary and alternate model recommendations for a prompt.\n' +
-      '- wayfinder_cache_stats: inspect semantic cache health and hit rates (requires admin key when configured).\n\n' +
       'Guidelines:\n' +
       '1. Call wayfinder_route before selecting a model for user prompts.\n' +
       '2. Respect returned model ranking and rationale.\n' +
@@ -486,7 +485,7 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
       endpoint: '/mcp',
       prompt: '/prompt.txt',
       llms: '/llms.txt',
-      tools: ['wayfinder_route', 'wayfinder_cache_stats'],
+      tools: ['wayfinder_route'],
     });
   });
   app.get('/.well-known/ai-plugin.json', (_req: Request, res: Response) => {
@@ -497,7 +496,7 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
       name_for_model: 'wayfinder_mcp',
       description_for_human: 'Route prompts across LLM providers with semantic cache support.',
       description_for_model: 'Use the /mcp endpoint for tool discovery and calls to Wayfinder routing and cache tools.',
-      auth: { type: 'none' },
+      auth: { type: 'user_http', authorization_type: 'bearer' },
       api: {
         type: 'openapi',
         url: '/llm-spec',
@@ -507,7 +506,7 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
 
   app.use('/mcp',
     rateLimiters.mcp,
-    createMcpRoutes(routingEngine, tokenStore, cache, userStore, logger, tokenMetricsStore)
+    createMcpRoutes(routingEngine, tokenStore, userStore, logger, tokenMetricsStore)
   );
 
   // Admin routes (require admin auth + rate limiting)

@@ -65,6 +65,7 @@ describe('MCP endpoint and LLM discovery files', () => {
     expect(aiPluginRes.status).toBe(200);
     expect(aiPluginRes.body.name_for_model).toBe('wayfinder_mcp');
     expect(aiPluginRes.body.api.url).toBe('/llm-spec');
+    expect(aiPluginRes.body.auth.type).toBe('user_http');
   });
 
 
@@ -154,44 +155,6 @@ describe('MCP endpoint and LLM discovery files', () => {
     expect(response.body.result.serverInfo.version).toBeTypeOf('string');
   });
 
-  it('returns cache-tool error when semantic cache is disabled', async () => {
-    const { app } = await createTestApp();
-
-    const response = await request(app)
-      .post('/mcp')
-      .send({
-        jsonrpc: '2.0',
-        id: 6,
-        method: 'tools/call',
-        params: {
-          name: 'wayfinder_cache_stats',
-          arguments: { admin_api_key: 'test-admin-key' },
-        },
-      });
-
-    expect(response.status).toBe(200);
-    expect(response.body.error.code).toBe(-32004);
-  });
-
-  it('returns cache-tool disabled error even when ADMIN_API_KEY is unset', async () => {
-    const { app } = await createTestApp();
-    delete process.env.ADMIN_API_KEY;
-
-    const response = await request(app)
-      .post('/mcp')
-      .send({
-        jsonrpc: '2.0',
-        id: 8,
-        method: 'tools/call',
-        params: {
-          name: 'wayfinder_cache_stats',
-          arguments: {},
-        },
-      });
-
-    expect(response.status).toBe(200);
-    expect(response.body.error.code).toBe(-32004);
-  });
 
   it('lists MCP tools and routes a prompt', async () => {
     const { app, dependencies } = await createTestApp();
@@ -204,6 +167,7 @@ describe('MCP endpoint and LLM discovery files', () => {
 
     expect(listRes.status).toBe(200);
     expect(listRes.body.result.tools.some((t: { name: string }) => t.name === 'wayfinder_route')).toBe(true);
+    expect(listRes.body.result.tools.some((t: { name: string }) => t.name === 'wayfinder_cache_stats')).toBe(false);
 
     const callRes = await request(app)
       .post('/mcp')

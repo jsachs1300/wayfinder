@@ -47,11 +47,9 @@ Routes a prompt via Wayfinder and returns the recommended `primary` and `alterna
 - `context` (optional object)
 - `metadata` (optional object)
 
-### 2) `wayfinder_cache_stats`
-Returns semantic cache stats and connection status.
-
-**Arguments**:
-- `admin_api_key` (required when `ADMIN_API_KEY` is configured)
+### 2) `wayfinder_cache_stats` (temporarily unavailable)
+This admin-oriented MCP command has been removed from the active `/mcp` tool list for now.
+We will revisit admin MCP commands in a future iteration.
 
 ## Authentication
 
@@ -62,7 +60,7 @@ For `wayfinder_route`, token extraction priority is:
 
 This priority is intentionally aligned with MCP rate-limiter keying.
 
-For `wayfinder_cache_stats`, treat `admin_api_key` as a secret: inject from environment/secret manager and avoid logging full MCP request payloads containing credentials.
+Future admin MCP commands (including cache/admin operations) should treat secret fields like `admin_api_key` as sensitive: inject from environment/secret manager and avoid logging full MCP request payloads.
 
 ## Rate Limiting
 

@@ -1,10 +1,8 @@
-import { createHash, timingSafeEqual } from 'crypto';
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import packageJson from '../../package.json';
 import type { RoutingEngine } from '../routing';
 import { projectRouteResponse } from '../routing/projection';
-import type { SemanticCache } from '../cache';
 import type { TokenStore } from '../tokens/store';
 import type { UserStore } from '../users/store';
 import type { RouteRequest, RouterModelPreference } from '../types';
@@ -36,10 +34,6 @@ const RouteToolArgsSchema = z.object({
   metadata: z.record(z.unknown()).optional(),
 });
 
-const CacheStatsToolArgsSchema = z.object({
-  admin_api_key: z.string().optional(),
-});
-
 function jsonRpcResult(id: string | number | undefined, result: unknown): Record<string, unknown> {
   return { jsonrpc: '2.0', id: id ?? null, result };
 }
@@ -52,21 +46,6 @@ function jsonRpcError(id: string | number | undefined, code: number, message: st
   };
 }
 
-function isAdminKeyValid(provided: string | undefined): boolean {
-  const expected = process.env.ADMIN_API_KEY;
-  if (!expected) {
-    return true;
-  }
-  if (!provided) {
-    return false;
-  }
-
-  const expectedDigest = createHash('sha256').update(expected).digest();
-  const providedDigest = createHash('sha256').update(provided).digest();
-
-  return timingSafeEqual(expectedDigest, providedDigest);
-}
-
 function sendRpc(res: Response, payload: Record<string, unknown>): void {
   res.status(200).json(payload);
 }
@@ -74,7 +53,6 @@ function sendRpc(res: Response, payload: Record<string, unknown>): void {
 export function createMcpRoutes(
   routingEngine: RoutingEngine,
   tokenStore: TokenStore,
-  cache?: SemanticCache,
   userStore?: UserStore,
   logger?: Logger,
   metricsStore?: TokenMetricsStore,
@@ -88,7 +66,7 @@ export function createMcpRoutes(
       transport: 'jsonrpc',
       endpoint: '/mcp',
       methods: ['initialize', 'tools/list', 'tools/call'],
-      tools: ['wayfinder_route', 'wayfinder_cache_stats'],
+      tools: ['wayfinder_route'],
       note: 'This GET payload is a Wayfinder convenience response, not an MCP spec discovery primitive.',
     });
   });
@@ -140,16 +118,6 @@ export function createMcpRoutes(
                   prefer_model: { type: 'string' },
                   context: { type: 'object', additionalProperties: true },
                   metadata: { type: 'object', additionalProperties: true },
-                },
-              },
-            },
-            {
-              name: 'wayfinder_cache_stats',
-              description: 'Get semantic cache statistics and connection status.',
-              inputSchema: {
-                type: 'object',
-                properties: {
-                  admin_api_key: { type: 'string', description: 'Required when ADMIN_API_KEY is configured.' },
                 },
               },
             },
@@ -251,40 +219,14 @@ export function createMcpRoutes(
         return;
       }
 
-      if (name === 'wayfinder_cache_stats') {
-        if (!cache) {
-          sendRpc(res, jsonRpcError(id, -32004, 'Semantic cache is not enabled'));
-          return;
-        }
-
-        const cacheArgs = CacheStatsToolArgsSchema.safeParse(rawArguments ?? {});
-        if (!cacheArgs.success) {
-          sendRpc(res, jsonRpcError(id, -32602, 'Invalid cache arguments'));
-          return;
-        }
-
-        if (!isAdminKeyValid(cacheArgs.data.admin_api_key)) {
-          sendRpc(res, jsonRpcError(id, -32002, 'Invalid admin API key'));
-          return;
-        }
-
-        const stats = await cache.getStats();
-        const status = cache.getConnectionStatus();
-        const payload = { ...stats, connection: status };
-
-        sendRpc(res, jsonRpcResult(id, {
-          content: [{ type: 'text', text: JSON.stringify(payload) }],
-          structuredContent: payload,
-        }));
-        return;
-      }
-
       sendRpc(res, jsonRpcError(id, -32601, `Unknown tool: ${name}`));
     } catch (error) {
+      logger?.error('MCP internal error', {
+        request_id: requestId,
+        error: error instanceof Error ? error.message : String(error),
+      });
       recordRoutingError({ error_type: 'internal', router_model_requested: 'consensus' });
-      sendRpc(res, jsonRpcError(requestId, -32603, 'Internal error', {
-        message: error instanceof Error ? error.message : String(error),
-      }));
+      sendRpc(res, jsonRpcError(requestId, -32603, 'Internal error'));
       return;
     }
   });
