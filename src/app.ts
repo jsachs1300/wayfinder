@@ -854,8 +854,8 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
     : (_req: Request, _res: Response, next: NextFunction) => next(); // No-op if feature disabled
 
   app.use('/mcp',
-    applyMcpRouteToolMiddleware(createRouteThrottleMetricsMiddleware(tokenStore, tokenMetricsStore, logger)),
     applyMcpRouteToolMiddleware(createMcpTokenContextMiddleware(tokenStore, userStore, logger)),
+    applyMcpRouteToolMiddleware(createRouteThrottleMetricsMiddleware(tokenStore, tokenMetricsStore, logger)),
     applyMcpRouteToolMiddleware(tierRateLimiter),
     createMcpRoutes(
       routingEngine,
