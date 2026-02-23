@@ -5,13 +5,14 @@ import type { RoutingEngine } from '../routing';
 import { projectRouteResponse } from '../routing/projection';
 import type { TokenStore } from '../tokens/store';
 import type { UserStore } from '../users/store';
-import type { RouteRequest, RouterModelPreference } from '../types';
+import type { RouteRequest, RouterModelPreference, TokenConfig } from '../types';
 import { VALID_ROUTER_MODEL_PREFERENCES } from '../types';
 import { hashToken, extractWayfinderToken } from '../auth';
 import { logRoutingUsage } from '../observability/events';
 import { recordRoutingError, recordRoutingRequest } from '../observability/metrics';
 import type { Logger } from '../logging/logger';
 import type { TokenMetricsStore } from '../tokens/metrics';
+import type { TokenConfigExtended } from '../tokens/types';
 
 const JsonRpcRequestSchema = z.object({
   jsonrpc: z.literal('2.0'),
@@ -51,12 +52,13 @@ function sendRpc(res: Response, payload: Record<string, unknown>): void {
 }
 
 
-function getTokenUserId(tokenConfig: unknown): string | undefined {
-  if (typeof tokenConfig !== 'object' || tokenConfig === null) {
-    return undefined;
-  }
-  const userId = (tokenConfig as Record<string, unknown>).user_id;
-  return typeof userId === 'string' && userId.length > 0 ? userId : undefined;
+function hasTokenUserId(tokenConfig: TokenConfig): tokenConfig is TokenConfigExtended & { user_id: string } {
+  const userId = (tokenConfig as unknown as Record<string, unknown>).user_id;
+  return typeof userId === 'string' && userId.length > 0;
+}
+
+function getTokenUserId(tokenConfig: TokenConfig): string | undefined {
+  return hasTokenUserId(tokenConfig) ? tokenConfig.user_id : undefined;
 }
 
 export function createMcpRoutes(
