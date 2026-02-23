@@ -22,11 +22,17 @@ export interface TokenConfigExtended extends TokenConfig {
   anonymous_session_id?: string | null;
 }
 
-export function hasTokenUserId(tokenConfig: TokenConfig): tokenConfig is TokenConfigExtended & { user_id: string } {
-  const userId = (tokenConfig as unknown as Record<string, unknown>).user_id;
+type TokenConfigWithOptionalUserId = TokenConfig & {
+  user_id?: string | null;
+};
+
+export function hasTokenUserId(
+  tokenConfig: TokenConfigWithOptionalUserId
+): tokenConfig is TokenConfigExtended & { user_id: string } {
+  const userId = tokenConfig.user_id;
   return typeof userId === 'string' && userId.length > 0;
 }
 
-export function getTokenUserId(tokenConfig: TokenConfig): string | undefined {
+export function getTokenUserId(tokenConfig: TokenConfigWithOptionalUserId): string | undefined {
   return hasTokenUserId(tokenConfig) ? tokenConfig.user_id : undefined;
 }
