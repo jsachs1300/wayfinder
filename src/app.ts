@@ -88,7 +88,6 @@ function createRouteThrottleMetricsMiddleware(
       if (res.statusCode !== 429 || !metricsStore) {
         return;
       }
-      const tokenHeader = req.headers['x-wayfinder-token'] as string | undefined;
       const tokenId = req.tokenConfig?.id;
       if (tokenId) {
         void metricsStore.incrementThrottled(tokenId).catch((error) => {
@@ -99,10 +98,11 @@ function createRouteThrottleMetricsMiddleware(
         });
         return;
       }
-      if (!tokenHeader) {
+      const token = extractWayfinderTokenForRateLimit(req);
+      if (!token) {
         return;
       }
-      const tokenHash = hashToken(tokenHeader);
+      const tokenHash = hashToken(token);
       void tokenStore.getByHash(tokenHash)
         .then((config) => {
           if (config) {
@@ -159,6 +159,10 @@ function createMcpTokenContextMiddleware(tokenStore: TokenStore, userStore?: Use
         if (user?.status === 'active') {
           req.user = user;
           req.userTier = user.tier;
+        } else {
+          // Ensure downstream tier-based middleware sees a deterministic tier.
+          // The MCP route will still reject inactive/missing token owners explicitly.
+          req.userTier = 'free';
         }
       } else {
         // Preserve legacy token behavior: tokens without a user association

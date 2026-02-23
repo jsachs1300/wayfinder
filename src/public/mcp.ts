@@ -12,7 +12,6 @@ import { logRoutingUsage } from '../observability/events';
 import { recordRoutingError, recordRoutingRequest } from '../observability/metrics';
 import type { Logger } from '../logging/logger';
 import type { TokenMetricsStore } from '../tokens/metrics';
-import type { TokenConfigExtended } from '../tokens/types';
 
 const JsonRpcRequestSchema = z.object({
   jsonrpc: z.literal('2.0'),
@@ -52,10 +51,12 @@ function sendRpc(res: Response, payload: Record<string, unknown>): void {
 }
 
 
-function getTokenUserId(tokenConfig: TokenConfigExtended): string | undefined {
-  return typeof tokenConfig.user_id === 'string' && tokenConfig.user_id.length > 0
-    ? tokenConfig.user_id
-    : undefined;
+function getTokenUserId(tokenConfig: unknown): string | undefined {
+  if (typeof tokenConfig !== 'object' || tokenConfig === null) {
+    return undefined;
+  }
+  const userId = (tokenConfig as Record<string, unknown>).user_id;
+  return typeof userId === 'string' && userId.length > 0 ? userId : undefined;
 }
 
 export function createMcpRoutes(
@@ -176,7 +177,7 @@ export function createMcpRoutes(
         }
 
         let userContext: { user: unknown; userTier: string } | undefined;
-        const tokenUserId = getTokenUserId(tokenConfig as TokenConfigExtended);
+        const tokenUserId = getTokenUserId(tokenConfig);
         if (tokenUserId && userStore) {
           const user = await userStore.getById(tokenUserId);
           if (!user || user.status !== 'active') {

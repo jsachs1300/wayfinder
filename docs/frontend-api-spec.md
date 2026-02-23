@@ -483,6 +483,10 @@ Registry APIs return rich model entries (provider data can be sparse):
 }
 ```
 
+Canonical enum values:
+- `cost_tier`: `low | medium | high`
+- `speed_tier`: `fast | medium | slow`
+
 ### User Registry Endpoints (`/api/registry`)
 Headers: `X-Session-Token` (or `X-Wayfinder-Token` for authenticated user routes)
 
