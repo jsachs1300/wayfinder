@@ -579,7 +579,6 @@ export interface ApiError {
 }
 
 export type McpAuthStatus =
-  | 'not_applicable'
   | 'no_token'
   | 'token_invalid'
   | 'token_lookup_failed'
@@ -587,7 +586,6 @@ export type McpAuthStatus =
   | 'resolved';
 
 export interface McpRequestContext {
-  isRouteToolCall: boolean;
   authStatus: McpAuthStatus;
   tokenPresent: boolean;
   tokenConfig?: TokenConfig;

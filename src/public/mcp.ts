@@ -158,7 +158,7 @@ export function createMcpRoutes(
         }
 
         let tokenConfig = req.mcpContext?.tokenConfig ?? req.tokenConfig;
-        if (req.mcpContext?.isRouteToolCall) {
+        if (req.mcpContext) {
           switch (req.mcpContext.authStatus) {
             case 'no_token':
               sendRpc(res, jsonRpcError(id, -32001, 'Missing Wayfinder token (X-Wayfinder-Token, Authorization Bearer, or arguments.token)'));
@@ -175,7 +175,12 @@ export function createMcpRoutes(
             case 'resolved':
               break;
             default:
-              break;
+              logger?.warn('Unhandled MCP auth status', {
+                request_id: requestId,
+                status: req.mcpContext.authStatus,
+              });
+              sendRpc(res, jsonRpcError(id, -32603, 'Internal error'));
+              return;
           }
         }
 
