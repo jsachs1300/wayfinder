@@ -176,16 +176,18 @@ describe('MCP endpoint and LLM discovery files', () => {
               prompt: 'single lookup check',
             },
           },
-        });
+      });
 
       expect(response.status).toBe(200);
+      // getByHash is called once by MCP token-context middleware.
+      // Throttle metrics middleware also looks up by hash only on 429 responses; this request returns 200.
       expect(getByHashCalls).toBe(1);
     } finally {
       dependencies.tokenStore.getByHash = originalGetByHash;
     }
   });
 
-  it('preserves admin tier for legacy MCP tokens when self-service is enabled', async () => {
+  it('applies free-tier limits to legacy MCP tokens when self-service is enabled', async () => {
     process.env.FEATURE_USER_SELF_SERVICE = 'true';
     process.env.RATE_LIMIT_FREE_BURST = '1';
     const { app, dependencies } = await createTestApp();
@@ -223,7 +225,7 @@ describe('MCP endpoint and LLM discovery files', () => {
         },
       });
 
-    expect(secondCall.status).toBe(200);
+    expect(secondCall.status).toBe(429);
   });
 
   it('returns 204 with no body for notifications/initialized', async () => {
