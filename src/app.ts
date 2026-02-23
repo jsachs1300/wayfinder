@@ -147,6 +147,7 @@ function createMcpTokenContextMiddleware(tokenStore: TokenStore, userStore?: Use
 
       const tokenConfig = await tokenStore.getByHash(hashToken(token));
       if (!tokenConfig) {
+        req.mcpTokenContextTokenInvalid = true;
         next();
         return;
       }

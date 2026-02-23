@@ -588,6 +588,7 @@ declare global {
       userTier?: import('../users/types').UserTier;
       session?: import('../sessions/types').UserSession;
       mcpTokenContextLookupFailed?: boolean;
+      mcpTokenContextTokenInvalid?: boolean;
     }
   }
 }
