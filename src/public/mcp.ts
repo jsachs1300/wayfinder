@@ -157,26 +157,37 @@ export function createMcpRoutes(
           return;
         }
 
-        const providedToken = extractWayfinderToken(req, routeArgs.data.token);
-        if (!providedToken) {
-          sendRpc(res, jsonRpcError(id, -32001, 'Missing Wayfinder token (X-Wayfinder-Token, Authorization Bearer, or arguments.token)'));
-          return;
+        let tokenConfig = req.mcpContext?.tokenConfig ?? req.tokenConfig;
+        if (req.mcpContext?.isRouteToolCall) {
+          switch (req.mcpContext.authStatus) {
+            case 'no_token':
+              sendRpc(res, jsonRpcError(id, -32001, 'Missing Wayfinder token (X-Wayfinder-Token, Authorization Bearer, or arguments.token)'));
+              return;
+            case 'token_lookup_failed':
+              sendRpc(res, jsonRpcError(id, -32603, 'Internal error'));
+              return;
+            case 'token_invalid':
+              sendRpc(res, jsonRpcError(id, -32001, 'Invalid Wayfinder token'));
+              return;
+            case 'owner_inactive':
+              sendRpc(res, jsonRpcError(id, -32003, 'Token owner is not active'));
+              return;
+            case 'resolved':
+              break;
+            default:
+              break;
+          }
         }
 
-        if (!req.tokenConfig && req.mcpTokenContextLookupFailed) {
-          sendRpc(res, jsonRpcError(id, -32603, 'Internal error'));
-          return;
+        // Defensive fallback if MCP context middleware is not mounted or did not run.
+        if (!tokenConfig) {
+          const providedToken = extractWayfinderToken(req, routeArgs.data.token);
+          if (!providedToken) {
+            sendRpc(res, jsonRpcError(id, -32001, 'Missing Wayfinder token (X-Wayfinder-Token, Authorization Bearer, or arguments.token)'));
+            return;
+          }
+          tokenConfig = (await tokenStore.getByHash(hashToken(providedToken))) ?? undefined;
         }
-        if (!req.tokenConfig && req.mcpTokenContextTokenInvalid) {
-          sendRpc(res, jsonRpcError(id, -32001, 'Invalid Wayfinder token'));
-          return;
-        }
-        if (req.mcpTokenContextUserInactive) {
-          sendRpc(res, jsonRpcError(id, -32003, 'Token owner is not active'));
-          return;
-        }
-
-        const tokenConfig = req.tokenConfig ?? await tokenStore.getByHash(hashToken(providedToken));
         if (!tokenConfig) {
           sendRpc(res, jsonRpcError(id, -32001, 'Invalid Wayfinder token'));
           return;
@@ -244,7 +255,14 @@ export function createMcpRoutes(
         }
 
         if (metricsStore) {
-          await metricsStore.incrementRouteRequest(tokenConfig.id, result.cache_hit ?? false);
+          try {
+            await metricsStore.incrementRouteRequest(tokenConfig.id, result.cache_hit ?? false);
+          } catch (metricsError) {
+            logger?.warn('Failed to update token metrics (MCP)', {
+              token_id: tokenConfig.id,
+              error: metricsError instanceof Error ? metricsError.message : String(metricsError),
+            });
+          }
         }
 
         sendRpc(res, jsonRpcResult(id, {

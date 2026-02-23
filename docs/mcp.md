@@ -64,17 +64,27 @@ Future admin MCP commands (including cache/admin operations) should treat secret
 
 ## Rate Limiting
 
-`/mcp` is rate-limited using the same routing limits as `/route`:
-- `RATE_LIMIT_ROUTING_WINDOW_MS`
-- `RATE_LIMIT_ROUTING_MAX`
+`/mcp` uses **layered** rate limiting:
 
-Limiter keying follows the same token extraction priority as above, then falls back to client IP.
+1. **MCP endpoint limiter** (all non-notification `POST /mcp` requests)
+   - Shares the same config as `/route`:
+     - `RATE_LIMIT_ROUTING_WINDOW_MS`
+     - `RATE_LIMIT_ROUTING_MAX`
+   - Keying follows the same token extraction priority as above, then falls back to client IP.
+
+2. **Tier limiter** (`wayfinder_route` tool calls only)
+   - Applies tier-based burst/hour/day limits when user self-service is enabled.
+   - Tier is resolved from the token owner when available; legacy/no-user tokens are treated as `free`.
+
+`notifications/initialized` bypasses the MCP endpoint limiter and returns `204 No Content`.
 
 ## Error Semantics
 
-- Protocol and validation errors return JSON-RPC error envelopes.
-- Internal dependency/runtime failures are wrapped as JSON-RPC `-32603` errors.
-- Notification messages (`notifications/initialized`) return HTTP 204 with no response body.
+- **JSON-RPC error envelopes** are used for protocol/tool-handler errors (examples: invalid request/params, unknown method/tool, invalid token, inactive token owner, internal handler failures).
+- **Plain HTTP JSON errors** can be returned by upstream middleware before the JSON-RPC handler runs, including:
+  - `429` from MCP endpoint or tier rate limiting
+  - `503` from tier rate limiter backend failures for free-tier traffic
+- Notification messages (`notifications/initialized`) return HTTP `204` with no response body.
 
 ## Example: `tools/list`
 

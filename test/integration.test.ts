@@ -84,7 +84,7 @@ describe('API Integration Tests', () => {
 
   describe('Public LLM Spec Endpoint', () => {
     it('should return integration spec without authentication', async () => {
-      const response = await request(app).get('/llm-spec');
+      const response = await request(app).get('/llm-integration-spec');
 
       expect(response.status).toBe(200);
       expect(response.body.name).toBe('Wayfinder LLM Integration Spec');

@@ -138,41 +138,57 @@ function createSessionRouteAuditMiddleware(logger: Logger) {
 
 function createMcpTokenContextMiddleware(tokenStore: TokenStore, userStore?: UserStore, logger?: Logger) {
   return async (req: Request, _res: Response, next: NextFunction): Promise<void> => {
+    req.mcpContext = {
+      isRouteToolCall: true,
+      authStatus: 'no_token',
+      tokenPresent: false,
+    };
+
     try {
       const token = extractWayfinderTokenForRateLimit(req);
       if (!token) {
         next();
         return;
       }
+      req.mcpContext.tokenPresent = true;
 
       const tokenConfig = await tokenStore.getByHash(hashToken(token));
       if (!tokenConfig) {
-        req.mcpTokenContextTokenInvalid = true;
+        req.mcpContext.authStatus = 'token_invalid';
         next();
         return;
       }
 
       req.tokenConfig = tokenConfig;
+      req.mcpContext.tokenConfig = tokenConfig;
 
       const tokenUserId = getTokenUserId(tokenConfig);
+      req.mcpContext.tokenUserId = tokenUserId;
       if (tokenUserId && userStore) {
         const user = await userStore.getById(tokenUserId);
         if (user?.status === 'active') {
           req.user = user;
           req.userTier = user.tier;
+          req.mcpContext.user = user;
+          req.mcpContext.userTier = user.tier;
+          req.mcpContext.authStatus = 'resolved';
         } else {
           // Ensure downstream tier-based middleware sees a deterministic tier.
           // The MCP route will still reject inactive/missing token owners explicitly.
-          req.mcpTokenContextUserInactive = true;
           req.userTier = 'free';
+          req.mcpContext.userTier = 'free';
+          req.mcpContext.authStatus = 'owner_inactive';
         }
       } else {
         // Do not infer admin privileges/rate limits from a missing user association.
         // Legacy/no-user tokens get the lowest tier unless explicitly handled elsewhere.
         req.userTier = 'free';
+        req.mcpContext.userTier = 'free';
+        req.mcpContext.authStatus = 'resolved';
       }
     } catch (error) {
-      req.mcpTokenContextLookupFailed = true;
+      req.mcpContext.authStatus = 'token_lookup_failed';
+      req.mcpContext.error = error instanceof Error ? error.message : String(error);
       logger?.warn('Failed to resolve MCP token context', {
         error: error instanceof Error ? error.message : String(error),
       });
