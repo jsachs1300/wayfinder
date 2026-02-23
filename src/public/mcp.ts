@@ -186,12 +186,19 @@ export function createMcpRoutes(
         let userContext: { user: unknown; userTier: string } | undefined;
         const tokenUserId = getTokenUserId(tokenConfig);
         if (tokenUserId && userStore) {
-          const user = await userStore.getById(tokenUserId);
-          if (!user || user.status !== 'active') {
-            sendRpc(res, jsonRpcError(id, -32003, 'Token owner is not active'));
-            return;
+          if (req.user && req.user.id === tokenUserId) {
+            userContext = {
+              user: req.user,
+              userTier: req.userTier ?? req.user.tier,
+            };
+          } else {
+            const user = await userStore.getById(tokenUserId);
+            if (!user || user.status !== 'active') {
+              sendRpc(res, jsonRpcError(id, -32003, 'Token owner is not active'));
+              return;
+            }
+            userContext = { user, userTier: user.tier };
           }
-          userContext = { user, userTier: user.tier };
         }
 
         const routeRequest: RouteRequest = {
