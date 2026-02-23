@@ -163,6 +163,7 @@ function createMcpTokenContextMiddleware(tokenStore: TokenStore, userStore?: Use
         } else {
           // Ensure downstream tier-based middleware sees a deterministic tier.
           // The MCP route will still reject inactive/missing token owners explicitly.
+          req.mcpTokenContextUserInactive = true;
           req.userTier = 'free';
         }
       } else {

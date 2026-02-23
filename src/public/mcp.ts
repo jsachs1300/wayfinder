@@ -171,6 +171,10 @@ export function createMcpRoutes(
           sendRpc(res, jsonRpcError(id, -32001, 'Invalid Wayfinder token'));
           return;
         }
+        if (req.mcpTokenContextUserInactive) {
+          sendRpc(res, jsonRpcError(id, -32003, 'Token owner is not active'));
+          return;
+        }
 
         const tokenConfig = req.tokenConfig ?? await tokenStore.getByHash(hashToken(providedToken));
         if (!tokenConfig) {

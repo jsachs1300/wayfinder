@@ -589,6 +589,7 @@ declare global {
       session?: import('../sessions/types').UserSession;
       mcpTokenContextLookupFailed?: boolean;
       mcpTokenContextTokenInvalid?: boolean;
+      mcpTokenContextUserInactive?: boolean;
     }
   }
 }
