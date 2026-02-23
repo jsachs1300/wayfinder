@@ -578,6 +578,23 @@ export interface ApiError {
   timestamp: string;
 }
 
+export type McpAuthStatus =
+  | 'no_token'
+  | 'token_invalid'
+  | 'token_lookup_failed'
+  | 'owner_inactive'
+  | 'resolved';
+
+export interface McpRequestContext {
+  authStatus: McpAuthStatus;
+  tokenPresent: boolean;
+  tokenConfig?: TokenConfig;
+  tokenUserId?: string;
+  user?: import('../users/types').User;
+  userTier?: import('../users/types').UserTier;
+  error?: string;
+}
+
 // Express Extensions
 declare global {
   namespace Express {
@@ -587,9 +604,7 @@ declare global {
       user?: import('../users/types').User;
       userTier?: import('../users/types').UserTier;
       session?: import('../sessions/types').UserSession;
-      mcpTokenContextLookupFailed?: boolean;
-      mcpTokenContextTokenInvalid?: boolean;
-      mcpTokenContextUserInactive?: boolean;
+      mcpContext?: McpRequestContext;
     }
   }
 }

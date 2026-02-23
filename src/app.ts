@@ -138,41 +138,59 @@ function createSessionRouteAuditMiddleware(logger: Logger) {
 
 function createMcpTokenContextMiddleware(tokenStore: TokenStore, userStore?: UserStore, logger?: Logger) {
   return async (req: Request, _res: Response, next: NextFunction): Promise<void> => {
+    req.mcpContext = {
+      authStatus: 'no_token',
+      tokenPresent: false,
+    };
+
     try {
       const token = extractWayfinderTokenForRateLimit(req);
       if (!token) {
         next();
         return;
       }
+      req.mcpContext.tokenPresent = true;
 
       const tokenConfig = await tokenStore.getByHash(hashToken(token));
       if (!tokenConfig) {
-        req.mcpTokenContextTokenInvalid = true;
+        req.mcpContext.authStatus = 'token_invalid';
         next();
         return;
       }
 
+      // Intentionally mirror resolved entities onto both req.* and req.mcpContext:
+      // req.* keeps compatibility with downstream generic middleware (tier limiter, handlers),
+      // while req.mcpContext is the MCP-specific source of truth for auth resolution state.
       req.tokenConfig = tokenConfig;
+      req.mcpContext.tokenConfig = tokenConfig;
 
       const tokenUserId = getTokenUserId(tokenConfig);
+      req.mcpContext.tokenUserId = tokenUserId;
       if (tokenUserId && userStore) {
         const user = await userStore.getById(tokenUserId);
         if (user?.status === 'active') {
           req.user = user;
           req.userTier = user.tier;
+          req.mcpContext.user = user;
+          req.mcpContext.userTier = user.tier;
+          req.mcpContext.authStatus = 'resolved';
         } else {
           // Ensure downstream tier-based middleware sees a deterministic tier.
           // The MCP route will still reject inactive/missing token owners explicitly.
-          req.mcpTokenContextUserInactive = true;
           req.userTier = 'free';
+          req.mcpContext.userTier = 'free';
+          req.mcpContext.authStatus = 'owner_inactive';
         }
       } else {
         // Do not infer admin privileges/rate limits from a missing user association.
         // Legacy/no-user tokens get the lowest tier unless explicitly handled elsewhere.
         req.userTier = 'free';
+        req.mcpContext.userTier = 'free';
+        req.mcpContext.authStatus = 'resolved';
       }
     } catch (error) {
-      req.mcpTokenContextLookupFailed = true;
+      req.mcpContext.authStatus = 'token_lookup_failed';
+      req.mcpContext.error = error instanceof Error ? error.message : String(error);
       logger?.warn('Failed to resolve MCP token context', {
         error: error instanceof Error ? error.message : String(error),
       });
@@ -182,11 +200,19 @@ function createMcpTokenContextMiddleware(tokenStore: TokenStore, userStore?: Use
   };
 }
 
-function applyMcpRouteToolMiddleware(middleware: RequestHandler) {
+function applyMcpRouteToolMiddleware(middleware: RequestHandler, logger?: Logger) {
   return (req: Request, res: Response, next: NextFunction): void | Promise<void> => {
     // Depends on upstream `express.json()` having parsed the body before this runs.
     if (req.method === 'POST' && typeof req.body === 'undefined') {
-      console.warn('[applyMcpRouteToolMiddleware] req.body is undefined; ensure express.json() runs before MCP middleware');
+      if (logger) {
+        logger.warn('MCP route-tool middleware received undefined req.body', {
+          path: req.path,
+          request_id: req.requestId,
+          hint: 'Ensure express.json() runs before MCP middleware',
+        });
+      } else {
+        console.warn('[applyMcpRouteToolMiddleware] req.body is undefined; ensure express.json() runs before MCP middleware');
+      }
     }
     const method = req.body?.method;
     const toolName = req.body?.params?.name;
@@ -858,9 +884,9 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
     : (_req: Request, _res: Response, next: NextFunction) => next(); // No-op if feature disabled
 
   app.use('/mcp',
-    applyMcpRouteToolMiddleware(createMcpTokenContextMiddleware(tokenStore, userStore, logger)),
-    applyMcpRouteToolMiddleware(createRouteThrottleMetricsMiddleware(tokenStore, tokenMetricsStore, logger)),
-    applyMcpRouteToolMiddleware(tierRateLimiter),
+    applyMcpRouteToolMiddleware(createMcpTokenContextMiddleware(tokenStore, userStore, logger), logger),
+    applyMcpRouteToolMiddleware(createRouteThrottleMetricsMiddleware(tokenStore, tokenMetricsStore, logger), logger),
+    applyMcpRouteToolMiddleware(tierRateLimiter, logger),
     createMcpRoutes(
       routingEngine,
       tokenStore,

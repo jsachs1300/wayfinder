@@ -48,10 +48,8 @@ function restoreEnv(): void {
 }
 
 
-async function createTestApp() {
-  if (!process.env.FEATURE_USER_SELF_SERVICE) {
-    process.env.FEATURE_USER_SELF_SERVICE = 'false';
-  }
+async function createTestApp(userSelfService = false) {
+  process.env.FEATURE_USER_SELF_SERVICE = userSelfService ? 'true' : 'false';
   process.env.ADMIN_API_KEY = 'test-admin-key';
   process.env.LLM_KEY_ENCRYPTION_KEY = 'a'.repeat(64);
   vi.resetModules();
@@ -188,9 +186,8 @@ describe('MCP endpoint and LLM discovery files', () => {
   });
 
   it('applies free-tier limits to legacy MCP tokens when self-service is enabled', async () => {
-    process.env.FEATURE_USER_SELF_SERVICE = 'true';
     process.env.RATE_LIMIT_FREE_BURST = '1';
-    const { app, dependencies } = await createTestApp();
+    const { app, dependencies } = await createTestApp(true);
     const created = await dependencies.tokenStore.create({ environment: 'dev' });
 
     const firstCall = await request(app)
