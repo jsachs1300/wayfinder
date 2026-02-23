@@ -170,6 +170,11 @@ export function createMcpRoutes(
           return;
         }
 
+        if (!req.tokenConfig && req.mcpTokenContextLookupFailed) {
+          sendRpc(res, jsonRpcError(id, -32603, 'Internal error'));
+          return;
+        }
+
         const tokenConfig = req.tokenConfig ?? await tokenStore.getByHash(hashToken(providedToken));
         if (!tokenConfig) {
           sendRpc(res, jsonRpcError(id, -32001, 'Invalid Wayfinder token'));

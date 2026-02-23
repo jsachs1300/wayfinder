@@ -170,6 +170,7 @@ function createMcpTokenContextMiddleware(tokenStore: TokenStore, userStore?: Use
         req.userTier = 'free';
       }
     } catch (error) {
+      req.mcpTokenContextLookupFailed = true;
       logger?.warn('Failed to resolve MCP token context', {
         error: error instanceof Error ? error.message : String(error),
       });
