@@ -12,7 +12,7 @@ import { logRoutingUsage } from '../observability/events';
 import { recordRoutingError, recordRoutingRequest } from '../observability/metrics';
 import type { Logger } from '../logging/logger';
 import type { TokenMetricsStore } from '../tokens/metrics';
-import type { TokenConfigExtended } from '../tokens/types';
+import { getTokenUserId } from '../tokens/types';
 
 const JsonRpcRequestSchema = z.object({
   jsonrpc: z.literal('2.0'),
@@ -51,15 +51,6 @@ function sendRpc(res: Response, payload: Record<string, unknown>): void {
   res.status(200).json(payload);
 }
 
-
-function hasTokenUserId(tokenConfig: TokenConfig): tokenConfig is TokenConfigExtended & { user_id: string } {
-  const userId = (tokenConfig as unknown as Record<string, unknown>).user_id;
-  return typeof userId === 'string' && userId.length > 0;
-}
-
-function getTokenUserId(tokenConfig: TokenConfig): string | undefined {
-  return hasTokenUserId(tokenConfig) ? tokenConfig.user_id : undefined;
-}
 
 export function createMcpRoutes(
   routingEngine: RoutingEngine,

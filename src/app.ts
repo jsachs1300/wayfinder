@@ -52,7 +52,7 @@ import { buildLLMIntegrationSpec, renderLLMSpecText } from './public/llm-spec';
 import { buildOpenApiSpec } from './public/openapi-spec';
 import { createMcpRoutes } from './public/mcp';
 import { sessionRouteTokenMiddleware } from './tokens/session-route-middleware';
-import type { TokenConfigExtended } from './tokens/types';
+import { getTokenUserId } from './tokens/types';
 
 /**
  * Application dependencies container
@@ -154,7 +154,7 @@ function createMcpTokenContextMiddleware(tokenStore: TokenStore, userStore?: Use
 
       req.tokenConfig = tokenConfig;
 
-      const tokenUserId = (tokenConfig as TokenConfigExtended).user_id;
+      const tokenUserId = getTokenUserId(tokenConfig);
       if (tokenUserId && userStore) {
         const user = await userStore.getById(tokenUserId);
         if (user?.status === 'active') {

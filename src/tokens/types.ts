@@ -21,3 +21,12 @@ export interface TokenConfigExtended extends TokenConfig {
   /** Anonymous session ID (for progressive registration) */
   anonymous_session_id?: string | null;
 }
+
+export function hasTokenUserId(tokenConfig: TokenConfig): tokenConfig is TokenConfigExtended & { user_id: string } {
+  const userId = (tokenConfig as unknown as Record<string, unknown>).user_id;
+  return typeof userId === 'string' && userId.length > 0;
+}
+
+export function getTokenUserId(tokenConfig: TokenConfig): string | undefined {
+  return hasTokenUserId(tokenConfig) ? tokenConfig.user_id : undefined;
+}
