@@ -7,6 +7,7 @@ type EnvSnapshot = {
   llmKeyEncryptionKey?: string;
   adminApiKey?: string;
   rateLimitRoutingMax?: string;
+  rateLimitFreeBurst?: string;
 };
 
 const envSnapshot: EnvSnapshot = {
@@ -14,6 +15,7 @@ const envSnapshot: EnvSnapshot = {
   llmKeyEncryptionKey: process.env.LLM_KEY_ENCRYPTION_KEY,
   adminApiKey: process.env.ADMIN_API_KEY,
   rateLimitRoutingMax: process.env.RATE_LIMIT_ROUTING_MAX,
+  rateLimitFreeBurst: process.env.RATE_LIMIT_FREE_BURST,
 };
 
 function restoreEnv(): void {
@@ -38,11 +40,18 @@ function restoreEnv(): void {
   } else {
     process.env.RATE_LIMIT_ROUTING_MAX = envSnapshot.rateLimitRoutingMax;
   }
+  if (envSnapshot.rateLimitFreeBurst === undefined) {
+    delete process.env.RATE_LIMIT_FREE_BURST;
+  } else {
+    process.env.RATE_LIMIT_FREE_BURST = envSnapshot.rateLimitFreeBurst;
+  }
 }
 
 
 async function createTestApp() {
-  process.env.FEATURE_USER_SELF_SERVICE = 'false';
+  if (!process.env.FEATURE_USER_SELF_SERVICE) {
+    process.env.FEATURE_USER_SELF_SERVICE = 'false';
+  }
   process.env.ADMIN_API_KEY = 'test-admin-key';
   process.env.LLM_KEY_ENCRYPTION_KEY = 'a'.repeat(64);
   vi.resetModules();
@@ -96,6 +105,127 @@ describe('MCP endpoint and LLM discovery files', () => {
       .send({ jsonrpc: '2.0', id: 'list-1', method: 'tools/list' });
 
     expect(toolsListRes.status).toBe(200);
+  });
+
+
+  it('records throttled MCP route tool calls in token metrics', async () => {
+    process.env.RATE_LIMIT_ROUTING_MAX = '1';
+    const { app, dependencies } = await createTestApp();
+    const created = await dependencies.tokenStore.create({ environment: 'dev' });
+
+    const firstCall = await request(app)
+      .post('/mcp')
+      .set('Authorization', `Bearer ${created.token}`)
+      .send({
+        jsonrpc: '2.0',
+        id: 10,
+        method: 'tools/call',
+        params: {
+          name: 'wayfinder_route',
+          arguments: {
+            prompt: 'first call',
+          },
+        },
+      });
+
+    expect(firstCall.status).toBe(200);
+
+    const secondCall = await request(app)
+      .post('/mcp')
+      .set('Authorization', `Bearer ${created.token}`)
+      .send({
+        jsonrpc: '2.0',
+        id: 11,
+        method: 'tools/call',
+        params: {
+          name: 'wayfinder_route',
+          arguments: {
+            prompt: 'second call',
+          },
+        },
+      });
+
+    expect(secondCall.status).toBe(429);
+
+    const metrics = await dependencies.tokenMetricsStore?.getMetrics(created.id);
+    expect(metrics?.throttled_requests).toBe(1);
+  });
+
+  it('reuses hydrated MCP token context without a second token-store lookup', async () => {
+    const { app, dependencies } = await createTestApp();
+    const created = await dependencies.tokenStore.create({ environment: 'dev' });
+
+    const originalGetByHash = dependencies.tokenStore.getByHash.bind(dependencies.tokenStore);
+    let getByHashCalls = 0;
+    dependencies.tokenStore.getByHash = async (...args: Parameters<typeof originalGetByHash>) => {
+      getByHashCalls += 1;
+      return originalGetByHash(...args);
+    };
+
+    try {
+      const response = await request(app)
+        .post('/mcp')
+        .set('Authorization', `Bearer ${created.token}`)
+        .send({
+          jsonrpc: '2.0',
+          id: 14,
+          method: 'tools/call',
+          params: {
+            name: 'wayfinder_route',
+            arguments: {
+              prompt: 'single lookup check',
+            },
+          },
+      });
+
+      expect(response.status).toBe(200);
+      // getByHash is called once by MCP token-context middleware.
+      // Throttle metrics middleware also looks up by hash only on 429 responses; this request returns 200.
+      expect(getByHashCalls).toBe(1);
+    } finally {
+      dependencies.tokenStore.getByHash = originalGetByHash;
+    }
+  });
+
+  it('applies free-tier limits to legacy MCP tokens when self-service is enabled', async () => {
+    process.env.FEATURE_USER_SELF_SERVICE = 'true';
+    process.env.RATE_LIMIT_FREE_BURST = '1';
+    const { app, dependencies } = await createTestApp();
+    const created = await dependencies.tokenStore.create({ environment: 'dev' });
+
+    const firstCall = await request(app)
+      .post('/mcp')
+      .set('Authorization', `Bearer ${created.token}`)
+      .send({
+        jsonrpc: '2.0',
+        id: 12,
+        method: 'tools/call',
+        params: {
+          name: 'wayfinder_route',
+          arguments: {
+            prompt: 'legacy token first call',
+          },
+        },
+      });
+
+    expect(firstCall.status).toBe(200);
+
+    const secondCall = await request(app)
+      .post('/mcp')
+      .set('Authorization', `Bearer ${created.token}`)
+      .send({
+        jsonrpc: '2.0',
+        id: 13,
+        method: 'tools/call',
+        params: {
+          name: 'wayfinder_route',
+          arguments: {
+            prompt: 'legacy token second call',
+          },
+        },
+      });
+
+    expect(secondCall.status).toBe(429);
   });
 
   it('returns 204 with no body for notifications/initialized', async () => {

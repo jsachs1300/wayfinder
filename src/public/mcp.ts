@@ -5,14 +5,14 @@ import type { RoutingEngine } from '../routing';
 import { projectRouteResponse } from '../routing/projection';
 import type { TokenStore } from '../tokens/store';
 import type { UserStore } from '../users/store';
-import type { RouteRequest, RouterModelPreference } from '../types';
+import type { RouteRequest, RouterModelPreference, TokenConfig } from '../types';
 import { VALID_ROUTER_MODEL_PREFERENCES } from '../types';
 import { hashToken, extractWayfinderToken } from '../auth';
 import { logRoutingUsage } from '../observability/events';
 import { recordRoutingError, recordRoutingRequest } from '../observability/metrics';
 import type { Logger } from '../logging/logger';
 import type { TokenMetricsStore } from '../tokens/metrics';
-import type { TokenConfigExtended } from '../tokens/types';
+import { getTokenUserId } from '../tokens/types';
 
 const JsonRpcRequestSchema = z.object({
   jsonrpc: z.literal('2.0'),
@@ -51,12 +51,6 @@ function sendRpc(res: Response, payload: Record<string, unknown>): void {
   res.status(200).json(payload);
 }
 
-
-function getTokenUserId(tokenConfig: TokenConfigExtended): string | undefined {
-  return typeof tokenConfig.user_id === 'string' && tokenConfig.user_id.length > 0
-    ? tokenConfig.user_id
-    : undefined;
-}
 
 export function createMcpRoutes(
   routingEngine: RoutingEngine,
@@ -169,21 +163,41 @@ export function createMcpRoutes(
           return;
         }
 
-        const tokenConfig = await tokenStore.getByHash(hashToken(providedToken));
+        if (!req.tokenConfig && req.mcpTokenContextLookupFailed) {
+          sendRpc(res, jsonRpcError(id, -32603, 'Internal error'));
+          return;
+        }
+        if (!req.tokenConfig && req.mcpTokenContextTokenInvalid) {
+          sendRpc(res, jsonRpcError(id, -32001, 'Invalid Wayfinder token'));
+          return;
+        }
+        if (req.mcpTokenContextUserInactive) {
+          sendRpc(res, jsonRpcError(id, -32003, 'Token owner is not active'));
+          return;
+        }
+
+        const tokenConfig = req.tokenConfig ?? await tokenStore.getByHash(hashToken(providedToken));
         if (!tokenConfig) {
           sendRpc(res, jsonRpcError(id, -32001, 'Invalid Wayfinder token'));
           return;
         }
 
         let userContext: { user: unknown; userTier: string } | undefined;
-        const tokenUserId = getTokenUserId(tokenConfig as TokenConfigExtended);
+        const tokenUserId = getTokenUserId(tokenConfig);
         if (tokenUserId && userStore) {
-          const user = await userStore.getById(tokenUserId);
-          if (!user || user.status !== 'active') {
-            sendRpc(res, jsonRpcError(id, -32003, 'Token owner is not active'));
-            return;
+          if (req.user && req.user.id === tokenUserId) {
+            userContext = {
+              user: req.user,
+              userTier: req.userTier ?? req.user.tier,
+            };
+          } else {
+            const user = await userStore.getById(tokenUserId);
+            if (!user || user.status !== 'active') {
+              sendRpc(res, jsonRpcError(id, -32003, 'Token owner is not active'));
+              return;
+            }
+            userContext = { user, userTier: user.tier };
           }
-          userContext = { user, userTier: user.tier };
         }
 
         const routeRequest: RouteRequest = {

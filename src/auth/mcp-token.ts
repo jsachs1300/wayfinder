@@ -51,5 +51,7 @@ export function extractWayfinderToken(req: Request, argsToken?: string): string 
 }
 
 export function extractWayfinderTokenForRateLimit(req: Request): string | undefined {
+  // Alias retained for call-site clarity: rate-limiting code intentionally uses the
+  // same extraction behavior as request auth/MCP routing (header, bearer, args, body).
   return extractWayfinderToken(req);
 }

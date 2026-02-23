@@ -1,9 +1,17 @@
-import express, { Express, Request, Response, NextFunction } from 'express';
+import express, { Express, Request, Response, NextFunction, RequestHandler } from 'express';
 import Redis from 'ioredis';
 import helmet from 'helmet';
 import cors from 'cors';
 
-import { tokenAuthMiddleware, adminAuthMiddleware, requestIdMiddleware, userAuthMiddleware, sessionAuthMiddleware, hashToken } from './auth';
+import {
+  tokenAuthMiddleware,
+  adminAuthMiddleware,
+  requestIdMiddleware,
+  userAuthMiddleware,
+  sessionAuthMiddleware,
+  hashToken,
+  extractWayfinderTokenForRateLimit,
+} from './auth';
 import {
   createTokenStore,
   createAdminRoutes,
@@ -44,6 +52,7 @@ import { buildLLMIntegrationSpec, renderLLMSpecText } from './public/llm-spec';
 import { buildOpenApiSpec } from './public/openapi-spec';
 import { createMcpRoutes } from './public/mcp';
 import { sessionRouteTokenMiddleware } from './tokens/session-route-middleware';
+import { getTokenUserId } from './tokens/types';
 
 /**
  * Application dependencies container
@@ -79,7 +88,6 @@ function createRouteThrottleMetricsMiddleware(
       if (res.statusCode !== 429 || !metricsStore) {
         return;
       }
-      const tokenHeader = req.headers['x-wayfinder-token'] as string | undefined;
       const tokenId = req.tokenConfig?.id;
       if (tokenId) {
         void metricsStore.incrementThrottled(tokenId).catch((error) => {
@@ -90,10 +98,11 @@ function createRouteThrottleMetricsMiddleware(
         });
         return;
       }
-      if (!tokenHeader) {
+      const token = extractWayfinderTokenForRateLimit(req);
+      if (!token) {
         return;
       }
-      const tokenHash = hashToken(tokenHeader);
+      const tokenHash = hashToken(token);
       void tokenStore.getByHash(tokenHash)
         .then((config) => {
           if (config) {
@@ -124,6 +133,68 @@ function createSessionRouteAuditMiddleware(logger: Logger) {
       });
     });
     next();
+  };
+}
+
+function createMcpTokenContextMiddleware(tokenStore: TokenStore, userStore?: UserStore, logger?: Logger) {
+  return async (req: Request, _res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const token = extractWayfinderTokenForRateLimit(req);
+      if (!token) {
+        next();
+        return;
+      }
+
+      const tokenConfig = await tokenStore.getByHash(hashToken(token));
+      if (!tokenConfig) {
+        req.mcpTokenContextTokenInvalid = true;
+        next();
+        return;
+      }
+
+      req.tokenConfig = tokenConfig;
+
+      const tokenUserId = getTokenUserId(tokenConfig);
+      if (tokenUserId && userStore) {
+        const user = await userStore.getById(tokenUserId);
+        if (user?.status === 'active') {
+          req.user = user;
+          req.userTier = user.tier;
+        } else {
+          // Ensure downstream tier-based middleware sees a deterministic tier.
+          // The MCP route will still reject inactive/missing token owners explicitly.
+          req.mcpTokenContextUserInactive = true;
+          req.userTier = 'free';
+        }
+      } else {
+        // Do not infer admin privileges/rate limits from a missing user association.
+        // Legacy/no-user tokens get the lowest tier unless explicitly handled elsewhere.
+        req.userTier = 'free';
+      }
+    } catch (error) {
+      req.mcpTokenContextLookupFailed = true;
+      logger?.warn('Failed to resolve MCP token context', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    next();
+  };
+}
+
+function applyMcpRouteToolMiddleware(middleware: RequestHandler) {
+  return (req: Request, res: Response, next: NextFunction): void | Promise<void> => {
+    // Depends on upstream `express.json()` having parsed the body before this runs.
+    if (req.method === 'POST' && typeof req.body === 'undefined') {
+      console.warn('[applyMcpRouteToolMiddleware] req.body is undefined; ensure express.json() runs before MCP middleware');
+    }
+    const method = req.body?.method;
+    const toolName = req.body?.params?.name;
+    if (req.method !== 'POST' || method !== 'tools/call' || toolName !== 'wayfinder_route') {
+      next();
+      return;
+    }
+    return middleware(req, res, next);
   };
 }
 
@@ -511,15 +582,6 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
     });
   });
 
-  app.use('/mcp', createMcpRoutes(
-    routingEngine,
-    tokenStore,
-    userStore,
-    logger,
-    tokenMetricsStore,
-    rateLimiters.mcp
-  ));
-
   // Admin routes (require admin auth + rate limiting)
   const adminRouter = express.Router();
   adminRouter.use(rateLimiters.admin);
@@ -794,6 +856,20 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
   const tierRateLimiter = FEATURE_FLAGS.USER_SELF_SERVICE
     ? createTierRateLimiter(redis, logger)
     : (_req: Request, _res: Response, next: NextFunction) => next(); // No-op if feature disabled
+
+  app.use('/mcp',
+    applyMcpRouteToolMiddleware(createMcpTokenContextMiddleware(tokenStore, userStore, logger)),
+    applyMcpRouteToolMiddleware(createRouteThrottleMetricsMiddleware(tokenStore, tokenMetricsStore, logger)),
+    applyMcpRouteToolMiddleware(tierRateLimiter),
+    createMcpRoutes(
+      routingEngine,
+      tokenStore,
+      userStore,
+      logger,
+      tokenMetricsStore,
+      rateLimiters.mcp
+    )
+  );
 
   // Routing endpoint: Apply both standard rate limiter and tier-aware limiter
   app.use('/route',
