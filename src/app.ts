@@ -182,6 +182,7 @@ function createMcpTokenContextMiddleware(tokenStore: TokenStore, userStore?: Use
 
 function applyMcpRouteToolMiddleware(middleware: RequestHandler) {
   return (req: Request, res: Response, next: NextFunction): void | Promise<void> => {
+    // Depends on upstream `express.json()` having parsed the body before this runs.
     const method = req.body?.method;
     const toolName = req.body?.params?.name;
     if (req.method !== 'POST' || method !== 'tools/call' || toolName !== 'wayfinder_route') {
