@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import Redis from 'ioredis-mock';
+import type { RoutingEngine } from '../../src/routing';
 
 type EnvSnapshot = {
   featureUserSelfService?: string;
@@ -8,6 +9,9 @@ type EnvSnapshot = {
   adminApiKey?: string;
   rateLimitRoutingMax?: string;
   rateLimitFreeBurst?: string;
+  routerLlmOpenaiEnabled?: string;
+  routerLlmGeminiEnabled?: string;
+  modelRegistrySyncOnStartup?: string;
 };
 
 const envSnapshot: EnvSnapshot = {
@@ -16,6 +20,9 @@ const envSnapshot: EnvSnapshot = {
   adminApiKey: process.env.ADMIN_API_KEY,
   rateLimitRoutingMax: process.env.RATE_LIMIT_ROUTING_MAX,
   rateLimitFreeBurst: process.env.RATE_LIMIT_FREE_BURST,
+  routerLlmOpenaiEnabled: process.env.ROUTER_LLM_OPENAI_ENABLED,
+  routerLlmGeminiEnabled: process.env.ROUTER_LLM_GEMINI_ENABLED,
+  modelRegistrySyncOnStartup: process.env.MODEL_REGISTRY_SYNC_ON_STARTUP,
 };
 
 function restoreEnv(): void {
@@ -45,6 +52,21 @@ function restoreEnv(): void {
   } else {
     process.env.RATE_LIMIT_FREE_BURST = envSnapshot.rateLimitFreeBurst;
   }
+  if (envSnapshot.routerLlmOpenaiEnabled === undefined) {
+    delete process.env.ROUTER_LLM_OPENAI_ENABLED;
+  } else {
+    process.env.ROUTER_LLM_OPENAI_ENABLED = envSnapshot.routerLlmOpenaiEnabled;
+  }
+  if (envSnapshot.routerLlmGeminiEnabled === undefined) {
+    delete process.env.ROUTER_LLM_GEMINI_ENABLED;
+  } else {
+    process.env.ROUTER_LLM_GEMINI_ENABLED = envSnapshot.routerLlmGeminiEnabled;
+  }
+  if (envSnapshot.modelRegistrySyncOnStartup === undefined) {
+    delete process.env.MODEL_REGISTRY_SYNC_ON_STARTUP;
+  } else {
+    process.env.MODEL_REGISTRY_SYNC_ON_STARTUP = envSnapshot.modelRegistrySyncOnStartup;
+  }
 }
 
 
@@ -52,10 +74,38 @@ async function createTestApp(userSelfService = false) {
   process.env.FEATURE_USER_SELF_SERVICE = userSelfService ? 'true' : 'false';
   process.env.ADMIN_API_KEY = 'test-admin-key';
   process.env.LLM_KEY_ENCRYPTION_KEY = 'a'.repeat(64);
+  process.env.ROUTER_LLM_OPENAI_ENABLED = 'false';
+  process.env.ROUTER_LLM_GEMINI_ENABLED = 'false';
+  process.env.MODEL_REGISTRY_SYNC_ON_STARTUP = 'false';
   vi.resetModules();
   const { createApp } = await import('../../src/app');
+  const stubRoutingEngine: RoutingEngine = {
+    async route(_request, _tokenConfig, requestId) {
+      return {
+        decision: {
+          intent: 'test',
+          primary: {
+            model: 'gpt-4o-mini',
+            score: 9,
+            reason: 'Stub primary recommendation for MCP tests.',
+          },
+          alternate: {
+            model: 'gemini-2.5-flash',
+            score: 8,
+            reason: 'Stub alternate recommendation for MCP tests.',
+          },
+        },
+        policyMetadata: {
+          forcedModel: null,
+          eligibleModelsCount: 2,
+        },
+        cache_hit: false,
+        router_model_used: 'openai' as const,
+      };
+    },
+  };
   const redis = new Redis();
-  const { app, dependencies } = await createApp({ redis });
+  const { app, dependencies } = await createApp({ redis, routingEngine: stubRoutingEngine });
   return { app, dependencies };
 }
 
