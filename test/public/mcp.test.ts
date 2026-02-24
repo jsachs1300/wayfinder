@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import Redis from 'ioredis-mock';
+import type { RoutingEngine } from '../../src/routing';
 
 type EnvSnapshot = {
   featureUserSelfService?: string;
@@ -78,8 +79,8 @@ async function createTestApp(userSelfService = false) {
   process.env.MODEL_REGISTRY_SYNC_ON_STARTUP = 'false';
   vi.resetModules();
   const { createApp } = await import('../../src/app');
-  const stubRoutingEngine = {
-    async route(_request: unknown, _tokenConfig: unknown, requestId?: string) {
+  const stubRoutingEngine: RoutingEngine = {
+    async route(_request, _tokenConfig, requestId) {
       return {
         decision: {
           intent: 'test',
