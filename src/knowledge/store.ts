@@ -513,6 +513,8 @@ export class RedisKnowledgeStore implements KnowledgeStore {
 
   private async clearScope(scopeKey: string): Promise<void> {
     const indexKey = `${KNOWLEDGE_INDEX_PREFIX}${scopeKey}`;
+    // Intentionally iterate the scope index (ZSET) instead of using Redis KEYS.
+    // KEYS is blocked by lint guardrails due to production latency risks.
     while (true) {
       const batch = await this.redis.zrange(indexKey, 0, 99);
       if (batch.length === 0) break;

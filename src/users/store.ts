@@ -228,51 +228,85 @@ export class RedisUserStore implements UserStore {
     this.redis = redis;
   }
 
+  private static isAlreadyConnectedError(error: unknown): boolean {
+    if (!(error instanceof Error)) {
+      return false;
+    }
+    return error.message.includes('already connecting/connected');
+  }
+
+  private async withIsolatedTransactionClient<T>(
+    operation: (client: Redis) => Promise<T>
+  ): Promise<T> {
+    const client = this.redis.duplicate();
+    if (client.status === 'wait') {
+      try {
+        await client.connect();
+      } catch (error) {
+        if (!RedisUserStore.isAlreadyConnectedError(error)) {
+          throw error;
+        }
+      }
+    }
+    try {
+      return await operation(client);
+    } finally {
+      try {
+        await client.quit();
+      } catch {
+        client.disconnect();
+      }
+    }
+  }
+
   async create(request: UserCreateRequest): Promise<User> {
     const emailHash = hashEmail(request.email);
     const password_hash = await hashPassword(request.password);
     const emailIndexKey = USER_EMAIL_INDEX + emailHash;
 
     for (let attempt = 1; attempt <= RedisUserStore.MAX_WRITE_RETRIES; attempt += 1) {
-      await this.redis.watch(emailIndexKey);
-      try {
-        const existingId = await this.redis.get(emailIndexKey);
-        if (existingId) {
-          throw new Error('Email already registered');
-        }
-
-        const id = uuidv4();
-        const now = new Date().toISOString();
-        const user: User = {
-          id,
-          email: request.email.toLowerCase().trim(),
-          password_hash,
-          tier: 'free',
-          status: 'active',
-          org_id: null,
-          billing_customer_id: null,
-          created_at: now,
-          updated_at: now,
-          last_login_at: null,
-        };
-
-        const tx = this.redis.multi();
-        tx.set(USER_PREFIX + id, JSON.stringify(user));
-        tx.set(emailIndexKey, id);
-        tx.sadd(USER_INDEX_KEY, id);
-        const result = await tx.exec();
-
-        if (result === null) {
-          if (attempt < RedisUserStore.MAX_WRITE_RETRIES) {
-            continue;
+      const created = await this.withIsolatedTransactionClient(async (txRedis) => {
+        await txRedis.watch(emailIndexKey);
+        try {
+          const existingId = await txRedis.get(emailIndexKey);
+          if (existingId) {
+            throw new Error('Email already registered');
           }
-          throw new Error('Failed to create user due to concurrent modification');
-        }
 
-        assertRedisExecResults(result, 'users.create');
-        return user;
-      } finally {
-        await this.redis.unwatch();
+          const id = uuidv4();
+          const now = new Date().toISOString();
+          const user: User = {
+            id,
+            email: request.email.toLowerCase().trim(),
+            password_hash,
+            tier: 'free',
+            status: 'active',
+            org_id: null,
+            billing_customer_id: null,
+            created_at: now,
+            updated_at: now,
+            last_login_at: null,
+          };
+
+          const tx = txRedis.multi();
+          tx.set(USER_PREFIX + id, JSON.stringify(user));
+          tx.set(emailIndexKey, id);
+          tx.sadd(USER_INDEX_KEY, id);
+          const result = await tx.exec();
+
+          if (result === null) {
+            return null;
+          }
+
+          assertRedisExecResults(result, 'users.create');
+          return user;
+        } finally {
+          await txRedis.unwatch();
+        }
+      });
+
+      if (created) {
+        return created;
       }
     }
 
@@ -285,45 +319,48 @@ export class RedisUserStore implements UserStore {
     const emailIndexKey = USER_EMAIL_INDEX + emailHash;
 
     for (let attempt = 1; attempt <= RedisUserStore.MAX_WRITE_RETRIES; attempt += 1) {
-      await this.redis.watch(emailIndexKey);
-      try {
-        const existingId = await this.redis.get(emailIndexKey);
-        if (existingId) {
-          throw new Error('Email already registered');
-        }
-
-        const id = uuidv4();
-        const now = new Date().toISOString();
-        const user: User = {
-          id,
-          email: request.email.toLowerCase().trim(),
-          password_hash,
-          tier: 'free',
-          status: 'pending',
-          org_id: null,
-          billing_customer_id: null,
-          created_at: now,
-          updated_at: now,
-          last_login_at: null,
-        };
-
-        const tx = this.redis.multi();
-        tx.set(USER_PREFIX + id, JSON.stringify(user));
-        tx.set(emailIndexKey, id);
-        tx.sadd(USER_INDEX_KEY, id);
-        const result = await tx.exec();
-
-        if (result === null) {
-          if (attempt < RedisUserStore.MAX_WRITE_RETRIES) {
-            continue;
+      const created = await this.withIsolatedTransactionClient(async (txRedis) => {
+        await txRedis.watch(emailIndexKey);
+        try {
+          const existingId = await txRedis.get(emailIndexKey);
+          if (existingId) {
+            throw new Error('Email already registered');
           }
-          throw new Error('Failed to create pending user due to concurrent modification');
-        }
 
-        assertRedisExecResults(result, 'users.createPending');
-        return user;
-      } finally {
-        await this.redis.unwatch();
+          const id = uuidv4();
+          const now = new Date().toISOString();
+          const user: User = {
+            id,
+            email: request.email.toLowerCase().trim(),
+            password_hash,
+            tier: 'free',
+            status: 'pending',
+            org_id: null,
+            billing_customer_id: null,
+            created_at: now,
+            updated_at: now,
+            last_login_at: null,
+          };
+
+          const tx = txRedis.multi();
+          tx.set(USER_PREFIX + id, JSON.stringify(user));
+          tx.set(emailIndexKey, id);
+          tx.sadd(USER_INDEX_KEY, id);
+          const result = await tx.exec();
+
+          if (result === null) {
+            return null;
+          }
+
+          assertRedisExecResults(result, 'users.createPending');
+          return user;
+        } finally {
+          await txRedis.unwatch();
+        }
+      });
+
+      if (created) {
+        return created;
       }
     }
 
@@ -367,51 +404,61 @@ export class RedisUserStore implements UserStore {
     const userKey = USER_PREFIX + id;
 
     for (let attempt = 1; attempt <= RedisUserStore.MAX_WRITE_RETRIES; attempt += 1) {
-      const existing = await this.getById(id);
-      if (!existing) return null;
-
-      const oldEmailHash = hashEmail(existing.email);
-      const newEmailHash = normalizedEmail ? hashEmail(normalizedEmail) : oldEmailHash;
-      const newEmailKey = USER_EMAIL_INDEX + newEmailHash;
-      const oldEmailKey = USER_EMAIL_INDEX + oldEmailHash;
-
-      await this.redis.watch(userKey, newEmailKey, oldEmailKey);
-      try {
-        if (newEmailHash !== oldEmailHash) {
-          const existingId = await this.redis.get(newEmailKey);
-          if (existingId && existingId !== id) {
-            throw new Error('Email already registered');
+      const outcome = await this.withIsolatedTransactionClient(async (txRedis) => {
+        await txRedis.watch(userKey);
+        try {
+          const existingRaw = await txRedis.get(userKey);
+          if (!existingRaw) {
+            return { kind: 'not_found' } as const;
           }
-        }
+          const existing = JSON.parse(existingRaw) as User;
 
-        const now = new Date().toISOString();
-        const updated: User = {
-          ...existing,
-          email: normalizedEmail ?? existing.email,
-          password_hash: passwordHash ?? existing.password_hash,
-          tier: request.tier ?? existing.tier,
-          status: request.status ?? existing.status,
-          updated_at: now,
-        };
+          const oldEmailHash = hashEmail(existing.email);
+          const newEmailHash = normalizedEmail ? hashEmail(normalizedEmail) : oldEmailHash;
+          const newEmailKey = USER_EMAIL_INDEX + newEmailHash;
+          const oldEmailKey = USER_EMAIL_INDEX + oldEmailHash;
 
-        const tx = this.redis.multi();
-        tx.set(userKey, JSON.stringify(updated));
-        if (newEmailHash !== oldEmailHash) {
-          tx.del(oldEmailKey);
-          tx.set(newEmailKey, id);
-        }
-        const result = await tx.exec();
-
-        if (result === null) {
-          if (attempt < RedisUserStore.MAX_WRITE_RETRIES) {
-            continue;
+          await txRedis.watch(newEmailKey, oldEmailKey);
+          if (newEmailHash !== oldEmailHash) {
+            const existingId = await txRedis.get(newEmailKey);
+            if (existingId && existingId !== id) {
+              throw new Error('Email already registered');
+            }
           }
-          throw new Error('Failed to update user due to concurrent modification');
+
+          const now = new Date().toISOString();
+          const updated: User = {
+            ...existing,
+            email: normalizedEmail ?? existing.email,
+            password_hash: passwordHash ?? existing.password_hash,
+            tier: request.tier ?? existing.tier,
+            status: request.status ?? existing.status,
+            updated_at: now,
+          };
+
+          const tx = txRedis.multi();
+          tx.set(userKey, JSON.stringify(updated));
+          if (newEmailHash !== oldEmailHash) {
+            tx.del(oldEmailKey);
+            tx.set(newEmailKey, id);
+          }
+          const result = await tx.exec();
+
+          if (result === null) {
+            return { kind: 'retry' } as const;
+          }
+          assertRedisExecResults(result, 'users.update');
+          return { kind: 'updated', user: updated } as const;
+        } finally {
+          await txRedis.unwatch();
         }
-        assertRedisExecResults(result, 'users.update');
-        return updated;
-      } finally {
-        await this.redis.unwatch();
+      });
+
+      if (outcome.kind === 'updated') {
+        return outcome.user;
+      }
+      if (outcome.kind === 'not_found') {
+        return null;
       }
     }
 

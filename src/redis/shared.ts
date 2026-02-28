@@ -8,7 +8,7 @@ export interface SharedRedisDiagnostics {
   status: string;
   connect_failures: number;
   reconnect_attempts: number;
-  last_error?: string;
+  last_error_kind?: string;
   last_error_at?: string;
   last_connect_at?: string;
   last_ready_at?: string;
@@ -19,6 +19,16 @@ const diagnostics: SharedRedisDiagnostics = {
   connect_failures: 0,
   reconnect_attempts: 0,
 };
+
+function categorizeRedisError(error: string): string {
+  const normalized = error.toLowerCase();
+  if (normalized.includes('auth')) return 'auth';
+  if (normalized.includes('timeout')) return 'timeout';
+  if (normalized.includes('refused') || normalized.includes('econnrefused')) return 'connection_refused';
+  if (normalized.includes('enotfound') || normalized.includes('dns')) return 'dns';
+  if (normalized.includes('tls') || normalized.includes('ssl')) return 'tls';
+  return 'unknown';
+}
 
 function parsePositiveInt(value: string | undefined, fallback: number): number {
   if (!value) {
@@ -112,7 +122,7 @@ export async function getSharedRedis(logger: Logger): Promise<Redis | undefined>
 
   redisClient.on('error', (error) => {
     diagnostics.status = 'error';
-    diagnostics.last_error = error.message;
+    diagnostics.last_error_kind = categorizeRedisError(error.message);
     diagnostics.last_error_at = new Date().toISOString();
     logger.warn('Redis client error', { error: error.message });
   });
@@ -126,7 +136,9 @@ export async function getSharedRedis(logger: Logger): Promise<Redis | undefined>
     } catch (error) {
       diagnostics.connect_failures += 1;
       diagnostics.status = 'connect_failed';
-      diagnostics.last_error = error instanceof Error ? error.message : 'Unknown error';
+      diagnostics.last_error_kind = categorizeRedisError(
+        error instanceof Error ? error.message : 'Unknown error'
+      );
       diagnostics.last_error_at = new Date().toISOString();
       logger.warn('Failed to connect to Redis, using in-memory stores', {
         error: error instanceof Error ? error.message : 'Unknown error',

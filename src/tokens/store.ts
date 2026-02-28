@@ -484,6 +484,9 @@ export class RedisTokenStore implements TokenStore {
           .srem(userTokensKey, tokenId)
           .srem(TOKEN_INDEX_KEY, tokenId)
           .exec();
+        if (!staleIndexResult) {
+          continue;
+        }
         assertRedisExecResults(staleIndexResult, 'tokens.deleteUserToken.cleanup');
         return { deleted: false, reason: 'not_found' };
       }

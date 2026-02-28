@@ -540,7 +540,7 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
       redis_status: redisDiagnostics.status,
       redis_connect_failures: redisDiagnostics.connect_failures,
       redis_reconnect_attempts: redisDiagnostics.reconnect_attempts,
-      ...(redisDiagnostics.last_error ? { redis_last_error: redisDiagnostics.last_error } : {}),
+      ...(redisDiagnostics.last_error_kind ? { redis_last_error_kind: redisDiagnostics.last_error_kind } : {}),
       ...(redisDiagnostics.last_error_at ? { redis_last_error_at: redisDiagnostics.last_error_at } : {}),
       ...(redisDiagnostics.last_connect_at ? { redis_last_connect_at: redisDiagnostics.last_connect_at } : {}),
       ...(redisDiagnostics.last_ready_at ? { redis_last_ready_at: redisDiagnostics.last_ready_at } : {}),
