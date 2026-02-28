@@ -264,53 +264,55 @@ export class RedisUserStore implements UserStore {
     const password_hash = await hashPassword(request.password);
     const emailIndexKey = USER_EMAIL_INDEX + emailHash;
 
-    for (let attempt = 1; attempt <= RedisUserStore.MAX_WRITE_RETRIES; attempt += 1) {
-      const created = await this.withIsolatedTransactionClient(async (txRedis) => {
-        await txRedis.watch(emailIndexKey);
-        try {
-          const existingId = await txRedis.get(emailIndexKey);
-          if (existingId) {
-            throw new Error('Email already registered');
+    return this.withIsolatedTransactionClient(async (txRedis) => {
+      for (let attempt = 1; attempt <= RedisUserStore.MAX_WRITE_RETRIES; attempt += 1) {
+        const created = await (async () => {
+          await txRedis.watch(emailIndexKey);
+          try {
+            const existingId = await txRedis.get(emailIndexKey);
+            if (existingId) {
+              throw new Error('Email already registered');
+            }
+
+            const id = uuidv4();
+            const now = new Date().toISOString();
+            const user: User = {
+              id,
+              email: request.email.toLowerCase().trim(),
+              password_hash,
+              tier: 'free',
+              status: 'active',
+              org_id: null,
+              billing_customer_id: null,
+              created_at: now,
+              updated_at: now,
+              last_login_at: null,
+            };
+
+            const tx = txRedis.multi();
+            tx.set(USER_PREFIX + id, JSON.stringify(user));
+            tx.set(emailIndexKey, id);
+            tx.sadd(USER_INDEX_KEY, id);
+            const result = await tx.exec();
+
+            if (result === null) {
+              return null;
+            }
+
+            assertRedisExecResults(result, 'users.create');
+            return user;
+          } finally {
+            await txRedis.unwatch();
           }
+        })();
 
-          const id = uuidv4();
-          const now = new Date().toISOString();
-          const user: User = {
-            id,
-            email: request.email.toLowerCase().trim(),
-            password_hash,
-            tier: 'free',
-            status: 'active',
-            org_id: null,
-            billing_customer_id: null,
-            created_at: now,
-            updated_at: now,
-            last_login_at: null,
-          };
-
-          const tx = txRedis.multi();
-          tx.set(USER_PREFIX + id, JSON.stringify(user));
-          tx.set(emailIndexKey, id);
-          tx.sadd(USER_INDEX_KEY, id);
-          const result = await tx.exec();
-
-          if (result === null) {
-            return null;
-          }
-
-          assertRedisExecResults(result, 'users.create');
-          return user;
-        } finally {
-          await txRedis.unwatch();
+        if (created) {
+          return created;
         }
-      });
-
-      if (created) {
-        return created;
       }
-    }
 
-    throw new Error('Failed to create user due to concurrent modification');
+      throw new Error('Failed to create user due to concurrent modification');
+    });
   }
 
   async createPending(request: UserPendingCreateRequest): Promise<User> {
@@ -318,53 +320,55 @@ export class RedisUserStore implements UserStore {
     const password_hash = DUMMY_PASSWORD_HASH;
     const emailIndexKey = USER_EMAIL_INDEX + emailHash;
 
-    for (let attempt = 1; attempt <= RedisUserStore.MAX_WRITE_RETRIES; attempt += 1) {
-      const created = await this.withIsolatedTransactionClient(async (txRedis) => {
-        await txRedis.watch(emailIndexKey);
-        try {
-          const existingId = await txRedis.get(emailIndexKey);
-          if (existingId) {
-            throw new Error('Email already registered');
+    return this.withIsolatedTransactionClient(async (txRedis) => {
+      for (let attempt = 1; attempt <= RedisUserStore.MAX_WRITE_RETRIES; attempt += 1) {
+        const created = await (async () => {
+          await txRedis.watch(emailIndexKey);
+          try {
+            const existingId = await txRedis.get(emailIndexKey);
+            if (existingId) {
+              throw new Error('Email already registered');
+            }
+
+            const id = uuidv4();
+            const now = new Date().toISOString();
+            const user: User = {
+              id,
+              email: request.email.toLowerCase().trim(),
+              password_hash,
+              tier: 'free',
+              status: 'pending',
+              org_id: null,
+              billing_customer_id: null,
+              created_at: now,
+              updated_at: now,
+              last_login_at: null,
+            };
+
+            const tx = txRedis.multi();
+            tx.set(USER_PREFIX + id, JSON.stringify(user));
+            tx.set(emailIndexKey, id);
+            tx.sadd(USER_INDEX_KEY, id);
+            const result = await tx.exec();
+
+            if (result === null) {
+              return null;
+            }
+
+            assertRedisExecResults(result, 'users.createPending');
+            return user;
+          } finally {
+            await txRedis.unwatch();
           }
+        })();
 
-          const id = uuidv4();
-          const now = new Date().toISOString();
-          const user: User = {
-            id,
-            email: request.email.toLowerCase().trim(),
-            password_hash,
-            tier: 'free',
-            status: 'pending',
-            org_id: null,
-            billing_customer_id: null,
-            created_at: now,
-            updated_at: now,
-            last_login_at: null,
-          };
-
-          const tx = txRedis.multi();
-          tx.set(USER_PREFIX + id, JSON.stringify(user));
-          tx.set(emailIndexKey, id);
-          tx.sadd(USER_INDEX_KEY, id);
-          const result = await tx.exec();
-
-          if (result === null) {
-            return null;
-          }
-
-          assertRedisExecResults(result, 'users.createPending');
-          return user;
-        } finally {
-          await txRedis.unwatch();
+        if (created) {
+          return created;
         }
-      });
-
-      if (created) {
-        return created;
       }
-    }
 
-    throw new Error('Failed to create pending user due to concurrent modification');
+      throw new Error('Failed to create pending user due to concurrent modification');
+    });
   }
 
   async getById(id: string): Promise<User | null> {
@@ -403,66 +407,68 @@ export class RedisUserStore implements UserStore {
     const passwordHash = request.password ? await hashPassword(request.password) : undefined;
     const userKey = USER_PREFIX + id;
 
-    for (let attempt = 1; attempt <= RedisUserStore.MAX_WRITE_RETRIES; attempt += 1) {
-      const outcome = await this.withIsolatedTransactionClient(async (txRedis) => {
-        await txRedis.watch(userKey);
-        try {
-          const existingRaw = await txRedis.get(userKey);
-          if (!existingRaw) {
-            return { kind: 'not_found' } as const;
-          }
-          const existing = JSON.parse(existingRaw) as User;
-
-          const oldEmailHash = hashEmail(existing.email);
-          const newEmailHash = normalizedEmail ? hashEmail(normalizedEmail) : oldEmailHash;
-          const newEmailKey = USER_EMAIL_INDEX + newEmailHash;
-          const oldEmailKey = USER_EMAIL_INDEX + oldEmailHash;
-
-          await txRedis.watch(newEmailKey, oldEmailKey);
-          if (newEmailHash !== oldEmailHash) {
-            const existingId = await txRedis.get(newEmailKey);
-            if (existingId && existingId !== id) {
-              throw new Error('Email already registered');
+    return this.withIsolatedTransactionClient(async (txRedis) => {
+      for (let attempt = 1; attempt <= RedisUserStore.MAX_WRITE_RETRIES; attempt += 1) {
+        const outcome = await (async () => {
+          await txRedis.watch(userKey);
+          try {
+            const existingRaw = await txRedis.get(userKey);
+            if (!existingRaw) {
+              return { kind: 'not_found' } as const;
             }
-          }
+            const existing = JSON.parse(existingRaw) as User;
 
-          const now = new Date().toISOString();
-          const updated: User = {
-            ...existing,
-            email: normalizedEmail ?? existing.email,
-            password_hash: passwordHash ?? existing.password_hash,
-            tier: request.tier ?? existing.tier,
-            status: request.status ?? existing.status,
-            updated_at: now,
-          };
+            const oldEmailHash = hashEmail(existing.email);
+            const newEmailHash = normalizedEmail ? hashEmail(normalizedEmail) : oldEmailHash;
+            const newEmailKey = USER_EMAIL_INDEX + newEmailHash;
+            const oldEmailKey = USER_EMAIL_INDEX + oldEmailHash;
 
-          const tx = txRedis.multi();
-          tx.set(userKey, JSON.stringify(updated));
-          if (newEmailHash !== oldEmailHash) {
-            tx.del(oldEmailKey);
-            tx.set(newEmailKey, id);
-          }
-          const result = await tx.exec();
+            await txRedis.watch(newEmailKey, oldEmailKey);
+            if (newEmailHash !== oldEmailHash) {
+              const existingId = await txRedis.get(newEmailKey);
+              if (existingId && existingId !== id) {
+                throw new Error('Email already registered');
+              }
+            }
 
-          if (result === null) {
-            return { kind: 'retry' } as const;
+            const now = new Date().toISOString();
+            const updated: User = {
+              ...existing,
+              email: normalizedEmail ?? existing.email,
+              password_hash: passwordHash ?? existing.password_hash,
+              tier: request.tier ?? existing.tier,
+              status: request.status ?? existing.status,
+              updated_at: now,
+            };
+
+            const tx = txRedis.multi();
+            tx.set(userKey, JSON.stringify(updated));
+            if (newEmailHash !== oldEmailHash) {
+              tx.del(oldEmailKey);
+              tx.set(newEmailKey, id);
+            }
+            const result = await tx.exec();
+
+            if (result === null) {
+              return { kind: 'retry' } as const;
+            }
+            assertRedisExecResults(result, 'users.update');
+            return { kind: 'updated', user: updated } as const;
+          } finally {
+            await txRedis.unwatch();
           }
-          assertRedisExecResults(result, 'users.update');
-          return { kind: 'updated', user: updated } as const;
-        } finally {
-          await txRedis.unwatch();
+        })();
+
+        if (outcome.kind === 'updated') {
+          return outcome.user;
         }
-      });
-
-      if (outcome.kind === 'updated') {
-        return outcome.user;
+        if (outcome.kind === 'not_found') {
+          return null;
+        }
       }
-      if (outcome.kind === 'not_found') {
-        return null;
-      }
-    }
 
-    throw new Error('Failed to update user due to concurrent modification');
+      throw new Error('Failed to update user due to concurrent modification');
+    });
   }
 
   async updateTier(id: string, tier: UserTier): Promise<User | null> {
