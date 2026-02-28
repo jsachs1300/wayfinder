@@ -79,6 +79,10 @@ describe('API Integration Tests', () => {
       expect(response.status).toBe(200);
       expect(response.body.status).toBe('healthy');
       expect(response.body.timestamp).toBeDefined();
+      expect(response.body.redis_last_error).toBeUndefined();
+      if (response.body.redis_last_error_kind !== undefined) {
+        expect(typeof response.body.redis_last_error_kind).toBe('string');
+      }
     });
   });
 

@@ -297,6 +297,22 @@ describe('User Authentication', () => {
       ).rejects.toThrow('Email already registered');
     });
 
+    it('should allow only one concurrent create for the same email', async () => {
+      const email = 'concurrent-duplicate@example.com';
+      const [first, second] = await Promise.allSettled([
+        store.create({ email, password: 'Pass123!' }),
+        store.create({ email, password: 'Pass456!' }),
+      ]);
+
+      const fulfilled = [first, second].filter((result) => result.status === 'fulfilled');
+      const rejected = [first, second].filter((result) => result.status === 'rejected');
+
+      expect(fulfilled).toHaveLength(1);
+      expect(rejected).toHaveLength(1);
+      expect((rejected[0] as PromiseRejectedResult).reason).toBeInstanceOf(Error);
+      expect((rejected[0] as PromiseRejectedResult).reason.message).toContain('Email already registered');
+    });
+
     it('should update user correctly', async () => {
       const user = await store.create({
         email: 'update@example.com',
