@@ -9,6 +9,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type Redis from 'ioredis';
 import type { AnonymousSession } from './types';
 import type { TokenStore } from '../../tokens/store';
+import { assertRedisExecResults } from '../../redis/exec';
 
 const SESSION_PREFIX = 'wayfinder:anon_session:';
 const SESSION_TOKEN_INDEX = 'wayfinder:anon_session:token:';
@@ -211,15 +212,14 @@ export class RedisAnonymousSessionStore implements AnonymousSessionStore {
       request_count: 0,
     };
 
-    // Store session with TTL
-    await this.redis.setex(
+    const tx = this.redis.multi();
+    tx.setex(
       SESSION_PREFIX + sessionId,
       ttlSeconds,
       JSON.stringify(session)
     );
-
-    // Store token -> session index with TTL
-    await this.redis.setex(SESSION_TOKEN_INDEX + tokenId, ttlSeconds, sessionId);
+    tx.setex(SESSION_TOKEN_INDEX + tokenId, ttlSeconds, sessionId);
+    assertRedisExecResults(await tx.exec(), 'anonymousSessions.create');
 
     return { session, token };
   }
@@ -263,19 +263,24 @@ export class RedisAnonymousSessionStore implements AnonymousSessionStore {
         JSON.stringify(session)
       );
     } else {
-      // TTL expired or key doesn't exist
-      await this.redis.set(SESSION_PREFIX + sessionId, JSON.stringify(session));
+      // Never recreate anonymous sessions without TTL.
+      // If TTL is expired or key is missing, clean up and fail.
+      await this.delete(sessionId);
+      throw new Error('Session expired');
     }
 
     return session.request_count;
   }
 
   async delete(sessionId: string): Promise<boolean> {
-    const session = await this.getBySessionId(sessionId);
-    if (!session) return false;
+    const data = await this.redis.get(SESSION_PREFIX + sessionId);
+    if (!data) return false;
+    const session = JSON.parse(data) as AnonymousSession;
 
-    await this.redis.del(SESSION_PREFIX + sessionId);
-    await this.redis.del(SESSION_TOKEN_INDEX + session.token_id);
+    const tx = this.redis.multi();
+    tx.del(SESSION_PREFIX + sessionId);
+    tx.del(SESSION_TOKEN_INDEX + session.token_id);
+    assertRedisExecResults(await tx.exec(), 'anonymousSessions.delete');
     return true;
   }
 

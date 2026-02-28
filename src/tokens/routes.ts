@@ -323,6 +323,14 @@ export function createAdminRoutes(
         return;
       }
 
+      if (metricsStore) {
+        try {
+          await metricsStore.deleteMetrics(id);
+        } catch (metricsError) {
+          console.error('Failed to clear metrics for token:', id, metricsError);
+        }
+      }
+
       // Clear cache only after successful deletion.
       // Skip scoped clear for default tokens because they use global cache scope.
       if (cache && !isDefaultToken(existing)) {

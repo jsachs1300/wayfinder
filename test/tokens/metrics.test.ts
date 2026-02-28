@@ -62,6 +62,14 @@ describe('RedisTokenMetricsStore', () => {
     expect(metrics['token-b']).toEqual({ route_requests: 2, cache_hits: 2, throttled_requests: 1 });
   });
 
+  it('deleteMetrics clears all counters for a token', async () => {
+    await store.incrementRouteRequest('token-delete', true);
+    await store.incrementThrottled('token-delete');
+    await store.deleteMetrics('token-delete');
+    const metrics = await store.getMetrics('token-delete');
+    expect(metrics).toEqual({ route_requests: 0, cache_hits: 0, throttled_requests: 0 });
+  });
+
   it('createTokenMetricsStore returns undefined when Redis is not available', () => {
     const result = createTokenMetricsStore(undefined);
     expect(result).toBeUndefined();
@@ -73,6 +81,7 @@ describe('RedisTokenMetricsStore pipeline errors', () => {
     const pipeline = {
       incr: () => pipeline,
       get: () => pipeline,
+      del: () => pipeline,
       exec: async () => results,
     };
     return {
@@ -83,7 +92,7 @@ describe('RedisTokenMetricsStore pipeline errors', () => {
   it('incrementRouteRequest throws when pipeline exec returns null', async () => {
     const store = new RedisTokenMetricsStore(createMockRedis(null) as any);
     await expect(store.incrementRouteRequest('token-err', false)).rejects.toThrow(
-      'Redis pipeline execution failed'
+      'Redis transaction aborted'
     );
   });
 
@@ -94,7 +103,7 @@ describe('RedisTokenMetricsStore pipeline errors', () => {
 
   it('getMetrics throws when pipeline exec returns null', async () => {
     const store = new RedisTokenMetricsStore(createMockRedis(null) as any);
-    await expect(store.getMetrics('token-err')).rejects.toThrow('Redis pipeline execution failed');
+    await expect(store.getMetrics('token-err')).rejects.toThrow('Redis transaction aborted');
   });
 
   it('getMetrics throws on pipeline command error', async () => {
@@ -105,7 +114,7 @@ describe('RedisTokenMetricsStore pipeline errors', () => {
   it('getMetricsBulk throws when pipeline exec returns null', async () => {
     const store = new RedisTokenMetricsStore(createMockRedis(null) as any);
     await expect(store.getMetricsBulk(['token-err'])).rejects.toThrow(
-      'Redis pipeline execution failed'
+      'Redis transaction aborted'
     );
   });
 

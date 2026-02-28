@@ -3,6 +3,7 @@ import { TokenConfigExtended } from './types';
 import { v4 as uuidv4 } from 'uuid';
 import { hashToken } from '../auth/middleware';
 import Redis from 'ioredis';
+import { assertRedisExecResults } from '../redis/exec';
 
 const TOKEN_PREFIX = 'wayfinder:token:';
 const TOKEN_HASH_INDEX = 'wayfinder:token_hash_index:';
@@ -297,9 +298,11 @@ export class RedisTokenStore implements TokenStore {
       updated_at: now,
     };
 
-    await this.redis.set(TOKEN_PREFIX + id, JSON.stringify(config));
-    await this.redis.set(TOKEN_HASH_INDEX + tokenHash, id);
-    await this.redis.sadd(TOKEN_INDEX_KEY, id);
+    const tx = this.redis.multi();
+    tx.set(TOKEN_PREFIX + id, JSON.stringify(config));
+    tx.set(TOKEN_HASH_INDEX + tokenHash, id);
+    tx.sadd(TOKEN_INDEX_KEY, id);
+    assertRedisExecResults(await tx.exec(), 'tokens.create');
 
     return { id, token, config };
   }
@@ -337,9 +340,6 @@ export class RedisTokenStore implements TokenStore {
     const existing = await this.getById(id);
     if (!existing) return null;
 
-    // Remove old hash from index
-    await this.redis.del(TOKEN_HASH_INDEX + existing.token_hash);
-
     // Generate new token
     const token = generateToken();
     const tokenHash = hashToken(token);
@@ -352,8 +352,11 @@ export class RedisTokenStore implements TokenStore {
       rotated_at: now,
     };
 
-    await this.redis.set(TOKEN_PREFIX + id, JSON.stringify(updated));
-    await this.redis.set(TOKEN_HASH_INDEX + tokenHash, id);
+    const tx = this.redis.multi();
+    tx.del(TOKEN_HASH_INDEX + existing.token_hash);
+    tx.set(TOKEN_PREFIX + id, JSON.stringify(updated));
+    tx.set(TOKEN_HASH_INDEX + tokenHash, id);
+    assertRedisExecResults(await tx.exec(), 'tokens.rotate');
 
     return { token, config: updated };
   }
@@ -362,9 +365,11 @@ export class RedisTokenStore implements TokenStore {
     const existing = await this.getById(id);
     if (!existing) return false;
 
-    await this.redis.del(TOKEN_HASH_INDEX + existing.token_hash);
-    await this.redis.del(TOKEN_PREFIX + id);
-    await this.redis.srem(TOKEN_INDEX_KEY, id);
+    const tx = this.redis.multi();
+    tx.del(TOKEN_HASH_INDEX + existing.token_hash);
+    tx.del(TOKEN_PREFIX + id);
+    tx.srem(TOKEN_INDEX_KEY, id);
+    assertRedisExecResults(await tx.exec(), 'tokens.delete');
     return true;
   }
 
@@ -374,10 +379,10 @@ export class RedisTokenStore implements TokenStore {
 
     const pipeline = this.redis.multi();
     ids.forEach(id => pipeline.get(TOKEN_PREFIX + id));
-    const results = await pipeline.exec();
+    const results = assertRedisExecResults(await pipeline.exec(), 'tokens.list');
 
     const configs: TokenConfig[] = [];
-    results?.forEach(result => {
+    results.forEach(result => {
       const [, data] = result ?? [];
       if (typeof data === 'string') {
         configs.push(JSON.parse(data) as TokenConfig);
@@ -420,10 +425,12 @@ export class RedisTokenStore implements TokenStore {
       updated_at: now,
     };
 
-    await this.redis.set(TOKEN_PREFIX + id, JSON.stringify(config));
-    await this.redis.set(TOKEN_HASH_INDEX + tokenHash, id);
-    await this.redis.sadd(TOKEN_INDEX_KEY, id);
-    await this.redis.sadd(userTokensKey, id);
+    const tx = this.redis.multi();
+    tx.set(TOKEN_PREFIX + id, JSON.stringify(config));
+    tx.set(TOKEN_HASH_INDEX + tokenHash, id);
+    tx.sadd(TOKEN_INDEX_KEY, id);
+    tx.sadd(userTokensKey, id);
+    assertRedisExecResults(await tx.exec(), 'tokens.createForUser');
 
     return { id, token, config };
   }
@@ -435,10 +442,10 @@ export class RedisTokenStore implements TokenStore {
 
     const pipeline = this.redis.multi();
     tokenIds.forEach(id => pipeline.get(TOKEN_PREFIX + id));
-    const results = await pipeline.exec();
+    const results = assertRedisExecResults(await pipeline.exec(), 'tokens.listByUser');
 
     const configs: TokenConfigExtended[] = [];
-    results?.forEach(result => {
+    results.forEach(result => {
       const [, data] = result ?? [];
       if (typeof data === 'string') {
         const config = JSON.parse(data) as TokenConfigExtended;
@@ -473,9 +480,11 @@ export class RedisTokenStore implements TokenStore {
 
       const data = await this.redis.get(tokenKey);
       if (!data) {
-        await this.redis.multi()
+        const staleIndexResult = await this.redis.multi()
           .srem(userTokensKey, tokenId)
+          .srem(TOKEN_INDEX_KEY, tokenId)
           .exec();
+        assertRedisExecResults(staleIndexResult, 'tokens.deleteUserToken.cleanup');
         return { deleted: false, reason: 'not_found' };
       }
 
@@ -493,6 +502,7 @@ export class RedisTokenStore implements TokenStore {
         .exec();
 
       if (result) {
+        assertRedisExecResults(result, 'tokens.deleteUserToken');
         return { deleted: true };
       }
     }

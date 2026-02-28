@@ -4,9 +4,40 @@ import type { Logger } from '../logging/logger';
 let sharedRedis: Redis | undefined;
 let sharedRedisPromise: Promise<Redis | undefined> | undefined;
 
+export interface SharedRedisDiagnostics {
+  status: string;
+  connect_failures: number;
+  reconnect_attempts: number;
+  last_error?: string;
+  last_error_at?: string;
+  last_connect_at?: string;
+  last_ready_at?: string;
+}
+
+const diagnostics: SharedRedisDiagnostics = {
+  status: 'not_initialized',
+  connect_failures: 0,
+  reconnect_attempts: 0,
+};
+
+function parsePositiveInt(value: string | undefined, fallback: number): number {
+  if (!value) {
+    return fallback;
+  }
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+export function getSharedRedisDiagnostics(): SharedRedisDiagnostics {
+  return {
+    ...diagnostics,
+  };
+}
+
 export async function cleanupSharedRedis(): Promise<void> {
   if (!sharedRedis) {
     sharedRedisPromise = undefined;
+    diagnostics.status = 'not_initialized';
     return;
   }
   try {
@@ -18,6 +49,7 @@ export async function cleanupSharedRedis(): Promise<void> {
   } finally {
     sharedRedis = undefined;
     sharedRedisPromise = undefined;
+    diagnostics.status = 'closed';
   }
 }
 
@@ -29,21 +61,73 @@ export async function getSharedRedis(logger: Logger): Promise<Redis | undefined>
     return sharedRedisPromise;
   }
   if (process.env.REDIS_ENABLED !== 'true' || !process.env.REDIS_URL) {
+    diagnostics.status = 'disabled';
     return undefined;
   }
 
+  const connectTimeoutMs = parsePositiveInt(process.env.REDIS_CONNECT_TIMEOUT_MS, 10000);
+  const keepAliveMs = parsePositiveInt(process.env.REDIS_KEEPALIVE_MS, 30000);
+  const maxRetriesPerRequest = parsePositiveInt(process.env.REDIS_MAX_RETRIES_PER_REQUEST, 3);
+
   const redisClient = new Redis(process.env.REDIS_URL, {
-    maxRetriesPerRequest: 3,
+    maxRetriesPerRequest,
     lazyConnect: true,
+    enableOfflineQueue: false,
+    connectTimeout: connectTimeoutMs,
+    keepAlive: keepAliveMs,
+    retryStrategy: (attempt: number) => {
+      const delay = Math.min(attempt * 200, 2000);
+      diagnostics.reconnect_attempts += 1;
+      diagnostics.status = 'reconnecting';
+      return delay;
+    },
+  });
+
+  redisClient.on('connect', () => {
+    diagnostics.status = 'connecting';
+    diagnostics.last_connect_at = new Date().toISOString();
+    logger.info('Redis connection established');
+  });
+
+  redisClient.on('ready', () => {
+    diagnostics.status = 'ready';
+    diagnostics.last_ready_at = new Date().toISOString();
+    logger.info('Redis client ready');
+  });
+
+  redisClient.on('reconnecting', (delay: number) => {
+    diagnostics.status = 'reconnecting';
+    logger.warn('Redis reconnecting', { delay_ms: delay });
+  });
+
+  redisClient.on('close', () => {
+    diagnostics.status = 'closed';
+    logger.warn('Redis connection closed');
+  });
+
+  redisClient.on('end', () => {
+    diagnostics.status = 'ended';
+    logger.warn('Redis connection ended');
+  });
+
+  redisClient.on('error', (error) => {
+    diagnostics.status = 'error';
+    diagnostics.last_error = error.message;
+    diagnostics.last_error_at = new Date().toISOString();
+    logger.warn('Redis client error', { error: error.message });
   });
 
   sharedRedisPromise = (async () => {
     try {
       await redisClient.connect();
       sharedRedis = redisClient;
-      logger.info('Connected to Redis');
+      diagnostics.status = 'ready';
       return redisClient;
     } catch (error) {
+      diagnostics.connect_failures += 1;
+      diagnostics.status = 'connect_failed';
+      diagnostics.last_error = error instanceof Error ? error.message : 'Unknown error';
+      diagnostics.last_error_at = new Date().toISOString();
       logger.warn('Failed to connect to Redis, using in-memory stores', {
         error: error instanceof Error ? error.message : 'Unknown error',
       });

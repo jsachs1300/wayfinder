@@ -1,5 +1,6 @@
 import type Redis from 'ioredis';
 import { createHash, randomBytes } from 'crypto';
+import { assertRedisExecResults } from '../redis/exec';
 
 export interface VerificationRecord {
   user_id: string;
@@ -152,14 +153,13 @@ export class RedisUserVerificationStore implements UserVerificationStore {
     };
 
     const existing = await this.redis.get(VERIFY_USER_PREFIX + userId);
-    if (existing) {
-      await this.redis.del(VERIFY_TOKEN_PREFIX + existing);
-    }
-
     const pipeline = this.redis.multi();
+    if (existing) {
+      pipeline.del(VERIFY_TOKEN_PREFIX + existing);
+    }
     pipeline.setex(VERIFY_TOKEN_PREFIX + tokenHash, ttlSeconds, JSON.stringify(record));
     pipeline.setex(VERIFY_USER_PREFIX + userId, ttlSeconds, tokenHash);
-    await pipeline.exec();
+    assertRedisExecResults(await pipeline.exec(), 'verification.createEmailVerification');
 
     return token;
   }
@@ -170,8 +170,10 @@ export class RedisUserVerificationStore implements UserVerificationStore {
     if (!data) return null;
     const record = JSON.parse(data) as VerificationRecord;
     if (Date.parse(record.expires_at) <= Date.now()) {
-      await this.redis.del(VERIFY_TOKEN_PREFIX + tokenHash);
-      await this.redis.del(VERIFY_USER_PREFIX + record.user_id);
+      const tx = this.redis.multi();
+      tx.del(VERIFY_TOKEN_PREFIX + tokenHash);
+      tx.del(VERIFY_USER_PREFIX + record.user_id);
+      assertRedisExecResults(await tx.exec(), 'verification.getEmailVerification.cleanup');
       return null;
     }
     return record;
@@ -222,14 +224,13 @@ export class RedisUserVerificationStore implements UserVerificationStore {
     };
 
     const existing = await this.redis.get(RESET_USER_PREFIX + userId);
-    if (existing) {
-      await this.redis.del(RESET_TOKEN_PREFIX + existing);
-    }
-
     const pipeline = this.redis.multi();
+    if (existing) {
+      pipeline.del(RESET_TOKEN_PREFIX + existing);
+    }
     pipeline.setex(RESET_TOKEN_PREFIX + tokenHash, ttlSeconds, JSON.stringify(record));
     pipeline.setex(RESET_USER_PREFIX + userId, ttlSeconds, tokenHash);
-    await pipeline.exec();
+    assertRedisExecResults(await pipeline.exec(), 'verification.createPasswordReset');
 
     return token;
   }
@@ -240,8 +241,10 @@ export class RedisUserVerificationStore implements UserVerificationStore {
     if (!data) return null;
     const record = JSON.parse(data) as VerificationRecord;
     if (Date.parse(record.expires_at) <= Date.now()) {
-      await this.redis.del(RESET_TOKEN_PREFIX + tokenHash);
-      await this.redis.del(RESET_USER_PREFIX + record.user_id);
+      const tx = this.redis.multi();
+      tx.del(RESET_TOKEN_PREFIX + tokenHash);
+      tx.del(RESET_USER_PREFIX + record.user_id);
+      assertRedisExecResults(await tx.exec(), 'verification.getPasswordReset.cleanup');
       return null;
     }
     return record;

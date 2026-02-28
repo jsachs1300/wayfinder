@@ -1,4 +1,5 @@
 import type Redis from 'ioredis';
+import { assertRedisExecResults } from '../redis/exec';
 
 export interface TokenUsageMetrics {
   route_requests: number;
@@ -11,6 +12,7 @@ export interface TokenMetricsStore {
   incrementThrottled(tokenId: string): Promise<void>;
   getMetrics(tokenId: string): Promise<TokenUsageMetrics>;
   getMetricsBulk(tokenIds: string[]): Promise<Record<string, TokenUsageMetrics>>;
+  deleteMetrics(tokenId: string): Promise<void>;
 }
 
 const METRICS_PREFIX = 'wayfinder:token:metrics:';
@@ -36,29 +38,13 @@ export class RedisTokenMetricsStore implements TokenMetricsStore {
     if (cacheHit) {
       pipeline.incr(cacheHitsKey(tokenId));
     }
-    const results = await pipeline.exec();
-    if (!results) {
-      throw new Error('Redis pipeline execution failed');
-    }
-    for (const [error] of results) {
-      if (error) {
-        throw error;
-      }
-    }
+    assertRedisExecResults(await pipeline.exec(), 'tokenMetrics.incrementRouteRequest');
   }
 
   async incrementThrottled(tokenId: string): Promise<void> {
     const pipeline = this.redis.multi();
     pipeline.incr(throttledRequestsKey(tokenId));
-    const results = await pipeline.exec();
-    if (!results) {
-      throw new Error('Redis pipeline execution failed');
-    }
-    for (const [error] of results) {
-      if (error) {
-        throw error;
-      }
-    }
+    assertRedisExecResults(await pipeline.exec(), 'tokenMetrics.incrementThrottled');
   }
 
   async getMetrics(tokenId: string): Promise<TokenUsageMetrics> {
@@ -66,15 +52,7 @@ export class RedisTokenMetricsStore implements TokenMetricsStore {
     pipeline.get(routeRequestsKey(tokenId));
     pipeline.get(cacheHitsKey(tokenId));
     pipeline.get(throttledRequestsKey(tokenId));
-    const result = await pipeline.exec();
-    if (!result) {
-      throw new Error('Redis pipeline execution failed');
-    }
-    for (const [error] of result) {
-      if (error) {
-        throw error;
-      }
-    }
+    const result = assertRedisExecResults(await pipeline.exec(), 'tokenMetrics.getMetrics');
     const routeRequests = Number(result?.[0]?.[1] ?? 0);
     const cacheHits = Number(result?.[1]?.[1] ?? 0);
     const throttledRequests = Number(result?.[2]?.[1] ?? 0);
@@ -95,15 +73,7 @@ export class RedisTokenMetricsStore implements TokenMetricsStore {
       pipeline.get(cacheHitsKey(tokenId));
       pipeline.get(throttledRequestsKey(tokenId));
     });
-    const result = await pipeline.exec();
-    if (!result) {
-      throw new Error('Redis pipeline execution failed');
-    }
-    for (const [error] of result) {
-      if (error) {
-        throw error;
-      }
-    }
+    const result = assertRedisExecResults(await pipeline.exec(), 'tokenMetrics.getMetricsBulk');
     const metrics: Record<string, TokenUsageMetrics> = {};
     tokenIds.forEach((tokenId, index) => {
       const routeIdx = index * 3;
@@ -119,6 +89,14 @@ export class RedisTokenMetricsStore implements TokenMetricsStore {
       };
     });
     return metrics;
+  }
+
+  async deleteMetrics(tokenId: string): Promise<void> {
+    const pipeline = this.redis.multi();
+    pipeline.del(routeRequestsKey(tokenId));
+    pipeline.del(cacheHitsKey(tokenId));
+    pipeline.del(throttledRequestsKey(tokenId));
+    assertRedisExecResults(await pipeline.exec(), 'tokenMetrics.deleteMetrics');
   }
 }
 
