@@ -334,5 +334,39 @@ describe('User Authentication', () => {
       const authOld = await store.authenticate('update@example.com', 'OldPass123!');
       expect(authOld).toBeNull();
     });
+
+    it('should fail when creating isolated transaction client if duplicate throws', async () => {
+      const duplicate = vi.fn(() => {
+        throw new Error('duplicate failed');
+      });
+      const brokenRedis = { duplicate } as unknown as Redis;
+      const brokenStore = new RedisUserStore(brokenRedis);
+
+      await expect(
+        brokenStore.create({ email: 'duplicate-throw@example.com', password: 'Pass123!' })
+      ).rejects.toThrow('duplicate failed');
+    });
+
+    it('should fail when duplicated client connect fails', async () => {
+      const connect = vi.fn().mockRejectedValue(new Error('connect failed'));
+      const quit = vi.fn().mockResolvedValue('OK');
+      const disconnect = vi.fn();
+      const duplicateClient = {
+        status: 'wait',
+        connect,
+        quit,
+        disconnect,
+      };
+      const duplicate = vi.fn().mockReturnValue(duplicateClient);
+      const brokenRedis = { duplicate } as unknown as Redis;
+      const brokenStore = new RedisUserStore(brokenRedis);
+
+      await expect(
+        brokenStore.create({ email: 'connect-fail@example.com', password: 'Pass123!' })
+      ).rejects.toThrow('connect failed');
+      expect(connect).toHaveBeenCalledTimes(1);
+      expect(quit).toHaveBeenCalledTimes(0);
+      expect(disconnect).toHaveBeenCalledTimes(0);
+    });
   });
 });
