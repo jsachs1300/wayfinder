@@ -223,6 +223,7 @@ export class InMemoryUserStore implements UserStore {
 export class RedisUserStore implements UserStore {
   private redis: Redis;
   private static readonly MAX_WRITE_RETRIES = 5;
+  private static readonly ISOLATED_CONNECT_READY_TIMEOUT_MS = 5000;
 
   constructor(redis: Redis) {
     this.redis = redis;
@@ -239,7 +240,11 @@ export class RedisUserStore implements UserStore {
         await client.connect();
       } catch (error) {
         const status = client.status;
-        if (!['ready', 'connect', 'connecting', 'connected'].includes(status)) {
+        if (status === 'ready') {
+          // Another parallel connect succeeded between status check and connect call.
+        } else if (status === 'connect' || status === 'connecting') {
+          await this.waitForClientReady(client);
+        } else {
           throw error;
         }
       }
@@ -253,6 +258,50 @@ export class RedisUserStore implements UserStore {
         client.disconnect();
       }
     }
+  }
+
+  private waitForClientReady(client: Redis): Promise<void> {
+    if (client.status === 'ready') {
+      return Promise.resolve();
+    }
+
+    return new Promise((resolve, reject) => {
+      let timeout: NodeJS.Timeout | undefined;
+      const cleanup = () => {
+        client.off('ready', onReady);
+        client.off('error', onError);
+        client.off('end', onEnd);
+        client.off('close', onClose);
+        if (timeout) {
+          clearTimeout(timeout);
+        }
+      };
+      const onReady = () => {
+        cleanup();
+        resolve();
+      };
+      const onError = (error: Error) => {
+        cleanup();
+        reject(error);
+      };
+      const onEnd = () => {
+        cleanup();
+        reject(new Error('Isolated Redis client ended before becoming ready'));
+      };
+      const onClose = () => {
+        cleanup();
+        reject(new Error('Isolated Redis client closed before becoming ready'));
+      };
+
+      client.once('ready', onReady);
+      client.once('error', onError);
+      client.once('end', onEnd);
+      client.once('close', onClose);
+      timeout = setTimeout(() => {
+        cleanup();
+        reject(new Error('Timed out waiting for isolated Redis client to become ready'));
+      }, RedisUserStore.ISOLATED_CONNECT_READY_TIMEOUT_MS);
+    });
   }
 
   async create(request: UserCreateRequest): Promise<User> {
