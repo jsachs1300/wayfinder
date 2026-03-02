@@ -82,6 +82,7 @@ describe('RedisTokenMetricsStore pipeline errors', () => {
       incr: () => pipeline,
       get: () => pipeline,
       del: () => pipeline,
+      expire: () => pipeline,
       exec: async () => results,
     };
     return {

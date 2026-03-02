@@ -16,6 +16,7 @@ export interface TokenMetricsStore {
 }
 
 const METRICS_PREFIX = 'wayfinder:token:metrics:';
+const DEFAULT_METRICS_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
 
 function routeRequestsKey(tokenId: string): string {
   return `${METRICS_PREFIX}${tokenId}:route_requests`;
@@ -29,6 +30,25 @@ function throttledRequestsKey(tokenId: string): string {
   return `${METRICS_PREFIX}${tokenId}:throttled_requests`;
 }
 
+function getMetricsTTLSeconds(): number {
+  const raw = process.env.TOKEN_METRICS_TTL_SECONDS;
+  if (!raw) {
+    return DEFAULT_METRICS_TTL_SECONDS;
+  }
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return DEFAULT_METRICS_TTL_SECONDS;
+  }
+  return parsed;
+}
+
+function addExpiryCommands(pipeline: Redis['multi'], tokenId: string): void {
+  const ttlSeconds = getMetricsTTLSeconds();
+  pipeline.expire(routeRequestsKey(tokenId), ttlSeconds);
+  pipeline.expire(cacheHitsKey(tokenId), ttlSeconds);
+  pipeline.expire(throttledRequestsKey(tokenId), ttlSeconds);
+}
+
 export class RedisTokenMetricsStore implements TokenMetricsStore {
   constructor(private readonly redis: Redis) {}
 
@@ -38,12 +58,14 @@ export class RedisTokenMetricsStore implements TokenMetricsStore {
     if (cacheHit) {
       pipeline.incr(cacheHitsKey(tokenId));
     }
+    addExpiryCommands(pipeline, tokenId);
     assertRedisExecResults(await pipeline.exec(), 'tokenMetrics.incrementRouteRequest');
   }
 
   async incrementThrottled(tokenId: string): Promise<void> {
     const pipeline = this.redis.multi();
     pipeline.incr(throttledRequestsKey(tokenId));
+    addExpiryCommands(pipeline, tokenId);
     assertRedisExecResults(await pipeline.exec(), 'tokenMetrics.incrementThrottled');
   }
 

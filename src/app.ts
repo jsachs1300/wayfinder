@@ -540,6 +540,7 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
       redis_status: redisDiagnostics.status,
       redis_connect_failures: redisDiagnostics.connect_failures,
       redis_reconnect_attempts: redisDiagnostics.reconnect_attempts,
+      ...(redisDiagnostics.last_reconnect_at ? { redis_last_reconnect_at: redisDiagnostics.last_reconnect_at } : {}),
       ...(redisDiagnostics.last_error_kind ? { redis_last_error_kind: redisDiagnostics.last_error_kind } : {}),
       ...(redisDiagnostics.last_error_at ? { redis_last_error_at: redisDiagnostics.last_error_at } : {}),
       ...(redisDiagnostics.last_connect_at ? { redis_last_connect_at: redisDiagnostics.last_connect_at } : {}),
@@ -625,7 +626,8 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
     modelRegistry,
     tokenMetricsStore,
     cache,
-    defaultTokenProfileStore
+    defaultTokenProfileStore,
+    logger
   ));
 
   // Knowledge stats endpoint (admin only)

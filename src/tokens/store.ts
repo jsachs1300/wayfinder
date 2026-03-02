@@ -337,28 +337,43 @@ export class RedisTokenStore implements TokenStore {
   }
 
   async rotate(id: string): Promise<{ token: string; config: TokenConfig } | null> {
-    const existing = await this.getById(id);
-    if (!existing) return null;
+    const tokenKey = TOKEN_PREFIX + id;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await this.redis.watch(tokenKey);
 
-    // Generate new token
-    const token = generateToken();
-    const tokenHash = hashToken(token);
-    const now = new Date().toISOString();
+      const existingRaw = await this.redis.get(tokenKey);
+      if (!existingRaw) {
+        await this.redis.unwatch();
+        return null;
+      }
+      const existing = JSON.parse(existingRaw) as TokenConfig;
 
-    const updated: TokenConfig = {
-      ...existing,
-      token_hash: tokenHash,
-      updated_at: now,
-      rotated_at: now,
-    };
+      // Generate new token for this attempt to avoid reuse on conflict retries.
+      const token = generateToken();
+      const tokenHash = hashToken(token);
+      const now = new Date().toISOString();
 
-    const tx = this.redis.multi();
-    tx.del(TOKEN_HASH_INDEX + existing.token_hash);
-    tx.set(TOKEN_PREFIX + id, JSON.stringify(updated));
-    tx.set(TOKEN_HASH_INDEX + tokenHash, id);
-    assertRedisExecResults(await tx.exec(), 'tokens.rotate');
+      const updated: TokenConfig = {
+        ...existing,
+        token_hash: tokenHash,
+        updated_at: now,
+        rotated_at: now,
+      };
 
-    return { token, config: updated };
+      const result = await this.redis.multi()
+        .del(TOKEN_HASH_INDEX + existing.token_hash)
+        .set(tokenKey, JSON.stringify(updated))
+        .set(TOKEN_HASH_INDEX + tokenHash, id)
+        .exec();
+
+      if (!result) {
+        continue;
+      }
+      assertRedisExecResults(result, 'tokens.rotate');
+      return { token, config: updated };
+    }
+
+    throw new Error('Failed to rotate token due to concurrent modification');
   }
 
   async delete(id: string): Promise<boolean> {

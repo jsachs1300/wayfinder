@@ -155,7 +155,7 @@ function createRateLimiterOptions(
   return options;
 }
 
-function tokenRateLimitKey(token: string): string {
+export function tokenRateLimitKey(token: string): string {
   return `token:${hashToken(token)}`;
 }
 

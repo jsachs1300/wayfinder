@@ -265,7 +265,10 @@ export function createUserTokenRoutes(
         try {
           await metricsStore.deleteMetrics(id);
         } catch (metricsError) {
-          console.error('Failed to clear metrics for token:', id, metricsError);
+          logger.warn('Failed to clear metrics for token', {
+            token_id: id,
+            error: metricsError instanceof Error ? metricsError.message : String(metricsError),
+          });
         }
       }
 
@@ -276,7 +279,10 @@ export function createUserTokenRoutes(
           await cache.clearByScope(id);
         } catch (cacheError) {
           // Log but don't fail deletion if cache clear fails
-          console.error('Failed to clear cache for token:', id, cacheError);
+          logger.warn('Failed to clear cache for token', {
+            token_id: id,
+            error: cacheError instanceof Error ? cacheError.message : String(cacheError),
+          });
         }
       }
 

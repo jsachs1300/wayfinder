@@ -38,4 +38,52 @@ describe('RedisTokenStore', () => {
     expect(firstCleanupTx.exec).toHaveBeenCalledTimes(1);
     expect(secondCleanupTx.exec).toHaveBeenCalledTimes(1);
   });
+
+  it('retries rotate with WATCH when EXEC aborts due to concurrent update', async () => {
+    const watch = vi.fn().mockResolvedValue('OK');
+    const unwatch = vi.fn().mockResolvedValue('OK');
+    const get = vi.fn()
+      .mockResolvedValueOnce(JSON.stringify({
+        id: 'token-1',
+        token_hash: 'old_hash_1',
+        created_at: '2026-01-01T00:00:00.000Z',
+        updated_at: '2026-01-01T00:00:00.000Z',
+      }))
+      .mockResolvedValueOnce(JSON.stringify({
+        id: 'token-1',
+        token_hash: 'old_hash_2',
+        created_at: '2026-01-01T00:00:00.000Z',
+        updated_at: '2026-01-01T00:00:00.000Z',
+      }));
+
+    const firstRotateTx = {
+      del: vi.fn().mockReturnThis(),
+      set: vi.fn().mockReturnThis(),
+      exec: vi.fn().mockResolvedValue(null),
+    };
+    const secondRotateTx = {
+      del: vi.fn().mockReturnThis(),
+      set: vi.fn().mockReturnThis(),
+      exec: vi.fn().mockResolvedValue([[null, 1], [null, 'OK'], [null, 'OK']]),
+    };
+    const multi = vi.fn()
+      .mockReturnValueOnce(firstRotateTx)
+      .mockReturnValueOnce(secondRotateTx);
+
+    const redis = {
+      watch,
+      unwatch,
+      get,
+      multi,
+    } as unknown as Redis;
+
+    const store = new RedisTokenStore(redis);
+    const rotated = await store.rotate('token-1');
+
+    expect(rotated).not.toBeNull();
+    expect(rotated?.config.id).toBe('token-1');
+    expect(watch).toHaveBeenCalledTimes(2);
+    expect(firstRotateTx.del).toHaveBeenCalledWith('wayfinder:token_hash_index:old_hash_1');
+    expect(secondRotateTx.del).toHaveBeenCalledWith('wayfinder:token_hash_index:old_hash_2');
+  });
 });

@@ -8,6 +8,7 @@ export interface SharedRedisDiagnostics {
   status: string;
   connect_failures: number;
   reconnect_attempts: number;
+  last_reconnect_at?: string;
   last_error_kind?: string;
   last_error_at?: string;
   last_connect_at?: string;
@@ -22,7 +23,11 @@ const diagnostics: SharedRedisDiagnostics = {
 
 function categorizeRedisError(error: string): string {
   const normalized = error.toLowerCase();
-  if (normalized.includes('auth')) return 'auth';
+  if (
+    normalized.includes('auth') ||
+    normalized.includes('noauth') ||
+    normalized.includes('wrongpass')
+  ) return 'auth';
   if (normalized.includes('timeout')) return 'timeout';
   if (normalized.includes('refused') || normalized.includes('econnrefused')) return 'connection_refused';
   if (normalized.includes('enotfound') || normalized.includes('dns')) return 'dns';
@@ -78,6 +83,7 @@ export async function getSharedRedis(logger: Logger): Promise<Redis | undefined>
   const connectTimeoutMs = parsePositiveInt(process.env.REDIS_CONNECT_TIMEOUT_MS, 10000);
   const keepAliveMs = parsePositiveInt(process.env.REDIS_KEEPALIVE_MS, 30000);
   const maxRetriesPerRequest = parsePositiveInt(process.env.REDIS_MAX_RETRIES_PER_REQUEST, 3);
+  let fatalReconnectError = false;
 
   const redisClient = new Redis(process.env.REDIS_URL, {
     maxRetriesPerRequest,
@@ -86,6 +92,10 @@ export async function getSharedRedis(logger: Logger): Promise<Redis | undefined>
     connectTimeout: connectTimeoutMs,
     keepAlive: keepAliveMs,
     retryStrategy: (attempt: number) => {
+      if (fatalReconnectError) {
+        diagnostics.status = 'ended';
+        return null;
+      }
       const delay = Math.min(attempt * 200, 2000);
       diagnostics.reconnect_attempts += 1;
       diagnostics.status = 'reconnecting';
@@ -107,6 +117,7 @@ export async function getSharedRedis(logger: Logger): Promise<Redis | undefined>
 
   redisClient.on('reconnecting', (delay: number) => {
     diagnostics.status = 'reconnecting';
+    diagnostics.last_reconnect_at = new Date().toISOString();
     logger.warn('Redis reconnecting', { delay_ms: delay });
   });
 
@@ -122,8 +133,12 @@ export async function getSharedRedis(logger: Logger): Promise<Redis | undefined>
 
   redisClient.on('error', (error) => {
     diagnostics.status = 'error';
-    diagnostics.last_error_kind = categorizeRedisError(error.message);
+    const errorKind = categorizeRedisError(error.message);
+    diagnostics.last_error_kind = errorKind;
     diagnostics.last_error_at = new Date().toISOString();
+    if (errorKind === 'auth' || errorKind === 'tls') {
+      fatalReconnectError = true;
+    }
     logger.warn('Redis client error', { error: error.message });
   });
 

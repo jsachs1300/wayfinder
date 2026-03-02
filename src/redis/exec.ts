@@ -10,7 +10,8 @@ export function assertRedisExecResults(
 
   for (const [error] of results) {
     if (error) {
-      throw error;
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Redis command error in ${context}: ${message}`, { cause: error });
     }
   }
 

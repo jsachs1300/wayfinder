@@ -228,22 +228,18 @@ export class RedisUserStore implements UserStore {
     this.redis = redis;
   }
 
-  private static isAlreadyConnectedError(error: unknown): boolean {
-    if (!(error instanceof Error)) {
-      return false;
-    }
-    return error.message.includes('already connecting/connected');
-  }
-
   private async withIsolatedTransactionClient<T>(
     operation: (client: Redis) => Promise<T>
   ): Promise<T> {
+    // WATCH state is connection-scoped, so writes needing optimistic locking
+    // use an isolated client instead of the shared singleton.
     const client = this.redis.duplicate();
     if (client.status === 'wait') {
       try {
         await client.connect();
       } catch (error) {
-        if (!RedisUserStore.isAlreadyConnectedError(error)) {
+        const status = client.status;
+        if (!['ready', 'connect', 'connecting', 'connected'].includes(status)) {
           throw error;
         }
       }
