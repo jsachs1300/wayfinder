@@ -8,6 +8,7 @@ import {
 import { ModelRegistry } from '../models';
 import Redis from 'ioredis';
 import { createLogger } from '../logging';
+import { assertRedisExecResults } from '../redis/exec';
 
 const KNOWLEDGE_PREFIX = 'wayfinder:knowledge:';
 const KNOWLEDGE_STATS_PREFIX = 'wayfinder:knowledge:stats:';
@@ -218,17 +219,6 @@ function aggregateStats(collection: StoredStats[], nowMs: number): KnowledgeStor
   };
 }
 
-function guardRedisKeys(redis: Redis): void {
-  const originalKeys = redis.keys.bind(redis);
-  redis.keys = ((pattern: string) => {
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error('Redis KEYS is disabled in production code paths');
-    }
-    logger.warn('Redis KEYS called; avoid in production paths', { pattern });
-    return originalKeys(pattern);
-  }) as unknown as typeof redis.keys;
-}
-
 export interface KnowledgeStore {
   get(intentCluster: string, scopeContext: KnowledgeScopeContext): Promise<KnowledgeEntry | null>;
   recordVote(intentCluster: string, model: string, scopeContext: KnowledgeScopeContext): Promise<KnowledgeEntry>;
@@ -394,7 +384,6 @@ export class RedisKnowledgeStore implements KnowledgeStore {
   private modelRegistry: ModelRegistry;
 
   constructor(redis: Redis, modelRegistry: ModelRegistry) {
-    guardRedisKeys(redis);
     this.redis = redis;
     this.modelRegistry = modelRegistry;
   }
@@ -468,10 +457,10 @@ export class RedisKnowledgeStore implements KnowledgeStore {
     scopeKeys.forEach(scopeKey => {
       pipeline.hgetall(`${KNOWLEDGE_STATS_PREFIX}${scopeKey}`);
     });
-    const statsList = await pipeline.exec();
+    const statsList = assertRedisExecResults(await pipeline.exec(), 'knowledge.getStats');
 
     const parsedStats: StoredStats[] = [];
-    statsList?.forEach(result => {
+    statsList.forEach(result => {
       const [, data] = result ?? [];
       parsedStats.push(this.parseStatsHash((data as Record<string, string>) ?? {}));
     });
@@ -524,13 +513,15 @@ export class RedisKnowledgeStore implements KnowledgeStore {
 
   private async clearScope(scopeKey: string): Promise<void> {
     const indexKey = `${KNOWLEDGE_INDEX_PREFIX}${scopeKey}`;
+    // Intentionally iterate the scope index (ZSET) instead of using Redis KEYS.
+    // KEYS is blocked by lint guardrails due to production latency risks.
     while (true) {
       const batch = await this.redis.zrange(indexKey, 0, 99);
       if (batch.length === 0) break;
       const pipeline = this.redis.multi();
       pipeline.unlink(...batch);
       pipeline.zrem(indexKey, ...batch);
-      await pipeline.exec();
+      assertRedisExecResults(await pipeline.exec(), 'knowledge.clearScope.batch');
     }
     await this.redis.del(indexKey, `${KNOWLEDGE_STATS_PREFIX}${scopeKey}`);
     await this.redis.srem(KNOWN_SCOPES_KEY, scopeKey);
@@ -567,7 +558,7 @@ export class RedisKnowledgeStore implements KnowledgeStore {
     pipeline.hincrby(statsKey, 'moderateCount', this.confidenceDelta(previous?.confidence_level, next.confidence_level, 'moderate'));
     pipeline.hincrby(statsKey, 'lowCount', this.confidenceDelta(previous?.confidence_level, next.confidence_level, 'low'));
 
-    await pipeline.exec();
+    assertRedisExecResults(await pipeline.exec(), 'knowledge.persistEntry');
   }
 
   private confidenceDelta(

@@ -13,6 +13,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import request from 'supertest';
 import { createApp, AppDependencies } from '../src/app';
 import type { Express } from 'express';
+import { tokenRateLimitKey } from '../src/middleware/rate-limit';
 
 describe('Rate Limiting', () => {
   let app: Express;
@@ -299,6 +300,17 @@ describe('Rate Limiting', () => {
       // Clean up
       delete process.env.RATE_LIMIT_ROUTING_MAX;
       delete process.env.RATE_LIMIT_ROUTING_WINDOW_MS;
+    });
+  });
+
+  describe('Token rate-limit keying', () => {
+    it('should hash tokens in Redis keys', () => {
+      const rawToken = 'wf_test_token_123456789';
+      const key = tokenRateLimitKey(rawToken);
+
+      expect(key).toMatch(/^token:[a-f0-9]{64}$/);
+      expect(key).not.toContain(rawToken);
+      expect(tokenRateLimitKey(rawToken)).toBe(key);
     });
   });
 });

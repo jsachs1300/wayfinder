@@ -47,7 +47,7 @@ import { validateEncryptionKeyAtStartup } from './users/llm-keys/encryption';
 import { createSessionStore, type SessionStore } from './sessions';
 import { createUserVerificationStore, type UserVerificationStore } from './users/verification-store';
 import { ConsoleMailer, PostmarkMailer, type Mailer } from './email';
-import { getSharedRedis } from './redis/shared';
+import { getSharedRedis, getSharedRedisDiagnostics } from './redis/shared';
 import { buildLLMIntegrationSpec, renderLLMSpecText } from './public/llm-spec';
 import { buildOpenApiSpec } from './public/openapi-spec';
 import { createMcpRoutes } from './public/mcp';
@@ -530,16 +530,38 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
   // IMPORTANT: This endpoint is defined before rate limiters are applied to routes.
   // Do not move it after route-specific rate limiters or health checks may be rate limited,
   // which would break monitoring and alerting systems.
-  app.get('/health', (_req: Request, res: Response) => {
+  app.get('/health', (req: Request, res: Response) => {
     const cacheStatus = cache?.getConnectionStatus();
+    const redisDiagnostics = getSharedRedisDiagnostics();
+    const adminApiKey = process.env.ADMIN_API_KEY;
+    const includeSensitiveDiagnostics = !!(
+      adminApiKey &&
+      req.get('X-Admin-Api-Key') === adminApiKey
+    );
     res.json({
       status: 'healthy',
       timestamp: new Date().toISOString(),
       redis_connected: redis?.status === 'ready',
+      redis_status: redisDiagnostics.status,
+      redis_connect_failures: redisDiagnostics.connect_failures,
+      redis_reconnect_attempts: redisDiagnostics.reconnect_attempts,
+      ...(redisDiagnostics.last_reconnect_at ? { redis_last_reconnect_at: redisDiagnostics.last_reconnect_at } : {}),
+      ...(redisDiagnostics.last_connect_at ? { redis_last_connect_at: redisDiagnostics.last_connect_at } : {}),
+      ...(redisDiagnostics.last_ready_at ? { redis_last_ready_at: redisDiagnostics.last_ready_at } : {}),
+      ...(includeSensitiveDiagnostics && redisDiagnostics.last_error_kind
+        ? { redis_last_error_kind: redisDiagnostics.last_error_kind }
+        : {}),
+      ...(includeSensitiveDiagnostics && redisDiagnostics.last_error_at
+        ? { redis_last_error_at: redisDiagnostics.last_error_at }
+        : {}),
       langcache_enabled: langCacheEnabled,
       langcache_connected: cacheStatus?.connected ?? false,
-      ...(cacheStatus?.last_error ? { langcache_last_error: cacheStatus.last_error } : {}),
-      ...(cacheStatus?.last_error_at ? { langcache_last_error_at: cacheStatus.last_error_at } : {}),
+      ...(includeSensitiveDiagnostics && cacheStatus?.last_error
+        ? { langcache_last_error: cacheStatus.last_error }
+        : {}),
+      ...(includeSensitiveDiagnostics && cacheStatus?.last_error_at
+        ? { langcache_last_error_at: cacheStatus.last_error_at }
+        : {}),
       ...(cacheStatus?.last_success_at ? { langcache_last_success_at: cacheStatus.last_success_at } : {}),
     });
   });
@@ -617,7 +639,8 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
     modelRegistry,
     tokenMetricsStore,
     cache,
-    defaultTokenProfileStore
+    defaultTokenProfileStore,
+    logger
   ));
 
   // Knowledge stats endpoint (admin only)

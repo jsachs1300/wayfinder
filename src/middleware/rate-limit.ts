@@ -16,7 +16,7 @@ import rateLimit, { Options, ipKeyGenerator } from 'express-rate-limit';
 import { RedisStore, type RedisReply, type SendCommandFn } from 'rate-limit-redis';
 import type { Request } from 'express';
 import type Redis from 'ioredis';
-import { extractWayfinderTokenForRateLimit } from '../auth';
+import { extractWayfinderTokenForRateLimit, hashToken } from '../auth';
 
 /**
  * Rate limit configuration from environment variables
@@ -155,6 +155,10 @@ function createRateLimiterOptions(
   return options;
 }
 
+export function tokenRateLimitKey(token: string): string {
+  return `token:${hashToken(token)}`;
+}
+
 /**
  * Create rate limiting middleware for different endpoints
  */
@@ -183,7 +187,7 @@ export function createRateLimiters(redis?: Redis) {
           // Use Wayfinder token as key for per-token rate limiting
           const token = req.headers['x-wayfinder-token'] as string;
           if (token) {
-            return `token:${token}`;
+            return tokenRateLimitKey(token);
           }
           // Fallback to IP if no token (use proper IPv6-compatible key generator)
           return ipKeyGenerator(req.ip ?? 'unknown');
@@ -226,7 +230,7 @@ export function createRateLimiters(redis?: Redis) {
           // req.body.params.arguments.token is available for MCP body-token callers.
           const token = extractWayfinderTokenForRateLimit(req);
           if (token) {
-            return `token:${token}`;
+            return tokenRateLimitKey(token);
           }
 
           return ipKeyGenerator(req.ip ?? 'unknown');
@@ -253,7 +257,7 @@ export function createRateLimiters(redis?: Redis) {
         (req: Request) => {
           const token = req.headers['x-wayfinder-token'] as string;
           if (token) {
-            return `token:${token}`;
+            return tokenRateLimitKey(token);
           }
           // Fallback to IP (use proper IPv6-compatible key generator)
           return ipKeyGenerator(req.ip ?? 'unknown');
