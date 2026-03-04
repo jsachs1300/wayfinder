@@ -505,3 +505,104 @@
   - `/Users/john/wayfinder/src/tokens/default-profile-store.ts:163`
   - `/Users/john/wayfinder/src/tokens/default-profile-store.ts:218`
   - `/Users/john/wayfinder/src/tokens/store.ts:459`
+
+---
+
+## Local Integration Testing
+**Goal:** Enable full pre-PR integration validation locally with real dependencies (Redis, LangCache, LLM providers, email provider) and locally supplied secrets.
+
+### Outcomes
+- Run full local integration tests that are meaningfully close to Cloud Build behavior.
+- Validate routing with real provider keys before opening PRs.
+- Keep secrets out of git while still making local setup repeatable.
+
+### Proposed Local Test Topology
+- Runtime mode: local app process (`npm run dev` or `npm run build && npm start`).
+- Redis: local Docker container (`redis:7`) on `localhost:6379`.
+- External services: real remote APIs with user-supplied keys:
+  - OpenAI/Gemini router keys
+  - LangCache (`LANGCACHE_HOST`, `LANGCACHE_CACHE_ID`, `LANGCACHE_API_KEY`)
+  - Postmark (`POSTMARK_API_KEY`) when testing email flows
+
+### Secrets Supply Design
+- Add two local-only env files (gitignored):
+  - `.env.local.integration` (non-secret config + feature flags)
+  - `.env.local.secrets` (all secrets)
+- Add committed templates:
+  - `.env.local.integration.example`
+  - `.env.local.secrets.example` (placeholders only, no real values)
+- Add to `.gitignore`:
+  - `.env.local.integration`
+  - `.env.local.secrets`
+- Local run pattern:
+  - `set -a; source .env.local.integration; source .env.local.secrets; set +a; npm test`
+
+### Environment Profiles
+1. `local-min` (fast, mostly mocked)
+- No real LangCache/provider calls.
+- For quick regression loops.
+
+2. `local-full` (pre-PR gate)
+- Real Redis + real provider/LangCache/API-key paths.
+- Enables:
+  - `FEATURE_USER_SELF_SERVICE=true`
+  - `LANGCACHE_INTEGRATION_TEST=true`
+  - router provider flags for real routing tests
+- Runs targeted suites + smoke script + (optional) full `npm test`.
+
+### Command Workflow (Design)
+1. Start dependencies:
+- `docker compose -f docker-compose.local-integration.yml up -d redis`
+
+2. Export env:
+- `set -a; source .env.local.integration; source .env.local.secrets; set +a`
+
+3. Validate environment:
+- `npm run test:security:secrets` (or equivalent secret sanity test)
+- health check script ensures required env vars exist for selected profile
+
+4. Run local-full integration:
+- `npm run test:integration:local-full`
+  - includes key files such as:
+    - `test/integration.test.ts`
+    - `test/routing-integration.test.ts`
+    - `test/cache/langcache-integration.test.ts` (when enabled)
+    - `test/public/mcp.test.ts`
+    - user/session/auth flows
+
+5. Optional end-to-end smoke:
+- `node scripts/smoke-test.js` against `http://localhost:<port>`
+
+### Git Worktree Support
+- Keep one shared local Redis container, but isolate data per worktree using a required env prefix:
+  - `WAYFINDER_REDIS_PREFIX=wayfinder:<worktree_name>:`
+- If codebase lacks a global key prefix mechanism, add it as a follow-up task so parallel worktrees do not collide.
+
+### Safety and Operational Guardrails
+- Never print secret values in test logs.
+- Add startup validation for required secrets in `local-full` profile.
+- Fail fast with clear errors for missing keys.
+- Include warning banner when running with production-like real keys locally.
+
+### CI Parity Strategy
+- Mirror Cloud Build env contract in `.env.local.integration.example` (same variable names).
+- Keep one doc table mapping each cloud substitution/secret to local env variable names.
+- Add explicit command in docs:
+  - “Run this before opening PR” checklist command bundle.
+
+### Deliverables (Implementation Tasks)
+- [ ] Add `.env.local.integration.example` and `.env.local.secrets.example`.
+- [ ] Add `docker-compose.local-integration.yml` (Redis service).
+- [ ] Add `scripts/local-full-check.sh` for env validation.
+- [ ] Add npm scripts:
+  - `test:integration:local-full`
+  - `local:deps:up`
+  - `local:deps:down`
+- [ ] Add docs page: `docs/local-integration-testing.md` with copy/paste setup instructions.
+- [ ] Add pre-PR checklist in `README.md` linking local-full workflow.
+
+### Acceptance Criteria
+- Developer can clone repo, add local env files, and run full local integration path in <20 minutes.
+- Full local integration tests exercise real Redis + real provider/LangCache paths.
+- No secrets are committed; templates are sufficient for onboarding.
+- Local pre-PR run catches issues currently discovered only in Cloud Build.
