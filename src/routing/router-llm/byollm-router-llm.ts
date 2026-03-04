@@ -11,7 +11,7 @@ import type { RouterLLM } from '../engine';
 import type { TokenConfig } from '../../types/index';
 import type { DecryptedLLMKey } from '../../users/llm-keys/types';
 import type { RouterLLMConfig } from '../config';
-import { loadRouterLLMConfig } from '../config';
+import { loadRouterLLMConfig, loadRouterLLMReliabilityConfig } from '../config';
 
 /**
  * BYOLLM-aware Router LLM wrapper
@@ -116,6 +116,7 @@ export class BYOLLMRouterLLM implements RouterLLM {
       maxRetries: parseInt(process.env.ROUTER_LLM_MAX_RETRIES || '2', 10),
       temperature: parseFloat(process.env.ROUTER_LLM_TEMPERATURE || '0.0'),
       maxTokens: parseInt(process.env.ROUTER_LLM_MAX_TOKENS || '2000', 10),
+      reliability: loadRouterLLMReliabilityConfig(),
     };
   }
 

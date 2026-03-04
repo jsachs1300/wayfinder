@@ -11,6 +11,16 @@
 export type RouterLLMProvider = 'openai' | 'anthropic' | 'gemini';
 
 /**
+ * Startup preflight behavior
+ */
+export type RouterPreflightMode = 'strict' | 'warn' | 'off';
+
+/**
+ * Multi-provider aggregation behavior
+ */
+export type RouterConsensusMode = 'full' | 'fast';
+
+/**
  * Configuration for a single router LLM provider
  */
 export interface ProviderConfig {
@@ -49,6 +59,22 @@ export interface RouterLLMConfig {
 
   /** Maximum tokens in LLM response */
   maxTokens: number;
+
+  /** Reliability and compatibility controls */
+  reliability: {
+    /** Startup preflight policy */
+    preflightMode: RouterPreflightMode;
+    /** Timeout for each preflight probe in milliseconds */
+    preflightTimeoutMs: number;
+    /** Sliding window duration for circuit breaker in milliseconds */
+    circuitBreakerWindowMs: number;
+    /** Consecutive/within-window error threshold to open breaker */
+    circuitBreakerErrorThreshold: number;
+    /** Time breaker stays open before half-open probe in milliseconds */
+    circuitBreakerOpenMs: number;
+    /** Consensus behavior mode */
+    consensusMode: RouterConsensusMode;
+  };
 }
 
 /**
@@ -61,7 +87,64 @@ const DEFAULTS = {
   maxRetries: 2,
   temperature: 0.0,
   maxTokens: 2000, // Increased from 500 to 2000 for ranked routing (14 models with reasons)
+  preflightTimeoutMs: 10000,
+  circuitBreakerWindowMs: 60000,
+  circuitBreakerErrorThreshold: 5,
+  circuitBreakerOpenMs: 30000,
+  consensusMode: 'full' as RouterConsensusMode,
 };
+
+export function loadRouterLLMReliabilityConfig(): RouterLLMConfig['reliability'] {
+  const isProduction = process.env.NODE_ENV === 'production';
+  const preflightModeRaw = process.env.ROUTER_PREFLIGHT_MODE ?? (isProduction ? 'strict' : 'warn');
+  if (preflightModeRaw !== 'strict' && preflightModeRaw !== 'warn' && preflightModeRaw !== 'off') {
+    throw new Error('Invalid ROUTER_PREFLIGHT_MODE: must be one of strict, warn, off');
+  }
+
+  const consensusModeRaw = process.env.ROUTER_CONSENSUS_MODE || DEFAULTS.consensusMode;
+  if (consensusModeRaw !== 'full' && consensusModeRaw !== 'fast') {
+    throw new Error('Invalid ROUTER_CONSENSUS_MODE: must be one of full, fast');
+  }
+
+  const preflightTimeoutMs = parseInt(
+    process.env.ROUTER_PREFLIGHT_TIMEOUT_MS || String(DEFAULTS.preflightTimeoutMs),
+    10
+  );
+  const circuitBreakerWindowMs = parseInt(
+    process.env.ROUTER_CIRCUIT_BREAKER_WINDOW_MS || String(DEFAULTS.circuitBreakerWindowMs),
+    10
+  );
+  const circuitBreakerErrorThreshold = parseInt(
+    process.env.ROUTER_CIRCUIT_BREAKER_ERROR_THRESHOLD || String(DEFAULTS.circuitBreakerErrorThreshold),
+    10
+  );
+  const circuitBreakerOpenMs = parseInt(
+    process.env.ROUTER_CIRCUIT_BREAKER_OPEN_MS || String(DEFAULTS.circuitBreakerOpenMs),
+    10
+  );
+
+  if (isNaN(preflightTimeoutMs) || preflightTimeoutMs <= 0) {
+    throw new Error('Invalid ROUTER_PREFLIGHT_TIMEOUT_MS: must be a positive number');
+  }
+  if (isNaN(circuitBreakerWindowMs) || circuitBreakerWindowMs <= 0) {
+    throw new Error('Invalid ROUTER_CIRCUIT_BREAKER_WINDOW_MS: must be a positive number');
+  }
+  if (isNaN(circuitBreakerErrorThreshold) || circuitBreakerErrorThreshold <= 0) {
+    throw new Error('Invalid ROUTER_CIRCUIT_BREAKER_ERROR_THRESHOLD: must be a positive number');
+  }
+  if (isNaN(circuitBreakerOpenMs) || circuitBreakerOpenMs <= 0) {
+    throw new Error('Invalid ROUTER_CIRCUIT_BREAKER_OPEN_MS: must be a positive number');
+  }
+
+  return {
+    preflightMode: preflightModeRaw,
+    preflightTimeoutMs,
+    circuitBreakerWindowMs,
+    circuitBreakerErrorThreshold,
+    circuitBreakerOpenMs,
+    consensusMode: consensusModeRaw,
+  };
+}
 
 /**
  * Loads router LLM configuration from environment variables
@@ -77,6 +160,12 @@ const DEFAULTS = {
  * - ROUTER_LLM_MAX_RETRIES: Max retry attempts (default: 2)
  * - ROUTER_LLM_TEMPERATURE: Sampling temperature (default: 0.0)
  * - ROUTER_LLM_MAX_TOKENS: Max response tokens (default: 2000)
+ * - ROUTER_PREFLIGHT_MODE: strict|warn|off (default: strict in prod, warn otherwise)
+ * - ROUTER_PREFLIGHT_TIMEOUT_MS: Preflight probe timeout in ms (default: 10000)
+ * - ROUTER_CIRCUIT_BREAKER_WINDOW_MS: Breaker error window in ms (default: 60000)
+ * - ROUTER_CIRCUIT_BREAKER_ERROR_THRESHOLD: Breaker open threshold (default: 5)
+ * - ROUTER_CIRCUIT_BREAKER_OPEN_MS: Breaker open duration in ms (default: 30000)
+ * - ROUTER_CONSENSUS_MODE: full|fast (default: full)
  * - NODE_ENV: Set to 'test' or 'development' to bypass router LLM requirement for testing
  *
  * @throws Error if required configuration is missing or invalid (unless in test/dev mode)
@@ -129,6 +218,7 @@ export function loadRouterLLMConfig(): RouterLLMConfig {
   const maxRetries = parseInt(process.env.ROUTER_LLM_MAX_RETRIES || String(DEFAULTS.maxRetries), 10);
   const temperature = parseFloat(process.env.ROUTER_LLM_TEMPERATURE || String(DEFAULTS.temperature));
   const maxTokens = parseInt(process.env.ROUTER_LLM_MAX_TOKENS || String(DEFAULTS.maxTokens), 10);
+  const reliability = loadRouterLLMReliabilityConfig();
 
   // Validate parsed numbers
   if (isNaN(timeout) || timeout <= 0) {
@@ -159,5 +249,6 @@ export function loadRouterLLMConfig(): RouterLLMConfig {
     maxRetries,
     temperature,
     maxTokens,
+    reliability,
   };
 }

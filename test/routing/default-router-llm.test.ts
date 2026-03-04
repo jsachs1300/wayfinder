@@ -39,6 +39,14 @@ describe('DefaultRouterLLM', () => {
     maxRetries: 2,
     temperature: 0.0,
     maxTokens: 500,
+    reliability: {
+      preflightMode: 'warn',
+      preflightTimeoutMs: 10000,
+      circuitBreakerWindowMs: 60000,
+      circuitBreakerErrorThreshold: 5,
+      circuitBreakerOpenMs: 30000,
+      consensusMode: 'full',
+    },
   };
 
   beforeEach(() => {
