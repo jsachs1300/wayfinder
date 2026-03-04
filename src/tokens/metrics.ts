@@ -1,5 +1,4 @@
-import type Redis from 'ioredis';
-import type { ChainableCommander } from 'ioredis';
+import Redis, { type ChainableCommander } from 'ioredis';
 import { assertRedisExecResults } from '../redis/exec';
 
 export interface TokenUsageMetrics {

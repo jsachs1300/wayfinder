@@ -150,7 +150,7 @@ export class RedisUserVerificationStore implements UserVerificationStore {
       try {
         await client.connect();
       } catch (error) {
-        if (String(client.status) !== 'ready') {
+        if ((client.status as string) !== 'ready') {
           throw error;
         }
       }
