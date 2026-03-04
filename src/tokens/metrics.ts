@@ -1,4 +1,4 @@
-import type Redis from 'ioredis';
+import Redis, { type ChainableCommander } from 'ioredis';
 import { assertRedisExecResults } from '../redis/exec';
 
 export interface TokenUsageMetrics {
@@ -42,7 +42,7 @@ function getMetricsTTLSeconds(): number {
   return parsed;
 }
 
-function addExpiryCommands(pipeline: Redis['multi'], tokenId: string): void {
+function addExpiryCommands(pipeline: ChainableCommander, tokenId: string): void {
   const ttlSeconds = getMetricsTTLSeconds();
   pipeline.expire(routeRequestsKey(tokenId), ttlSeconds);
   pipeline.expire(cacheHitsKey(tokenId), ttlSeconds);
