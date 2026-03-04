@@ -239,7 +239,7 @@ export class RedisUserStore implements UserStore {
       try {
         await client.connect();
       } catch (error) {
-        const status = client.status;
+        const status = String(client.status);
         if (status === 'ready') {
           // Another parallel connect succeeded between status check and connect call.
         } else if (status === 'connect' || status === 'connecting') {
