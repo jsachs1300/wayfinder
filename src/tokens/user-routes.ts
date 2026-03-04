@@ -261,6 +261,17 @@ export function createUserTokenRoutes(
         }
       }
 
+      if (metricsStore) {
+        try {
+          await metricsStore.deleteMetrics(id);
+        } catch (metricsError) {
+          logger.warn('Failed to clear metrics for token', {
+            token_id: id,
+            error: metricsError instanceof Error ? metricsError.message : String(metricsError),
+          });
+        }
+      }
+
       // Clear cache only after successful deletion.
       // Skip scoped clear for default tokens because they use global cache scope.
       if (cache && (!existing || !isDefaultToken(existing))) {
@@ -268,7 +279,10 @@ export function createUserTokenRoutes(
           await cache.clearByScope(id);
         } catch (cacheError) {
           // Log but don't fail deletion if cache clear fails
-          console.error('Failed to clear cache for token:', id, cacheError);
+          logger.warn('Failed to clear cache for token', {
+            token_id: id,
+            error: cacheError instanceof Error ? cacheError.message : String(cacheError),
+          });
         }
       }
 

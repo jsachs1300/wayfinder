@@ -9,6 +9,7 @@ import { v4 as uuidv4, validate as validateUuid } from 'uuid';
 import type Redis from 'ioredis';
 import type { UserSession } from './types';
 import { createHash } from 'crypto';
+import { assertRedisExecResults } from '../redis/exec';
 
 const SESSION_PREFIX = 'wayfinder:session:';
 const SESSION_TOKEN_INDEX = 'wayfinder:session:token:';
@@ -72,28 +73,30 @@ export class RedisSessionStore implements SessionStore {
     const tokenHash = hashSessionToken(tokenId);
     const ttlSeconds = ttlDays * 24 * 60 * 60;
 
-    await this.redis.setex(
+    const tx = this.redis.multi();
+    tx.setex(
       SESSION_PREFIX + sessionId,
       ttlSeconds,
       JSON.stringify(session)
     );
-    await this.redis.setex(
+    tx.setex(
       SESSION_TOKEN_HASH_INDEX + sessionId,
       ttlSeconds,
       tokenHash
     );
-    await this.redis.setex(
+    tx.setex(
       SESSION_USER_INDEX + sessionId,
       ttlSeconds,
       userId
     );
-    await this.redis.setex(
+    tx.setex(
       SESSION_TOKEN_INDEX + tokenHash,
       ttlSeconds,
       `${sessionId}:${userId}`
     );
-    await this.redis.zadd(USER_SESSION_INDEX + userId, expiresAtMs, sessionId);
-    await this.redis.expire(USER_SESSION_INDEX + userId, ttlSeconds);
+    tx.zadd(USER_SESSION_INDEX + userId, expiresAtMs, sessionId);
+    tx.expire(USER_SESSION_INDEX + userId, ttlSeconds);
+    assertRedisExecResults(await tx.exec(), 'sessions.create');
 
     return { session, token: tokenId };
   }
@@ -152,7 +155,7 @@ export class RedisSessionStore implements SessionStore {
     if (userId) {
       multi.zrem(USER_SESSION_INDEX + userId, sessionId);
     }
-    await multi.exec();
+    assertRedisExecResults(await multi.exec(), 'sessions.delete');
     return true;
   }
 
@@ -195,21 +198,47 @@ export class RedisSessionStore implements SessionStore {
     if (sessionIds.length === 0) {
       return;
     }
-    for (const sessionId of sessionIds) {
-      const tokenHash = await this.redis.get(SESSION_TOKEN_HASH_INDEX + sessionId);
-      if (tokenHash) {
-        await this.redis.del(SESSION_TOKEN_INDEX + tokenHash);
-      } else {
-        const data = await this.redis.get(SESSION_PREFIX + sessionId);
-        if (data) {
-          const session = JSON.parse(data) as UserSession;
-          await this.redis.del(SESSION_TOKEN_INDEX + hashSessionToken(session.token_id));
-        }
+
+    const batchSize = 100;
+    for (let i = 0; i < sessionIds.length; i += batchSize) {
+      const batch = sessionIds.slice(i, i + batchSize);
+
+      const readTx = this.redis.multi();
+      for (const sessionId of batch) {
+        readTx.get(SESSION_TOKEN_HASH_INDEX + sessionId);
+        readTx.get(SESSION_PREFIX + sessionId);
       }
-      await this.redis.del(SESSION_PREFIX + sessionId);
-      await this.redis.del(SESSION_TOKEN_HASH_INDEX + sessionId);
-      await this.redis.del(SESSION_USER_INDEX + sessionId);
-      await this.redis.zrem(USER_SESSION_INDEX + userId, sessionId);
+      const readResults = assertRedisExecResults(await readTx.exec(), 'sessions.deleteAll.read');
+
+      const deleteTx = this.redis.multi();
+      batch.forEach((sessionId, batchIndex) => {
+        const tokenHashResult = readResults[batchIndex * 2]?.[1];
+        const sessionDataResult = readResults[batchIndex * 2 + 1]?.[1];
+        let tokenHash =
+          typeof tokenHashResult === 'string' && tokenHashResult.length > 0
+            ? tokenHashResult
+            : undefined;
+
+        if (!tokenHash && typeof sessionDataResult === 'string') {
+          try {
+            const session = JSON.parse(sessionDataResult) as UserSession;
+            tokenHash = hashSessionToken(session.token_id);
+          } catch {
+            tokenHash = undefined;
+          }
+        }
+
+        if (tokenHash) {
+          deleteTx.del(SESSION_TOKEN_INDEX + tokenHash);
+        }
+
+        deleteTx.del(SESSION_PREFIX + sessionId);
+        deleteTx.del(SESSION_TOKEN_HASH_INDEX + sessionId);
+        deleteTx.del(SESSION_USER_INDEX + sessionId);
+        deleteTx.zrem(USER_SESSION_INDEX + userId, sessionId);
+      });
+
+      assertRedisExecResults(await deleteTx.exec(), 'sessions.deleteAll.delete');
     }
     await this.redis.del(USER_SESSION_INDEX + userId);
   }

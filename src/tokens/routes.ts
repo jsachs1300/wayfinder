@@ -10,6 +10,7 @@ import {
 import { ModelRegistry, ModelValidationError } from '../models';
 import type { DefaultTokenProfileStore } from './default-profile-store';
 import { isDefaultToken, resolveEligibleModels, selectDefaultEligibleModelIds } from './utils';
+import type { Logger } from '../logging/logger';
 import { z } from 'zod';
 
 interface IdParams {
@@ -50,7 +51,8 @@ export function createAdminRoutes(
   modelRegistry: ModelRegistry,
   metricsStore?: TokenMetricsStore,
   cache?: { clearByScope: (tokenId: string) => Promise<void> },
-  defaultTokenProfileStore?: DefaultTokenProfileStore
+  defaultTokenProfileStore?: DefaultTokenProfileStore,
+  logger?: Logger
 ): Router {
   const router = Router();
 
@@ -323,6 +325,17 @@ export function createAdminRoutes(
         return;
       }
 
+      if (metricsStore) {
+        try {
+          await metricsStore.deleteMetrics(id);
+        } catch (metricsError) {
+          logger?.warn('Failed to clear metrics for token', {
+            token_id: id,
+            error: metricsError instanceof Error ? metricsError.message : String(metricsError),
+          });
+        }
+      }
+
       // Clear cache only after successful deletion.
       // Skip scoped clear for default tokens because they use global cache scope.
       if (cache && !isDefaultToken(existing)) {
@@ -330,7 +343,10 @@ export function createAdminRoutes(
           await cache.clearByScope(id);
         } catch (cacheError) {
           // Log but don't fail deletion if cache clear fails
-          console.error('Failed to clear cache for token:', id, cacheError);
+          logger?.warn('Failed to clear cache for token', {
+            token_id: id,
+            error: cacheError instanceof Error ? cacheError.message : String(cacheError),
+          });
         }
       }
 

@@ -1,5 +1,6 @@
 import type Redis from 'ioredis';
 import { createHash, randomBytes } from 'crypto';
+import { assertRedisExecResults } from '../redis/exec';
 
 export interface VerificationRecord {
   user_id: string;
@@ -137,31 +138,70 @@ export class InMemoryUserVerificationStore implements UserVerificationStore {
 }
 
 export class RedisUserVerificationStore implements UserVerificationStore {
+  private static readonly MAX_CREATE_RETRIES = 5;
+
   constructor(private readonly redis: Redis) {}
 
-  async createEmailVerification(userId: string, email: string, ttlSeconds = 86400): Promise<string> {
-    const token = generateToken();
-    const tokenHash = hashToken(token);
-    const { createdAt, expiresAt, expiresAtEpoch } = computeExpiry(ttlSeconds);
-    const record: VerificationRecord = {
-      user_id: userId,
-      email,
-      created_at: createdAt,
-      expires_at: expiresAt,
-      expires_at_epoch: expiresAtEpoch,
-    };
-
-    const existing = await this.redis.get(VERIFY_USER_PREFIX + userId);
-    if (existing) {
-      await this.redis.del(VERIFY_TOKEN_PREFIX + existing);
+  private async withIsolatedTransactionClient<T>(
+    operation: (client: Redis) => Promise<T>
+  ): Promise<T> {
+    const client = this.redis.duplicate();
+    if (client.status === 'wait') {
+      try {
+        await client.connect();
+      } catch (error) {
+        const status: string = client.status;
+        if (status !== 'ready') {
+          throw error;
+        }
+      }
     }
 
-    const pipeline = this.redis.multi();
-    pipeline.setex(VERIFY_TOKEN_PREFIX + tokenHash, ttlSeconds, JSON.stringify(record));
-    pipeline.setex(VERIFY_USER_PREFIX + userId, ttlSeconds, tokenHash);
-    await pipeline.exec();
+    try {
+      return await operation(client);
+    } finally {
+      try {
+        await client.quit();
+      } catch {
+        client.disconnect();
+      }
+    }
+  }
 
-    return token;
+  async createEmailVerification(userId: string, email: string, ttlSeconds = 86400): Promise<string> {
+    const userKey = VERIFY_USER_PREFIX + userId;
+
+    return this.withIsolatedTransactionClient(async (txRedis) => {
+      for (let attempt = 1; attempt <= RedisUserVerificationStore.MAX_CREATE_RETRIES; attempt += 1) {
+        const token = generateToken();
+        const tokenHash = hashToken(token);
+        const { createdAt, expiresAt, expiresAtEpoch } = computeExpiry(ttlSeconds);
+        const record: VerificationRecord = {
+          user_id: userId,
+          email,
+          created_at: createdAt,
+          expires_at: expiresAt,
+          expires_at_epoch: expiresAtEpoch,
+        };
+
+        await txRedis.watch(userKey);
+        const existing = await txRedis.get(userKey);
+        const pipeline = txRedis.multi();
+        if (existing) {
+          pipeline.del(VERIFY_TOKEN_PREFIX + existing);
+        }
+        pipeline.setex(VERIFY_TOKEN_PREFIX + tokenHash, ttlSeconds, JSON.stringify(record));
+        pipeline.setex(userKey, ttlSeconds, tokenHash);
+        const result = await pipeline.exec();
+        if (!result) {
+          continue;
+        }
+        assertRedisExecResults(result, 'verification.createEmailVerification');
+        return token;
+      }
+
+      throw new Error('Failed to create email verification token due to concurrent updates');
+    });
   }
 
   async getEmailVerification(token: string): Promise<VerificationRecord | null> {
@@ -170,8 +210,10 @@ export class RedisUserVerificationStore implements UserVerificationStore {
     if (!data) return null;
     const record = JSON.parse(data) as VerificationRecord;
     if (Date.parse(record.expires_at) <= Date.now()) {
-      await this.redis.del(VERIFY_TOKEN_PREFIX + tokenHash);
-      await this.redis.del(VERIFY_USER_PREFIX + record.user_id);
+      const tx = this.redis.multi();
+      tx.del(VERIFY_TOKEN_PREFIX + tokenHash);
+      tx.del(VERIFY_USER_PREFIX + record.user_id);
+      assertRedisExecResults(await tx.exec(), 'verification.getEmailVerification.cleanup');
       return null;
     }
     return record;
@@ -210,28 +252,39 @@ export class RedisUserVerificationStore implements UserVerificationStore {
   }
 
   async createPasswordReset(userId: string, email: string, ttlSeconds = 1800): Promise<string> {
-    const token = generateToken();
-    const tokenHash = hashToken(token);
-    const { createdAt, expiresAt, expiresAtEpoch } = computeExpiry(ttlSeconds);
-    const record: VerificationRecord = {
-      user_id: userId,
-      email,
-      created_at: createdAt,
-      expires_at: expiresAt,
-      expires_at_epoch: expiresAtEpoch,
-    };
+    const userKey = RESET_USER_PREFIX + userId;
 
-    const existing = await this.redis.get(RESET_USER_PREFIX + userId);
-    if (existing) {
-      await this.redis.del(RESET_TOKEN_PREFIX + existing);
-    }
+    return this.withIsolatedTransactionClient(async (txRedis) => {
+      for (let attempt = 1; attempt <= RedisUserVerificationStore.MAX_CREATE_RETRIES; attempt += 1) {
+        const token = generateToken();
+        const tokenHash = hashToken(token);
+        const { createdAt, expiresAt, expiresAtEpoch } = computeExpiry(ttlSeconds);
+        const record: VerificationRecord = {
+          user_id: userId,
+          email,
+          created_at: createdAt,
+          expires_at: expiresAt,
+          expires_at_epoch: expiresAtEpoch,
+        };
 
-    const pipeline = this.redis.multi();
-    pipeline.setex(RESET_TOKEN_PREFIX + tokenHash, ttlSeconds, JSON.stringify(record));
-    pipeline.setex(RESET_USER_PREFIX + userId, ttlSeconds, tokenHash);
-    await pipeline.exec();
+        await txRedis.watch(userKey);
+        const existing = await txRedis.get(userKey);
+        const pipeline = txRedis.multi();
+        if (existing) {
+          pipeline.del(RESET_TOKEN_PREFIX + existing);
+        }
+        pipeline.setex(RESET_TOKEN_PREFIX + tokenHash, ttlSeconds, JSON.stringify(record));
+        pipeline.setex(userKey, ttlSeconds, tokenHash);
+        const result = await pipeline.exec();
+        if (!result) {
+          continue;
+        }
+        assertRedisExecResults(result, 'verification.createPasswordReset');
+        return token;
+      }
 
-    return token;
+      throw new Error('Failed to create password reset token due to concurrent updates');
+    });
   }
 
   async getPasswordReset(token: string): Promise<VerificationRecord | null> {
@@ -240,8 +293,10 @@ export class RedisUserVerificationStore implements UserVerificationStore {
     if (!data) return null;
     const record = JSON.parse(data) as VerificationRecord;
     if (Date.parse(record.expires_at) <= Date.now()) {
-      await this.redis.del(RESET_TOKEN_PREFIX + tokenHash);
-      await this.redis.del(RESET_USER_PREFIX + record.user_id);
+      const tx = this.redis.multi();
+      tx.del(RESET_TOKEN_PREFIX + tokenHash);
+      tx.del(RESET_USER_PREFIX + record.user_id);
+      assertRedisExecResults(await tx.exec(), 'verification.getPasswordReset.cleanup');
       return null;
     }
     return record;
