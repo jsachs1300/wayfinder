@@ -7,6 +7,7 @@
 
 import type { ProviderClient, ProviderRequest, ProviderResponse } from './types';
 import { buildProviderInvocationPlan } from '../provider-adapter';
+import type { TokenLimitParameter } from '../capabilities';
 import {
   RouterLLMProviderError,
   RouterLLMTimeoutError,
@@ -93,20 +94,19 @@ export class OpenAIClient implements ProviderClient {
     const timeoutId = setTimeout(() => controller.abort(), request.timeout);
 
     try {
-      const tokenParameterAttempts = [plan.tokenLimitParameter];
+      const tokenParameterAttempts: TokenLimitParameter[] = [plan.tokenLimitParameter];
       if (compatRetryEnabled) {
         tokenParameterAttempts.push(
           plan.tokenLimitParameter === 'max_tokens' ? 'max_completion_tokens' : 'max_tokens'
         );
       }
-      const uniqueTokenParameterAttempts = Array.from(new Set(tokenParameterAttempts));
 
       let data: OpenAIResponse | undefined;
       let responseStatus: number | undefined;
       let lastProviderError: RouterLLMProviderError | undefined;
 
-      for (let index = 0; index < uniqueTokenParameterAttempts.length; index += 1) {
-        const tokenParam = uniqueTokenParameterAttempts[index];
+      for (let index = 0; index < tokenParameterAttempts.length; index += 1) {
+        const tokenParam = tokenParameterAttempts[index];
         const body: OpenAIRequest = {
           model: request.model,
           messages: [

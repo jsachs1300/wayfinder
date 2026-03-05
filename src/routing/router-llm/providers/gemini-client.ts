@@ -119,7 +119,8 @@ export class GeminiClient implements ProviderClient {
 
     try {
       const url = `${this.baseUrl}/models/${request.model}:generateContent`;
-      const schemaAttempts = compatRetryEnabled ? [true, false] : [true];
+      const canRetryWithoutSchema = compatRetryEnabled && plan.jsonSchemaMode === 'provider_schema';
+      const schemaAttempts = canRetryWithoutSchema ? [true, false] : [true];
       let data: GeminiResponse | undefined;
       let responseStatus: number | undefined;
       let lastProviderError: RouterLLMProviderError | undefined;
