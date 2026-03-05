@@ -41,6 +41,14 @@ describe('loadRouterLLMConfig', () => {
       maxRetries: 2,
       temperature: 0.0,
       maxTokens: 2000,
+      reliability: {
+        preflightMode: 'warn',
+        preflightTimeoutMs: 10000,
+        circuitBreakerWindowMs: 60000,
+        circuitBreakerErrorThreshold: 5,
+        circuitBreakerOpenMs: 30000,
+        consensusMode: 'full',
+      },
     });
   });
 
@@ -321,6 +329,58 @@ describe('loadRouterLLMConfig', () => {
       expect(config.openai.enabled).toBe(true);
       expect(config.gemini.enabled).toBe(false);
       expect(config.gemini.apiKey).toBeUndefined();
+    });
+  });
+
+  describe('Reliability configuration', () => {
+    it('should default preflight mode to strict in production', () => {
+      process.env.NODE_ENV = 'production';
+      process.env.ROUTER_LLM_OPENAI_ENABLED = 'true';
+      process.env.ROUTER_LLM_OPENAI_API_KEY = 'test-openai-key';
+      process.env.ROUTER_LLM_GEMINI_ENABLED = 'false';
+
+      const config = loadRouterLLMConfig();
+      expect(config.reliability.preflightMode).toBe('strict');
+    });
+
+    it('should default preflight mode to warn in non-production', () => {
+      process.env.NODE_ENV = 'test';
+      process.env.ROUTER_LLM_OPENAI_ENABLED = 'true';
+      process.env.ROUTER_LLM_OPENAI_API_KEY = 'test-openai-key';
+      process.env.ROUTER_LLM_GEMINI_ENABLED = 'false';
+
+      const config = loadRouterLLMConfig();
+      expect(config.reliability.preflightMode).toBe('warn');
+    });
+
+    it('should throw for invalid preflight mode', () => {
+      process.env.ROUTER_LLM_OPENAI_ENABLED = 'true';
+      process.env.ROUTER_LLM_OPENAI_API_KEY = 'test-openai-key';
+      process.env.ROUTER_PREFLIGHT_MODE = 'invalid';
+
+      expect(() => loadRouterLLMConfig()).toThrow(
+        'Invalid ROUTER_PREFLIGHT_MODE: must be one of strict, warn, off'
+      );
+    });
+
+    it('should treat empty preflight mode as unset and fall back to defaults', () => {
+      process.env.NODE_ENV = 'production';
+      process.env.ROUTER_LLM_OPENAI_ENABLED = 'true';
+      process.env.ROUTER_LLM_OPENAI_API_KEY = 'test-openai-key';
+      process.env.ROUTER_PREFLIGHT_MODE = '';
+
+      const config = loadRouterLLMConfig();
+      expect(config.reliability.preflightMode).toBe('strict');
+    });
+
+    it('should throw for invalid consensus mode', () => {
+      process.env.ROUTER_LLM_OPENAI_ENABLED = 'true';
+      process.env.ROUTER_LLM_OPENAI_API_KEY = 'test-openai-key';
+      process.env.ROUTER_CONSENSUS_MODE = 'invalid';
+
+      expect(() => loadRouterLLMConfig()).toThrow(
+        'Invalid ROUTER_CONSENSUS_MODE: must be one of full, fast'
+      );
     });
   });
 });

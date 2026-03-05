@@ -121,6 +121,46 @@
 - Provider/model health visible via `/health` and admin endpoint.
 - Routing success rate > 99% (excluding downstream provider outages).
 
+### Execution Plan (PR-by-PR)
+- [ ] **PR1: Config + contracts + adapter scaffolding (no behavior change)**
+  - Add reliability config contract/env parsing:
+    - `ROUTER_PREFLIGHT_MODE`
+    - `ROUTER_PREFLIGHT_TIMEOUT_MS`
+    - `ROUTER_CIRCUIT_BREAKER_ERROR_THRESHOLD`
+    - `ROUTER_CIRCUIT_BREAKER_WINDOW_MS`
+    - `ROUTER_CIRCUIT_BREAKER_OPEN_MS`
+    - `ROUTER_CONSENSUS_MODE`
+  - Add provider capability contract/types and default capability profiles.
+  - Add adapter skeleton that can translate a normalized request into provider payload options.
+  - Add provider-health types/store scaffolding (in-memory + Redis interface contract only).
+  - Update tests for new config fields and defaults.
+  - Gate: build + existing routing tests pass.
+- [ ] **PR2: Provider adapter integration + compatibility retry**
+  - Wire OpenAI/Gemini clients through adapter request-building.
+  - Add one-shot compatibility retry for known contract errors.
+  - Add unit tests for retry transformation paths.
+  - Gate: provider client tests pass + no behavior regressions.
+- [ ] **PR3: Circuit breaker runtime integration**
+  - Add provider/model sliding-window failure tracking.
+  - Add `closed/open/half_open` gating in multi-provider invocation path.
+  - Add state-transition tests and failure-recovery tests.
+  - Gate: integration tests show fallback without hammering broken providers.
+- [ ] **PR4: Startup preflight + startup policy**
+  - Add startup preflight service and apply mode semantics (`strict|warn|off`).
+  - Persist and expose preflight status in provider health state.
+  - Add startup tests for fail/pass behavior by mode.
+  - Gate: strict mode blocks startup when all providers are unhealthy.
+- [ ] **PR5: Health/admin diagnostics + observability**
+  - Extend `/health` with router provider/model summary.
+  - Add admin endpoints: `GET /admin/router/providers`, `POST /admin/router/validate`.
+  - Add metrics/events for compatibility retries, breaker transitions, preflight outcomes.
+  - Gate: endpoint coverage tests + metrics emission validation.
+- [ ] **PR6: Rollout/runbook + fast-consensus enablement**
+  - Add operational runbook for model changes using validate-before-promote.
+  - Add `ROUTER_CONSENSUS_MODE=fast` runtime path with async secondary telemetry.
+  - Add benchmarks and guardrails for latency-sensitive routes.
+  - Gate: documented release playbook and target latency validation in staging.
+
 ---
 
 ## 2) Production Monitoring for Routing
