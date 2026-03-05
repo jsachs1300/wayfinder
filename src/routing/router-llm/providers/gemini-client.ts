@@ -76,10 +76,10 @@ const ROUTER_RESPONSE_SCHEMA: Record<string, unknown> = {
  * Gemini error response structure
  */
 interface GeminiErrorResponse {
-  error: {
-    code: number;
-    message: string;
-    status: string;
+  error?: {
+    code?: number;
+    message?: string;
+    status?: string;
     details?: unknown[];
   };
 }
@@ -112,6 +112,12 @@ export class GeminiClient implements ProviderClient {
     const debugEnabled = process.env.ROUTER_LLM_DEBUG === 'true';
     const compatRetryEnabled = process.env.ROUTER_COMPAT_RETRY_ENABLED !== 'false';
     const plan = buildProviderInvocationPlan('gemini', request);
+    const debugGenerationConfig = {
+      temperature: request.temperature,
+      maxOutputTokens: request.maxTokens,
+      responseMimeType: plan.jsonResponseMode === 'native_json' ? 'application/json' : undefined,
+      responseSchemaIncluded: plan.jsonSchemaMode === 'provider_schema',
+    };
 
     // Create abort controller for timeout
     const controller = new AbortController();
@@ -256,11 +262,7 @@ export class GeminiClient implements ProviderClient {
       if (debugEnabled) {
         console.error('[gemini] Unexpected provider error', {
           model: request.model,
-          generationConfig: {
-            temperature: request.temperature,
-            maxOutputTokens: request.maxTokens,
-            responseMimeType: 'application/json',
-          },
+          generationConfig: debugGenerationConfig,
           error: error instanceof Error ? { name: error.name, message: error.message, stack: error.stack } : String(error),
         });
       }
