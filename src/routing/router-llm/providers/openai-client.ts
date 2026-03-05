@@ -94,7 +94,7 @@ export class OpenAIClient implements ProviderClient {
     const timeoutId = setTimeout(() => controller.abort(), request.timeout);
 
     try {
-      const tokenParameterAttempts: TokenLimitParameter[] = [plan.tokenLimitParameter];
+      const tokenParameterAttempts: [TokenLimitParameter, ...TokenLimitParameter[]] = [plan.tokenLimitParameter];
       if (compatRetryEnabled) {
         tokenParameterAttempts.push(
           plan.tokenLimitParameter === 'max_tokens' ? 'max_completion_tokens' : 'max_tokens'
@@ -119,6 +119,8 @@ export class OpenAIClient implements ProviderClient {
           ...(tokenParam === 'max_completion_tokens'
             ? { max_completion_tokens: request.maxTokens }
             : { max_tokens: request.maxTokens }),
+          // Intentionally conditional: future capability profiles may disable
+          // provider-native JSON mode for specific OpenAI model families.
           ...(plan.jsonResponseMode === 'native_json' ? { response_format: { type: 'json_object' as const } } : {}),
         };
 
@@ -163,9 +165,8 @@ export class OpenAIClient implements ProviderClient {
           throw lastProviderError;
         }
         throw new RouterLLMProviderError(
-          'OpenAI API returned no usable response',
-          'openai',
-          responseStatus
+          'OpenAI client invariant violated: compatibility attempts completed without response or provider error',
+          'openai'
         );
       }
 

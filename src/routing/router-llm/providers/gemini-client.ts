@@ -120,9 +120,8 @@ export class GeminiClient implements ProviderClient {
     try {
       const url = `${this.baseUrl}/models/${request.model}:generateContent`;
       const canRetryWithoutSchema = compatRetryEnabled && plan.jsonSchemaMode === 'provider_schema';
-      const schemaAttempts = canRetryWithoutSchema ? [true, false] : [true];
+      const schemaAttempts: [true] | [true, false] = canRetryWithoutSchema ? [true, false] : [true];
       let data: GeminiResponse | undefined;
-      let responseStatus: number | undefined;
       let lastProviderError: RouterLLMProviderError | undefined;
 
       for (let index = 0; index < schemaAttempts.length; index += 1) {
@@ -159,8 +158,6 @@ export class GeminiClient implements ProviderClient {
           signal: controller.signal,
         });
 
-        responseStatus = response.status;
-
         if (!response.ok) {
           const errorData = (await response.json()) as GeminiErrorResponse;
           if (debugEnabled) {
@@ -178,9 +175,8 @@ export class GeminiClient implements ProviderClient {
           }
           const message = errorData.error?.message ?? `Gemini API status ${response.status}`;
           const retryableCompatibilityError =
-            includeSchema &&
             index === 0 &&
-            compatRetryEnabled &&
+            canRetryWithoutSchema &&
             this.shouldRetryWithoutSchema(message, response.status);
           if (retryableCompatibilityError) {
             continue;
@@ -205,9 +201,8 @@ export class GeminiClient implements ProviderClient {
           throw lastProviderError;
         }
         throw new RouterLLMProviderError(
-          'Gemini API returned no usable response',
-          'gemini',
-          responseStatus
+          'Gemini client invariant violated: compatibility attempts completed without response or provider error',
+          'gemini'
         );
       }
 
