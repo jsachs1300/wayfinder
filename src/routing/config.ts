@@ -96,12 +96,18 @@ const DEFAULTS = {
 
 export function loadRouterLLMReliabilityConfig(): RouterLLMConfig['reliability'] {
   const isProduction = process.env.NODE_ENV === 'production';
-  const preflightModeRaw = process.env.ROUTER_PREFLIGHT_MODE ?? (isProduction ? 'strict' : 'warn');
+  const preflightModeValue = process.env.ROUTER_PREFLIGHT_MODE?.trim();
+  const preflightModeRaw = preflightModeValue && preflightModeValue.length > 0
+    ? preflightModeValue
+    : (isProduction ? 'strict' : 'warn');
   if (preflightModeRaw !== 'strict' && preflightModeRaw !== 'warn' && preflightModeRaw !== 'off') {
     throw new Error('Invalid ROUTER_PREFLIGHT_MODE: must be one of strict, warn, off');
   }
 
-  const consensusModeRaw = process.env.ROUTER_CONSENSUS_MODE || DEFAULTS.consensusMode;
+  const consensusModeValue = process.env.ROUTER_CONSENSUS_MODE?.trim();
+  const consensusModeRaw = consensusModeValue && consensusModeValue.length > 0
+    ? consensusModeValue
+    : DEFAULTS.consensusMode;
   if (consensusModeRaw !== 'full' && consensusModeRaw !== 'fast') {
     throw new Error('Invalid ROUTER_CONSENSUS_MODE: must be one of full, fast');
   }

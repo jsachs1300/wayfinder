@@ -4,7 +4,7 @@ import {
   getProviderCapabilityProfile,
   type JsonResponseMode,
   type JsonSchemaMode,
-  type OpenAITokenParameter,
+  type TokenLimitParameter,
 } from './capabilities';
 
 /**
@@ -14,7 +14,7 @@ import {
 export interface ProviderInvocationPlan {
   provider: RouterLLMProvider;
   model: string;
-  tokenParameter: OpenAITokenParameter;
+  tokenLimitParameter: TokenLimitParameter;
   jsonResponseMode: JsonResponseMode;
   jsonSchemaMode: JsonSchemaMode;
   request: ProviderRequest;
@@ -29,10 +29,9 @@ export function buildProviderInvocationPlan(
   return {
     provider,
     model: request.model,
-    tokenParameter: capabilities.openaiTokenParameter,
+    tokenLimitParameter: capabilities.tokenLimitParameter,
     jsonResponseMode: capabilities.jsonResponseMode,
     jsonSchemaMode: capabilities.jsonSchemaMode,
     request,
   };
 }
-

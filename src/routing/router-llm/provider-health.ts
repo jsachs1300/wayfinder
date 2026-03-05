@@ -7,14 +7,14 @@ export type PreflightStatus = 'unknown' | 'pass' | 'fail';
 export interface RouterProviderHealthSnapshot {
   provider: RouterLLMProvider;
   model: string;
-  health_state: ProviderHealthState;
-  circuit_breaker_state: CircuitBreakerState;
-  preflight_status: PreflightStatus;
-  consecutive_failures: number;
-  last_success_at?: string;
-  last_failure_at?: string;
-  last_error?: string;
-  updated_at: string;
+  healthState: ProviderHealthState;
+  circuitBreakerState: CircuitBreakerState;
+  preflightStatus: PreflightStatus;
+  consecutiveFailures: number;
+  lastSuccessAt?: string;
+  lastFailureAt?: string;
+  lastError?: string;
+  updatedAt: string;
 }
 
 export interface RouterProviderHealthStore {
@@ -47,4 +47,3 @@ export class InMemoryRouterProviderHealthStore implements RouterProviderHealthSt
     });
   }
 }
-

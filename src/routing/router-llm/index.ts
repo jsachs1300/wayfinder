@@ -12,7 +12,7 @@ export { buildProviderInvocationPlan, type ProviderInvocationPlan } from './prov
 export {
   getProviderCapabilityProfile,
   type ProviderCapabilityProfile,
-  type OpenAITokenParameter,
+  type TokenLimitParameter,
   type JsonResponseMode,
   type JsonSchemaMode,
 } from './capabilities';

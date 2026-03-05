@@ -363,6 +363,16 @@ describe('loadRouterLLMConfig', () => {
       );
     });
 
+    it('should treat empty preflight mode as unset and fall back to defaults', () => {
+      process.env.NODE_ENV = 'production';
+      process.env.ROUTER_LLM_OPENAI_ENABLED = 'true';
+      process.env.ROUTER_LLM_OPENAI_API_KEY = 'test-openai-key';
+      process.env.ROUTER_PREFLIGHT_MODE = '';
+
+      const config = loadRouterLLMConfig();
+      expect(config.reliability.preflightMode).toBe('strict');
+    });
+
     it('should throw for invalid consensus mode', () => {
       process.env.ROUTER_LLM_OPENAI_ENABLED = 'true';
       process.env.ROUTER_LLM_OPENAI_API_KEY = 'test-openai-key';
