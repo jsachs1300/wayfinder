@@ -118,20 +118,22 @@ export class GeminiClient implements ProviderClient {
       responseMimeType: plan.jsonResponseMode === 'native_json' ? 'application/json' : undefined,
       responseSchemaIncluded: plan.jsonSchemaMode === 'provider_schema',
     };
+    let lastGenerationConfig: GeminiRequest['generationConfig'] | undefined;
 
-    // Create abort controller for timeout
+    // Use a single timeout budget across compatibility retries for this invocation.
+    // This enforces per-operation timeout instead of per-attempt timeout.
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), request.timeout);
 
     try {
       const url = `${this.baseUrl}/models/${request.model}:generateContent`;
       const canRetryWithoutSchema = compatRetryEnabled && plan.jsonSchemaMode === 'provider_schema';
-      const schemaAttempts: [true] | [true, false] = canRetryWithoutSchema ? [true, false] : [true];
+      const maxAttempts = canRetryWithoutSchema ? 2 : 1;
       let data: GeminiResponse | undefined;
       let lastProviderError: RouterLLMProviderError | undefined;
 
-      for (let index = 0; index < schemaAttempts.length; index += 1) {
-        const includeSchema = schemaAttempts[index];
+      for (let index = 0; index < maxAttempts; index += 1) {
+        const includeSchema = index === 0;
         const body: GeminiRequest = {
           contents: [
             {
@@ -153,6 +155,7 @@ export class GeminiClient implements ProviderClient {
               : {}),
           },
         };
+        lastGenerationConfig = body.generationConfig;
 
         const response = await fetch(url, {
           method: 'POST',
@@ -262,7 +265,7 @@ export class GeminiClient implements ProviderClient {
       if (debugEnabled) {
         console.error('[gemini] Unexpected provider error', {
           model: request.model,
-          generationConfig: debugGenerationConfig,
+          generationConfig: lastGenerationConfig ?? debugGenerationConfig,
           error: error instanceof Error ? { name: error.name, message: error.message, stack: error.stack } : String(error),
         });
       }

@@ -55,9 +55,9 @@ interface OpenAIResponse {
  * OpenAI error response structure
  */
 interface OpenAIErrorResponse {
-  error: {
-    message: string;
-    type: string;
+  error?: {
+    message?: string;
+    type?: string;
     code?: string;
   };
 }
@@ -89,7 +89,8 @@ export class OpenAIClient implements ProviderClient {
     const compatRetryEnabled = process.env.ROUTER_COMPAT_RETRY_ENABLED !== 'false';
     const plan = buildProviderInvocationPlan('openai', request);
 
-    // Create abort controller for timeout
+    // Use a single timeout budget across compatibility retries for this invocation.
+    // This enforces per-operation timeout instead of per-attempt timeout.
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), request.timeout);
 
