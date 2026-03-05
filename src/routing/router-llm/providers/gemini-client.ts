@@ -6,6 +6,7 @@
  */
 
 import type { ProviderClient, ProviderRequest, ProviderResponse } from './types';
+import { buildProviderInvocationPlan } from '../provider-adapter';
 import {
   RouterLLMProviderError,
   RouterLLMTimeoutError,
@@ -96,77 +97,118 @@ export class GeminiClient implements ProviderClient {
     return 'gemini';
   }
 
+  private shouldRetryWithoutSchema(message: string, status: number): boolean {
+    if (status !== 400) {
+      return false;
+    }
+    const lower = message.toLowerCase();
+    return lower.includes('additionalproperties') ||
+      lower.includes('response_schema') ||
+      lower.includes('responseschema');
+  }
+
   async invoke(request: ProviderRequest): Promise<ProviderResponse> {
     const startTime = Date.now();
     const debugEnabled = process.env.ROUTER_LLM_DEBUG === 'true';
+    const compatRetryEnabled = process.env.ROUTER_COMPAT_RETRY_ENABLED !== 'false';
+    const plan = buildProviderInvocationPlan('gemini', request);
 
     // Create abort controller for timeout
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), request.timeout);
 
     try {
-      // Build Gemini request
-      const body: GeminiRequest = {
-        contents: [
-          {
-            parts: [
-              {
-                text: request.prompt,
-              },
-            ],
-          },
-        ],
-        generationConfig: {
-          temperature: request.temperature,
-          maxOutputTokens: request.maxTokens,
-          responseMimeType: 'application/json', // Request JSON response
-          responseSchema: ROUTER_RESPONSE_SCHEMA,
-        },
-      };
-
-      // Make API request
-      // Use header-based authentication (x-goog-api-key) instead of query parameter
-      // to avoid exposing API key in URLs, server logs, and browser history
       const url = `${this.baseUrl}/models/${request.model}:generateContent`;
+      const schemaAttempts = compatRetryEnabled ? [true, false] : [true];
+      let data: GeminiResponse | undefined;
+      let responseStatus: number | undefined;
+      let lastProviderError: RouterLLMProviderError | undefined;
 
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': this.apiKey,
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
+      for (let index = 0; index < schemaAttempts.length; index += 1) {
+        const includeSchema = schemaAttempts[index];
+        const body: GeminiRequest = {
+          contents: [
+            {
+              parts: [
+                {
+                  text: request.prompt,
+                },
+              ],
+            },
+          ],
+          generationConfig: {
+            temperature: request.temperature,
+            maxOutputTokens: request.maxTokens,
+            ...(plan.jsonResponseMode === 'native_json'
+              ? { responseMimeType: 'application/json' }
+              : {}),
+            ...(plan.jsonSchemaMode === 'provider_schema' && includeSchema
+              ? { responseSchema: ROUTER_RESPONSE_SCHEMA }
+              : {}),
+          },
+        };
+
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': this.apiKey,
+          },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+
+        responseStatus = response.status;
+
+        if (!response.ok) {
+          const errorData = (await response.json()) as GeminiErrorResponse;
+          if (debugEnabled) {
+            console.error('[gemini] Provider request failed', {
+              status: response.status,
+              model: request.model,
+              generationConfig: body.generationConfig,
+              error: {
+                code: errorData.error?.code,
+                status: errorData.error?.status,
+                message: errorData.error?.message,
+                details: errorData.error?.details,
+              },
+            });
+          }
+          const message = errorData.error?.message ?? `Gemini API status ${response.status}`;
+          const retryableCompatibilityError =
+            includeSchema &&
+            index === 0 &&
+            compatRetryEnabled &&
+            this.shouldRetryWithoutSchema(message, response.status);
+          if (retryableCompatibilityError) {
+            continue;
+          }
+          lastProviderError = new RouterLLMProviderError(
+            `Gemini API error: ${message}`,
+            'gemini',
+            response.status,
+            errorData.error?.code !== undefined ? new Error(String(errorData.error.code)) : undefined
+          );
+          break;
+        }
+
+        data = (await response.json()) as GeminiResponse;
+        break;
+      }
 
       clearTimeout(timeoutId);
 
-      // Handle error responses
-      if (!response.ok) {
-        const errorData = (await response.json()) as GeminiErrorResponse;
-        if (debugEnabled) {
-          console.error('[gemini] Provider request failed', {
-            status: response.status,
-            model: request.model,
-            generationConfig: body.generationConfig,
-            error: {
-              code: errorData.error?.code,
-              status: errorData.error?.status,
-              message: errorData.error?.message,
-              details: errorData.error?.details,
-            },
-          });
+      if (!data) {
+        if (lastProviderError) {
+          throw lastProviderError;
         }
         throw new RouterLLMProviderError(
-          `Gemini API error: ${errorData.error.message}`,
+          'Gemini API returned no usable response',
           'gemini',
-          response.status,
-          errorData.error.code !== undefined ? new Error(String(errorData.error.code)) : undefined
+          responseStatus
         );
       }
-
-      // Parse successful response
-      const data = (await response.json()) as GeminiResponse;
 
       // Extract response text
       if (!data.candidates || data.candidates.length === 0) {
