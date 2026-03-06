@@ -26,7 +26,12 @@ import {
   RouterLLMPolicyBypassError,
   RouterLLMProviderError,
 } from './errors';
-import { recordLlmCall, recordLlmError, recordLlmCircuitBreakerBlock } from '../../observability/metrics';
+import {
+  recordLlmCall,
+  recordLlmError,
+  recordLlmCircuitBreakerBlock,
+  type RoutingMetricAttributes,
+} from '../../observability/metrics';
 import { dumpRawRouterResponse } from './raw-response-dump';
 import { ProviderCircuitBreaker } from './circuit-breaker';
 import type {
@@ -147,6 +152,7 @@ export class MultiProviderRouterLLM implements RouterLLM {
 
     // Determine which providers are enabled
     const enabledProviders: Array<{ client: ProviderClient; model: string; name: RouterLLMProvider }> = [];
+    const metricAttributes = this.toRoutingMetricAttributes(context.requestMetadata);
 
     if (this.config.openai.enabled && this.openaiClient) {
       enabledProviders.push({
@@ -186,7 +192,7 @@ export class MultiProviderRouterLLM implements RouterLLM {
           circuitBreakerState: decision.state,
           healthState: this.healthStateFromCircuitBreaker(decision.state),
         });
-        recordLlmCircuitBreakerBlock(provider.name, {});
+        recordLlmCircuitBreakerBlock(provider.name, metricAttributes);
         continue;
       }
       invocableProviders.push(provider);
@@ -212,7 +218,14 @@ export class MultiProviderRouterLLM implements RouterLLM {
     const startTime = Date.now();
     const results = await Promise.allSettled(
       invocableProviders.map(provider =>
-        this.invokeProvider(provider.client, provider.model, provider.name, routingPrompt, eligibleModels)
+        this.invokeProvider(
+          provider.client,
+          provider.model,
+          provider.name,
+          routingPrompt,
+          eligibleModels,
+          metricAttributes
+        )
       )
     );
     const totalLatencyMs = Date.now() - startTime;
@@ -363,9 +376,10 @@ export class MultiProviderRouterLLM implements RouterLLM {
   private async invokeProvider(
     client: ProviderClient,
     model: string,
-    providerName: string,
+    providerName: RouterLLMProvider,
     routingPrompt: string,
-    eligibleModels: string[]
+    eligibleModels: string[],
+    metricAttributes: RoutingMetricAttributes
   ): Promise<RankedRouteDecision> {
     let lastError: Error | undefined;
 
@@ -394,7 +408,7 @@ export class MultiProviderRouterLLM implements RouterLLM {
           outputTokens: response.metadata.outputTokens,
           finishReason: response.metadata.finishReason,
         });
-        recordLlmCall(providerName, response.metadata.latencyMs, {});
+        recordLlmCall(providerName, response.metadata.latencyMs, metricAttributes);
 
         // Parse response as JSON
         let parsed: any;
@@ -442,7 +456,7 @@ export class MultiProviderRouterLLM implements RouterLLM {
         return rankedDecision;
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
-        recordLlmError(providerName, {});
+        recordLlmError(providerName, metricAttributes);
 
         // Don't retry on certain error types
         if (
@@ -618,5 +632,23 @@ export class MultiProviderRouterLLM implements RouterLLM {
       lastError: nextLastError,
       updatedAt: now,
     });
+  }
+
+  private toRoutingMetricAttributes(requestMetadata?: Record<string, unknown>): RoutingMetricAttributes {
+    if (!requestMetadata) {
+      return {};
+    }
+
+    const attributes: RoutingMetricAttributes = {};
+    if (typeof requestMetadata.token_tier === 'string') {
+      attributes.token_tier = requestMetadata.token_tier;
+    }
+    if (typeof requestMetadata.router_model_requested === 'string') {
+      attributes.router_model_requested = requestMetadata.router_model_requested;
+    }
+    if (typeof requestMetadata.router_model_used === 'string') {
+      attributes.router_model_used = requestMetadata.router_model_used;
+    }
+    return attributes;
   }
 }
