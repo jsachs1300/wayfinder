@@ -122,7 +122,7 @@
 - Routing success rate > 99% (excluding downstream provider outages).
 
 ### Execution Plan (PR-by-PR)
-- [ ] **PR1: Config + contracts + adapter scaffolding (no behavior change)**
+- [x] **PR1: Config + contracts + adapter scaffolding (no behavior change)**
   - Add reliability config contract/env parsing:
     - `ROUTER_PREFLIGHT_MODE`
     - `ROUTER_PREFLIGHT_TIMEOUT_MS`
@@ -135,7 +135,7 @@
   - Add provider-health types/store scaffolding (in-memory + Redis interface contract only).
   - Update tests for new config fields and defaults.
   - Gate: build + existing routing tests pass.
-- [ ] **PR2: Provider adapter integration + compatibility retry**
+- [x] **PR2: Provider adapter integration + compatibility retry**
   - Wire OpenAI/Gemini clients through adapter request-building.
   - Add one-shot compatibility retry for known contract errors.
   - Add unit tests for retry transformation paths.
