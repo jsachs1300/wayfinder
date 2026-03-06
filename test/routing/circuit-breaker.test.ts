@@ -100,5 +100,33 @@ describe('ProviderCircuitBreaker', () => {
     expect(allowed.allowed).toBe(true);
     expect(allowed.state).toBe('closed');
   });
-});
 
+  it('handles full cycle: closed -> open -> half_open fail -> open -> half_open success -> closed', () => {
+    const breaker = new ProviderCircuitBreaker({
+      errorThreshold: 1,
+      windowMs: 1000,
+      openMs: 500,
+    });
+
+    // closed -> open
+    breaker.recordFailure('openai', 'gpt-4o-mini', 1000);
+    expect(breaker.getState('openai', 'gpt-4o-mini', 1001)).toBe('open');
+
+    // open -> half_open probe, then failed probe re-opens
+    const probeOne = breaker.shouldAllowRequest('openai', 'gpt-4o-mini', 1500);
+    expect(probeOne.allowed).toBe(true);
+    expect(probeOne.state).toBe('half_open');
+    breaker.recordFailure('openai', 'gpt-4o-mini', 1501);
+    expect(breaker.getState('openai', 'gpt-4o-mini', 1502)).toBe('open');
+
+    // open -> half_open probe, then success closes
+    const probeTwo = breaker.shouldAllowRequest('openai', 'gpt-4o-mini', 2001);
+    expect(probeTwo.allowed).toBe(true);
+    expect(probeTwo.state).toBe('half_open');
+    breaker.recordSuccess('openai', 'gpt-4o-mini', 2002);
+
+    const finalDecision = breaker.shouldAllowRequest('openai', 'gpt-4o-mini', 2003);
+    expect(finalDecision.allowed).toBe(true);
+    expect(finalDecision.state).toBe('closed');
+  });
+});

@@ -3,6 +3,7 @@ import type { RouterLLMConfig } from '../../src/routing/config';
 import { MultiProviderRouterLLM } from '../../src/routing/router-llm/multi-provider-router-llm';
 import type { ProviderClient } from '../../src/routing/router-llm/providers/types';
 import type { TokenConfig } from '../../src/types';
+import { InMemoryRouterProviderHealthStore } from '../../src/routing/router-llm/provider-health';
 
 const tokenConfig: TokenConfig = {
   id: 'token-1',
@@ -58,9 +59,10 @@ function providerResponse(model: string, provider: string): ReturnType<ProviderC
 function createRouterWithClients(
   openaiClient: ProviderClient,
   geminiClient: ProviderClient,
-  config: RouterLLMConfig = baseConfig
+  config: RouterLLMConfig = baseConfig,
+  providerHealthStore?: InMemoryRouterProviderHealthStore
 ): MultiProviderRouterLLM {
-  const router = new MultiProviderRouterLLM(config);
+  const router = new MultiProviderRouterLLM(config, undefined, providerHealthStore);
   const mutableRouter = router as unknown as {
     openaiClient: ProviderClient;
     geminiClient: ProviderClient;
@@ -108,7 +110,6 @@ describe('MultiProviderRouterLLM circuit breaker integration', () => {
 
     const openaiInvoke = vi.fn()
       .mockRejectedValueOnce(new Error('openai unavailable'))
-      .mockResolvedValue(providerResponse('gpt-4o-mini', 'openai'))
       .mockResolvedValue(providerResponse('gpt-4o-mini', 'openai'));
     const geminiInvoke = vi.fn().mockResolvedValue(providerResponse('gemini-2.5-flash', 'gemini'));
 
@@ -154,5 +155,57 @@ describe('MultiProviderRouterLLM circuit breaker integration', () => {
     expect(alwaysFailOpenAI).toHaveBeenCalledTimes(1);
     expect(alwaysFailGemini).toHaveBeenCalledTimes(1);
   });
-});
 
+  it('fails fast for single-provider configuration after breaker opens', async () => {
+    const config: RouterLLMConfig = {
+      ...baseConfig,
+      gemini: {
+        ...baseConfig.gemini,
+        enabled: false,
+      },
+      reliability: {
+        ...baseConfig.reliability,
+        circuitBreakerErrorThreshold: 1,
+      },
+    };
+    const alwaysFailOpenAI = vi.fn().mockRejectedValue(new Error('openai down'));
+
+    const router = createRouterWithClients(
+      { invoke: alwaysFailOpenAI, getProviderName: () => 'openai' },
+      { invoke: vi.fn(), getProviderName: () => 'gemini' },
+      config
+    );
+
+    await expect(
+      router.invoke('first', ['gpt-4o-mini'], { tokenConfig })
+    ).rejects.toThrow('All router LLM providers failed');
+    expect(alwaysFailOpenAI).toHaveBeenCalledTimes(1);
+
+    await expect(
+      router.invoke('second', ['gpt-4o-mini'], { tokenConfig })
+    ).rejects.toThrow('blocked by circuit breaker');
+    expect(alwaysFailOpenAI).toHaveBeenCalledTimes(1);
+  });
+
+  it('writes circuit-breaker state updates into provider health store', async () => {
+    const healthStore = new InMemoryRouterProviderHealthStore();
+    const alwaysFailOpenAI = vi.fn().mockRejectedValue(new Error('openai down'));
+    const geminiInvoke = vi.fn().mockResolvedValue(providerResponse('gemini-2.5-flash', 'gemini'));
+
+    const router = createRouterWithClients(
+      { invoke: alwaysFailOpenAI, getProviderName: () => 'openai' },
+      { invoke: geminiInvoke, getProviderName: () => 'gemini' },
+      baseConfig,
+      healthStore
+    );
+
+    await router.invoke('first', ['gpt-4o-mini', 'gemini-2.5-flash'], { tokenConfig });
+
+    const openaiHealth = healthStore.get('openai', 'gpt-4o-mini');
+    const geminiHealth = healthStore.get('gemini', 'gemini-2.5-flash');
+    expect(openaiHealth?.circuitBreakerState).toBe('open');
+    expect(openaiHealth?.healthState).toBe('unhealthy');
+    expect(geminiHealth?.circuitBreakerState).toBe('closed');
+    expect(geminiHealth?.healthState).toBe('healthy');
+  });
+});

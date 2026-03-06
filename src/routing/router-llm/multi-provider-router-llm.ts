@@ -16,7 +16,7 @@ import type { RouterLLM } from '../engine';
 import type { TokenConfig, RankedRouteDecision, RankedModel, ProviderRanking } from '../../types/index';
 import type { ProviderClient } from './providers/types';
 import { OpenAIClient, GeminiClient } from './providers/index';
-import { loadRouterLLMConfig, type RouterLLMConfig } from '../config';
+import { loadRouterLLMConfig, type RouterLLMConfig, type RouterLLMProvider } from '../config';
 import { buildRoutingPrompt } from './prompt-builder';
 import { validateRankedRouteDecision } from '../ranked-routing';
 import {
@@ -29,6 +29,12 @@ import {
 import { recordLlmCall, recordLlmError } from '../../observability/metrics';
 import { dumpRawRouterResponse } from './raw-response-dump';
 import { ProviderCircuitBreaker } from './circuit-breaker';
+import type {
+  RouterProviderHealthStore,
+  ProviderHealthState,
+  PreflightStatus,
+  CircuitBreakerState,
+} from './provider-health';
 
 /**
  * Result from querying all router LLM providers
@@ -56,6 +62,7 @@ export class MultiProviderRouterLLM implements RouterLLM {
   private readonly geminiClient?: ProviderClient;
   private readonly logger?: Console;
   private readonly circuitBreaker: ProviderCircuitBreaker;
+  private readonly providerHealthStore?: RouterProviderHealthStore;
 
   /**
    * Creates a new MultiProviderRouterLLM instance
@@ -63,7 +70,7 @@ export class MultiProviderRouterLLM implements RouterLLM {
    * @param config - Optional configuration (defaults to loading from environment)
    * @param logger - Optional logger (defaults to console)
    */
-  constructor(config?: RouterLLMConfig, logger?: Console) {
+  constructor(config?: RouterLLMConfig, logger?: Console, providerHealthStore?: RouterProviderHealthStore) {
     this.config = config ?? loadRouterLLMConfig();
     this.circuitBreaker = new ProviderCircuitBreaker({
       errorThreshold: this.config.reliability.circuitBreakerErrorThreshold,
@@ -80,6 +87,7 @@ export class MultiProviderRouterLLM implements RouterLLM {
     }
 
     this.logger = logger;
+    this.providerHealthStore = providerHealthStore;
   }
 
   /**
@@ -138,7 +146,7 @@ export class MultiProviderRouterLLM implements RouterLLM {
     });
 
     // Determine which providers are enabled
-    const enabledProviders: Array<{ client: ProviderClient; model: string; name: string }> = [];
+    const enabledProviders: Array<{ client: ProviderClient; model: string; name: RouterLLMProvider }> = [];
 
     if (this.config.openai.enabled && this.openaiClient) {
       enabledProviders.push({
@@ -164,7 +172,7 @@ export class MultiProviderRouterLLM implements RouterLLM {
       );
     }
 
-    const invocableProviders: Array<{ client: ProviderClient; model: string; name: string }> = [];
+    const invocableProviders: Array<{ client: ProviderClient; model: string; name: RouterLLMProvider }> = [];
     const breakerBlockedProviders: Array<{ name: string; model: string; state: string }> = [];
     for (const provider of enabledProviders) {
       const decision = this.circuitBreaker.shouldAllowRequest(provider.name, provider.model);
@@ -173,6 +181,11 @@ export class MultiProviderRouterLLM implements RouterLLM {
           name: provider.name,
           model: provider.model,
           state: decision.state,
+        });
+        this.updateProviderHealth(provider.name, provider.model, {
+          circuitBreakerState: decision.state,
+          healthState: this.healthStateFromCircuitBreaker(decision.state),
+          lastError: `Provider blocked by circuit breaker (${decision.state})`,
         });
         continue;
       }
@@ -216,12 +229,27 @@ export class MultiProviderRouterLLM implements RouterLLM {
 
       if (result.status === 'fulfilled') {
         this.circuitBreaker.recordSuccess(provider.name, provider.model);
+        this.updateProviderHealth(provider.name, provider.model, {
+          circuitBreakerState: this.circuitBreaker.getState(provider.name, provider.model),
+          healthState: 'healthy',
+          consecutiveFailures: 0,
+          lastSuccessAt: new Date().toISOString(),
+          lastError: undefined,
+        });
         decisions.push(result.value);
       } else {
         this.circuitBreaker.recordFailure(provider.name, provider.model);
+        const circuitBreakerState = this.circuitBreaker.getState(provider.name, provider.model);
         failedProviders.push({
           name: provider.name,
           error: result.reason instanceof Error ? result.reason : new Error(String(result.reason)),
+        });
+        this.updateProviderHealth(provider.name, provider.model, {
+          circuitBreakerState,
+          healthState: this.healthStateFromCircuitBreaker(circuitBreakerState),
+          consecutiveFailuresIncrement: 1,
+          lastFailureAt: new Date().toISOString(),
+          lastError: result.reason instanceof Error ? result.reason.message : String(result.reason),
         });
       }
     });
@@ -265,7 +293,7 @@ export class MultiProviderRouterLLM implements RouterLLM {
     // Get list of successful providers for logging
     const successfulProviders = results
       .map((result, index) => result.status === 'fulfilled' ? invocableProviders[index] : null)
-      .filter((p): p is { client: ProviderClient; model: string; name: string } => p !== null);
+      .filter((p): p is { client: ProviderClient; model: string; name: RouterLLMProvider } => p !== null);
 
     // If only one provider succeeded, use its decision as consensus
     if (decisions.length === 1) {
@@ -539,5 +567,56 @@ export class MultiProviderRouterLLM implements RouterLLM {
    */
   getConfig(): RouterLLMConfig {
     return { ...this.config };
+  }
+
+  private healthStateFromCircuitBreaker(state: CircuitBreakerState): ProviderHealthState {
+    if (state === 'open') {
+      return 'unhealthy';
+    }
+    if (state === 'half_open') {
+      return 'degraded';
+    }
+    return 'healthy';
+  }
+
+  private updateProviderHealth(
+    provider: RouterLLMProvider,
+    model: string,
+    update: {
+      circuitBreakerState: CircuitBreakerState;
+      healthState: ProviderHealthState;
+      consecutiveFailures?: number;
+      consecutiveFailuresIncrement?: number;
+      lastSuccessAt?: string;
+      lastFailureAt?: string;
+      lastError?: string;
+      preflightStatus?: PreflightStatus;
+    }
+  ): void {
+    if (!this.providerHealthStore) {
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const existing = this.providerHealthStore.get(provider, model);
+    const existingConsecutiveFailures = existing?.consecutiveFailures ?? 0;
+    const resolvedConsecutiveFailures = update.consecutiveFailures ?? (
+      existingConsecutiveFailures + (update.consecutiveFailuresIncrement ?? 0)
+    );
+    const hasLastError = Object.prototype.hasOwnProperty.call(update, 'lastError');
+    const nextLastError = hasLastError ? update.lastError : existing?.lastError;
+
+    this.providerHealthStore.set({
+      provider,
+      model,
+      healthState: update.healthState,
+      circuitBreakerState: update.circuitBreakerState,
+      preflightStatus: update.preflightStatus ?? existing?.preflightStatus ?? 'unknown',
+      consecutiveFailures: resolvedConsecutiveFailures,
+      lastSuccessAt: update.lastSuccessAt ?? existing?.lastSuccessAt,
+      lastFailureAt: update.lastFailureAt ?? existing?.lastFailureAt,
+      lastError: nextLastError,
+      updatedAt: now,
+    });
   }
 }

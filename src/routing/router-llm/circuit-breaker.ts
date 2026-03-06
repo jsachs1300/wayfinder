@@ -1,9 +1,5 @@
+import type { RouterLLMProvider } from '../config';
 import type { CircuitBreakerState } from './provider-health';
-
-interface CircuitBreakerKey {
-  provider: string;
-  model: string;
-}
 
 interface CircuitBreakerEntry {
   failureTimestampsMs: number[];
@@ -27,7 +23,7 @@ export class ProviderCircuitBreaker {
 
   constructor(private readonly config: CircuitBreakerConfig) {}
 
-  shouldAllowRequest(provider: string, model: string, nowMs = Date.now()): CircuitBreakerDecision {
+  shouldAllowRequest(provider: RouterLLMProvider, model: string, nowMs = Date.now()): CircuitBreakerDecision {
     const entry = this.getOrCreateEntry(provider, model);
     this.pruneFailures(entry, nowMs);
 
@@ -46,7 +42,7 @@ export class ProviderCircuitBreaker {
     return { allowed: true, state: 'closed' };
   }
 
-  recordSuccess(provider: string, model: string, nowMs = Date.now()): void {
+  recordSuccess(provider: RouterLLMProvider, model: string, nowMs = Date.now()): void {
     const entry = this.getOrCreateEntry(provider, model);
     this.pruneFailures(entry, nowMs);
     entry.failureTimestampsMs = [];
@@ -54,12 +50,14 @@ export class ProviderCircuitBreaker {
     entry.halfOpenProbeInFlight = false;
   }
 
-  recordFailure(provider: string, model: string, nowMs = Date.now()): void {
+  recordFailure(provider: RouterLLMProvider, model: string, nowMs = Date.now()): void {
     const entry = this.getOrCreateEntry(provider, model);
     this.pruneFailures(entry, nowMs);
 
     if (entry.halfOpenProbeInFlight) {
       entry.halfOpenProbeInFlight = false;
+      // A failed half-open probe starts a fresh open interval from now,
+      // so we reset failure history to this probe failure timestamp.
       entry.failureTimestampsMs = [nowMs];
       entry.openUntilMs = nowMs + this.config.openMs;
       return;
@@ -71,8 +69,8 @@ export class ProviderCircuitBreaker {
     }
   }
 
-  getState(provider: string, model: string, nowMs = Date.now()): CircuitBreakerState {
-    const entry = this.entries.get(this.toKey({ provider, model }));
+  getState(provider: RouterLLMProvider, model: string, nowMs = Date.now()): CircuitBreakerState {
+    const entry = this.entries.get(this.toKey(provider, model));
     if (!entry) {
       return 'closed';
     }
@@ -87,8 +85,8 @@ export class ProviderCircuitBreaker {
     return 'closed';
   }
 
-  private getOrCreateEntry(provider: string, model: string): CircuitBreakerEntry {
-    const key = this.toKey({ provider, model });
+  private getOrCreateEntry(provider: RouterLLMProvider, model: string): CircuitBreakerEntry {
+    const key = this.toKey(provider, model);
     let entry = this.entries.get(key);
     if (!entry) {
       entry = {
@@ -105,8 +103,7 @@ export class ProviderCircuitBreaker {
     entry.failureTimestampsMs = entry.failureTimestampsMs.filter((timestamp) => timestamp >= cutoff);
   }
 
-  private toKey(key: CircuitBreakerKey): string {
-    return `${key.provider}:${key.model}`;
+  private toKey(provider: RouterLLMProvider, model: string): string {
+    return `${provider}:${model}`;
   }
 }
-
