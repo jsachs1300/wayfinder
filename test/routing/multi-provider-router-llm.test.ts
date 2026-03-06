@@ -205,7 +205,15 @@ describe('MultiProviderRouterLLM circuit breaker integration', () => {
     const geminiHealth = healthStore.get('gemini', 'gemini-2.5-flash');
     expect(openaiHealth?.circuitBreakerState).toBe('open');
     expect(openaiHealth?.healthState).toBe('unhealthy');
+    expect(openaiHealth?.lastError).toContain('openai down');
     expect(geminiHealth?.circuitBreakerState).toBe('closed');
     expect(geminiHealth?.healthState).toBe('healthy');
+    const originalLastError = openaiHealth?.lastError;
+
+    // On blocked follow-up requests, keep the original root-cause error message.
+    await router.invoke('second', ['gpt-4o-mini', 'gemini-2.5-flash'], { tokenConfig });
+    const openaiBlockedHealth = healthStore.get('openai', 'gpt-4o-mini');
+    expect(openaiBlockedHealth?.circuitBreakerState).toBe('open');
+    expect(openaiBlockedHealth?.lastError).toBe(originalLastError);
   });
 });

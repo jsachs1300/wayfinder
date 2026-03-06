@@ -26,7 +26,7 @@ import {
   RouterLLMPolicyBypassError,
   RouterLLMProviderError,
 } from './errors';
-import { recordLlmCall, recordLlmError } from '../../observability/metrics';
+import { recordLlmCall, recordLlmError, recordLlmCircuitBreakerBlock } from '../../observability/metrics';
 import { dumpRawRouterResponse } from './raw-response-dump';
 import { ProviderCircuitBreaker } from './circuit-breaker';
 import type {
@@ -185,8 +185,8 @@ export class MultiProviderRouterLLM implements RouterLLM {
         this.updateProviderHealth(provider.name, provider.model, {
           circuitBreakerState: decision.state,
           healthState: this.healthStateFromCircuitBreaker(decision.state),
-          lastError: `Provider blocked by circuit breaker (${decision.state})`,
         });
+        recordLlmCircuitBreakerBlock(provider.name, {});
         continue;
       }
       invocableProviders.push(provider);
