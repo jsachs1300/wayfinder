@@ -28,6 +28,7 @@ import {
 } from './errors';
 import { recordLlmCall, recordLlmError } from '../../observability/metrics';
 import { dumpRawRouterResponse } from './raw-response-dump';
+import { ProviderCircuitBreaker } from './circuit-breaker';
 
 /**
  * Result from querying all router LLM providers
@@ -54,6 +55,7 @@ export class MultiProviderRouterLLM implements RouterLLM {
   private readonly openaiClient?: ProviderClient;
   private readonly geminiClient?: ProviderClient;
   private readonly logger?: Console;
+  private readonly circuitBreaker: ProviderCircuitBreaker;
 
   /**
    * Creates a new MultiProviderRouterLLM instance
@@ -63,6 +65,11 @@ export class MultiProviderRouterLLM implements RouterLLM {
    */
   constructor(config?: RouterLLMConfig, logger?: Console) {
     this.config = config ?? loadRouterLLMConfig();
+    this.circuitBreaker = new ProviderCircuitBreaker({
+      errorThreshold: this.config.reliability.circuitBreakerErrorThreshold,
+      windowMs: this.config.reliability.circuitBreakerWindowMs,
+      openMs: this.config.reliability.circuitBreakerOpenMs,
+    });
 
     // Only initialize clients for enabled providers
     if (this.config.openai.enabled && this.config.openai.apiKey) {
@@ -157,10 +164,33 @@ export class MultiProviderRouterLLM implements RouterLLM {
       );
     }
 
+    const invocableProviders: Array<{ client: ProviderClient; model: string; name: string }> = [];
+    const breakerBlockedProviders: Array<{ name: string; model: string; state: string }> = [];
+    for (const provider of enabledProviders) {
+      const decision = this.circuitBreaker.shouldAllowRequest(provider.name, provider.model);
+      if (!decision.allowed) {
+        breakerBlockedProviders.push({
+          name: provider.name,
+          model: provider.model,
+          state: decision.state,
+        });
+        continue;
+      }
+      invocableProviders.push(provider);
+    }
+
+    if (invocableProviders.length === 0) {
+      throw new RouterLLMError(
+        `All router LLM providers blocked by circuit breaker: ` +
+        `${breakerBlockedProviders.map((p) => `${p.name}(${p.state})`).join(', ')}`
+      );
+    }
+
     // Log invocation
-    const providerNames = enabledProviders.map(p => p.name).join(' + ');
+    const providerNames = invocableProviders.map(p => p.name).join(' + ');
     this.logger?.log(`[MultiProviderRouterLLM] Invoking ${providerNames}`, {
-      providers: enabledProviders.map(p => ({ name: p.name, model: p.model })),
+      providers: invocableProviders.map(p => ({ name: p.name, model: p.model })),
+      blockedByCircuitBreaker: breakerBlockedProviders,
       eligibleModels,
       preferModel: context.preferModel,
     });
@@ -168,7 +198,7 @@ export class MultiProviderRouterLLM implements RouterLLM {
     // Invoke all enabled providers in parallel using Promise.allSettled for resilience
     const startTime = Date.now();
     const results = await Promise.allSettled(
-      enabledProviders.map(provider =>
+      invocableProviders.map(provider =>
         this.invokeProvider(provider.client, provider.model, provider.name, routingPrompt, eligibleModels)
       )
     );
@@ -179,14 +209,16 @@ export class MultiProviderRouterLLM implements RouterLLM {
     const failedProviders: Array<{ name: string; error: Error }> = [];
 
     results.forEach((result, index) => {
-      const provider = enabledProviders[index];
+      const provider = invocableProviders[index];
       if (!provider) {
         return;
       }
 
       if (result.status === 'fulfilled') {
+        this.circuitBreaker.recordSuccess(provider.name, provider.model);
         decisions.push(result.value);
       } else {
+        this.circuitBreaker.recordFailure(provider.name, provider.model);
         failedProviders.push({
           name: provider.name,
           error: result.reason instanceof Error ? result.reason : new Error(String(result.reason)),
@@ -218,7 +250,7 @@ export class MultiProviderRouterLLM implements RouterLLM {
 
     // Map decisions to their provider names
     results.forEach((result, index) => {
-      const provider = enabledProviders[index];
+      const provider = invocableProviders[index];
       if (!provider || result.status !== 'fulfilled') {
         return;
       }
@@ -232,7 +264,7 @@ export class MultiProviderRouterLLM implements RouterLLM {
 
     // Get list of successful providers for logging
     const successfulProviders = results
-      .map((result, index) => result.status === 'fulfilled' ? enabledProviders[index] : null)
+      .map((result, index) => result.status === 'fulfilled' ? invocableProviders[index] : null)
       .filter((p): p is { client: ProviderClient; model: string; name: string } => p !== null);
 
     // If only one provider succeeded, use its decision as consensus
