@@ -212,6 +212,78 @@ describe('OpenAIClient', () => {
     expect(secondBody.max_tokens).toBeUndefined();
     expect(secondBody.max_completion_tokens).toBe(500);
   });
+
+  it('does not retry compatibility when ROUTER_COMPAT_RETRY_ENABLED=false', async () => {
+    const previous = process.env.ROUTER_COMPAT_RETRY_ENABLED;
+    process.env.ROUTER_COMPAT_RETRY_ENABLED = 'false';
+
+    try {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 400,
+        json: async () => ({
+          error: {
+            message: "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.",
+            type: 'invalid_request_error',
+          },
+        }),
+      });
+      global.fetch = fetchMock;
+
+      const request: ProviderRequest = {
+        prompt: 'Test prompt',
+        model: 'gpt-4o',
+        temperature: 0.0,
+        maxTokens: 500,
+        timeout: 10000,
+      };
+
+      await expect(client.invoke(request)).rejects.toThrow('Unsupported parameter');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.ROUTER_COMPAT_RETRY_ENABLED;
+      } else {
+        process.env.ROUTER_COMPAT_RETRY_ENABLED = previous;
+      }
+    }
+  });
+
+  it('throws provider error when compatibility retry attempt also fails', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        json: async () => ({
+          error: {
+            message: "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.",
+            type: 'invalid_request_error',
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        json: async () => ({
+          error: {
+            message: 'Still invalid after compatibility retry',
+            type: 'invalid_request_error',
+          },
+        }),
+      });
+    global.fetch = fetchMock;
+
+    const request: ProviderRequest = {
+      prompt: 'Test prompt',
+      model: 'gpt-4o',
+      temperature: 0.0,
+      maxTokens: 500,
+      timeout: 10000,
+    };
+
+    await expect(client.invoke(request)).rejects.toThrow('Still invalid after compatibility retry');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('AnthropicClient', () => {
@@ -555,9 +627,85 @@ describe('GeminiClient', () => {
 
     const firstBody = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string);
     const secondBody = JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string);
+    expect(firstBody.generationConfig.responseMimeType).toBe('application/json');
     expect(firstBody.generationConfig.responseSchema).toBeDefined();
     expect(secondBody.generationConfig.responseSchema).toBeUndefined();
     expect(secondBody.generationConfig.responseMimeType).toBe('application/json');
+  });
+
+  it('does not retry schema compatibility when ROUTER_COMPAT_RETRY_ENABLED=false', async () => {
+    const previous = process.env.ROUTER_COMPAT_RETRY_ENABLED;
+    process.env.ROUTER_COMPAT_RETRY_ENABLED = 'false';
+
+    try {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 400,
+        json: async () => ({
+          error: {
+            code: 400,
+            message: 'Invalid JSON payload received. Unknown name "additionalProperties"',
+            status: 'INVALID_ARGUMENT',
+          },
+        }),
+      });
+      global.fetch = fetchMock;
+
+      const request: ProviderRequest = {
+        prompt: 'Test prompt',
+        model: 'gemini-1.5-flash',
+        temperature: 0.0,
+        maxTokens: 500,
+        timeout: 10000,
+      };
+
+      await expect(client.invoke(request)).rejects.toThrow('Unknown name "additionalProperties"');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.ROUTER_COMPAT_RETRY_ENABLED;
+      } else {
+        process.env.ROUTER_COMPAT_RETRY_ENABLED = previous;
+      }
+    }
+  });
+
+  it('throws provider error when schema-compat retry also fails', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        json: async () => ({
+          error: {
+            code: 400,
+            message: 'Invalid JSON payload received. Unknown name "additionalProperties"',
+            status: 'INVALID_ARGUMENT',
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        json: async () => ({
+          error: {
+            code: 400,
+            message: 'Schema-less retry still failed',
+            status: 'INVALID_ARGUMENT',
+          },
+        }),
+      });
+    global.fetch = fetchMock;
+
+    const request: ProviderRequest = {
+      prompt: 'Test prompt',
+      model: 'gemini-1.5-flash',
+      temperature: 0.0,
+      maxTokens: 500,
+      timeout: 10000,
+    };
+
+    await expect(client.invoke(request)).rejects.toThrow('Schema-less retry still failed');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
 
