@@ -33,7 +33,17 @@ import {
   ModelRegistrySyncService,
   ModelValidationError,
 } from './models';
-import { createRoutingEngine, createRoutingRoutes, RoutingEngine, StubRouterLLM, MultiProviderRouterLLM } from './routing';
+import {
+  createRoutingEngine,
+  createRoutingRoutes,
+  RoutingEngine,
+  StubRouterLLM,
+  MultiProviderRouterLLM,
+  RouterStartupPreflight,
+  RouterStartupPreflightError,
+  InMemoryRouterProviderHealthStore,
+  type RouterProviderHealthStore,
+} from './routing';
 import { createFeedbackHandler, createFeedbackRoutes, FeedbackHandler } from './feedback';
 import { createOpinionPoller, OpinionPoller } from './polling';
 import { createLogger, Logger } from './logging';
@@ -72,6 +82,7 @@ export interface AppDependencies {
   knowledgeStore: KnowledgeStore;
   modelRegistry: DefaultModelRegistry;
   modelRegistrySyncService?: ModelRegistrySyncService;
+  routerProviderHealthStore?: RouterProviderHealthStore;
   routingEngine: RoutingEngine;
   feedbackHandler: FeedbackHandler;
   opinionPoller: OpinionPoller;
@@ -432,15 +443,16 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
   const knowledgeStore = deps?.knowledgeStore ?? createKnowledgeStore(redis, modelRegistry);
   const opinionPoller = deps?.opinionPoller ?? createOpinionPoller(knowledgeStore, modelRegistry);
   const feedbackHandler = deps?.feedbackHandler ?? createFeedbackHandler(knowledgeStore);
+  const routerProviderHealthStore = deps?.routerProviderHealthStore ?? new InMemoryRouterProviderHealthStore();
 
   // Initialize router LLM (REQUIRED for production, optional for test/dev)
   // Note: loadRouterLLMConfig() (called by MultiProviderRouterLLM constructor) validates
   // that at least one provider is enabled in production mode, so no need for redundant checks here
   let routerLLM;
   try {
-    routerLLM = new MultiProviderRouterLLM(undefined, console);
+    routerLLM = new MultiProviderRouterLLM(undefined, console, routerProviderHealthStore);
     const config = routerLLM.getConfig();
-    const enabledProviders = [];
+    const enabledProviders: string[] = [];
     if (config.openai.enabled) enabledProviders.push('OpenAI');
     if (config.gemini.enabled) enabledProviders.push('Gemini');
 
@@ -450,9 +462,47 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
       });
       routerLLM = new StubRouterLLM();
     } else {
+      if (enabledProviders.length > 0 && config.reliability.preflightMode !== 'off') {
+        const preflight = new RouterStartupPreflight(config, routerProviderHealthStore, logger);
+        const summary = await preflight.run();
+
+        if (summary.passCount === 0) {
+          const message =
+            'Router startup preflight found no healthy providers. ' +
+            `mode=${config.reliability.preflightMode}, failed=${summary.failCount}`;
+          if (config.reliability.preflightMode === 'strict') {
+            throw new RouterStartupPreflightError(message, summary);
+          }
+
+          logger.warn(message, {
+            mode: config.reliability.preflightMode,
+            summary,
+          });
+        } else {
+          logger.info('Router startup preflight completed', {
+            mode: config.reliability.preflightMode,
+            pass_count: summary.passCount,
+            fail_count: summary.failCount,
+            providers: summary.results,
+          });
+        }
+      } else if (enabledProviders.length > 0) {
+        logger.info('Router startup preflight disabled', {
+          mode: config.reliability.preflightMode,
+        });
+      }
+
       logger.info(`Router LLM initialized with providers: ${enabledProviders.join(' + ')}`);
     }
   } catch (error) {
+    if (error instanceof RouterStartupPreflightError) {
+      logger.error('Router startup preflight failed', {
+        error: error.message,
+        summary: error.summary,
+      });
+      throw error;
+    }
+
     const errorMsg = error instanceof Error ? error.message : String(error);
 
     // In production, router LLM initialization failure is fatal
@@ -495,6 +545,7 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
     knowledgeStore,
     modelRegistry,
     modelRegistrySyncService,
+    routerProviderHealthStore,
     routingEngine,
     feedbackHandler,
     opinionPoller,

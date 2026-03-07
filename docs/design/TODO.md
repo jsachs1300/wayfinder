@@ -145,7 +145,7 @@
   - Add `closed/open/half_open` gating in multi-provider invocation path.
   - Add state-transition tests and failure-recovery tests.
   - Gate: integration tests show fallback without hammering broken providers.
-- [ ] **PR4: Startup preflight + startup policy**
+- [x] **PR4: Startup preflight + startup policy**
   - Add startup preflight service and apply mode semantics (`strict|warn|off`).
   - Persist and expose preflight status in provider health state.
   - Add startup tests for fail/pass behavior by mode.

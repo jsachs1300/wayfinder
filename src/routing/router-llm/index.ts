@@ -27,6 +27,12 @@ export {
 export { buildRoutingPrompt } from './prompt-builder';
 export { parseRouteDecision, parseRouteDecisionLenient, extractJSON } from './response-parser';
 export {
+  RouterStartupPreflight,
+  RouterStartupPreflightError,
+  type RouterPreflightProviderResult,
+  type RouterPreflightSummary,
+} from './preflight';
+export {
   ProviderCircuitBreaker,
   type CircuitBreakerConfig,
   type CircuitBreakerDecision,

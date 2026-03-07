@@ -28,4 +28,8 @@ export {
   loadRouterLLMConfig,
   type RouterLLMConfig,
   type RouterLLMProvider,
+  RouterStartupPreflight,
+  RouterStartupPreflightError,
+  InMemoryRouterProviderHealthStore,
+  type RouterProviderHealthStore,
 } from './router-llm/index';
