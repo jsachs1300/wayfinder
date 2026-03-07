@@ -478,14 +478,21 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
             mode: config.reliability.preflightMode,
             summary,
           });
-        } else {
-          logger.info('Router startup preflight completed', {
+        } else if (summary.failCount > 0) {
+          logger.warn('Router startup preflight completed with partial failures', {
             mode: config.reliability.preflightMode,
             pass_count: summary.passCount,
             fail_count: summary.failCount,
             providers: summary.results,
           });
         }
+
+        logger.info('Router startup preflight completed', {
+          mode: config.reliability.preflightMode,
+          pass_count: summary.passCount,
+          fail_count: summary.failCount,
+          providers: summary.results,
+        });
       } else if (enabledProviders.length > 0) {
         logger.info('Router startup preflight disabled', {
           mode: config.reliability.preflightMode,

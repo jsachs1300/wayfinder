@@ -36,36 +36,43 @@ export class RouterStartupPreflight {
   ) {}
 
   async run(): Promise<RouterPreflightSummary> {
-    const probes = this.getEnabledProviderConfigs();
-    const results: RouterPreflightProviderResult[] = [];
+    const probes = this.getConfiguredProviderProbes();
+    const results = await Promise.all(
+      probes.map(async (probe): Promise<RouterPreflightProviderResult> => {
+        const startedAt = Date.now();
+        if (!probe.apiKey) {
+          return {
+            provider: probe.provider,
+            model: probe.model,
+            status: 'fail',
+            latencyMs: Date.now() - startedAt,
+            error: `${probe.provider} is enabled but API key is missing`,
+          };
+        }
 
-    for (const probe of probes) {
-      const startedAt = Date.now();
-      try {
-        const client = this.clientFactory(probe.provider, probe.apiKey);
-        await this.invokeProbe(client, probe.provider, probe.model);
+        try {
+          const client = this.clientFactory(probe.provider, probe.apiKey);
+          await this.invokeProbe(client, probe.provider, probe.model);
+          return {
+            provider: probe.provider,
+            model: probe.model,
+            status: 'pass',
+            latencyMs: Date.now() - startedAt,
+          };
+        } catch (error) {
+          return {
+            provider: probe.provider,
+            model: probe.model,
+            status: 'fail',
+            latencyMs: Date.now() - startedAt,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      })
+    );
 
-        const latencyMs = Date.now() - startedAt;
-        const result: RouterPreflightProviderResult = {
-          provider: probe.provider,
-          model: probe.model,
-          status: 'pass',
-          latencyMs,
-        };
-        this.updateHealth(result);
-        results.push(result);
-      } catch (error) {
-        const latencyMs = Date.now() - startedAt;
-        const result: RouterPreflightProviderResult = {
-          provider: probe.provider,
-          model: probe.model,
-          status: 'fail',
-          latencyMs,
-          error: error instanceof Error ? error.message : String(error),
-        };
-        this.updateHealth(result);
-        results.push(result);
-      }
+    for (const result of results) {
+      this.updateHealth(result);
     }
 
     const passCount = results.filter((result) => result.status === 'pass').length;
@@ -119,23 +126,33 @@ export class RouterStartupPreflight {
     ) {
       throw new Error(`${provider} preflight returned invalid routing payload`);
     }
+
+    const firstRankedModel = (parsed as { ranked_models: unknown[] }).ranked_models[0];
+    if (
+      typeof firstRankedModel !== 'object' ||
+      firstRankedModel === null ||
+      typeof (firstRankedModel as { model?: unknown }).model !== 'string' ||
+      (firstRankedModel as { model: string }).model.trim().length === 0
+    ) {
+      throw new Error(`${provider} preflight returned ranked_models without a valid model id`);
+    }
   }
 
-  private getEnabledProviderConfigs(): Array<{
+  private getConfiguredProviderProbes(): Array<{
     provider: RouterLLMProvider;
     model: string;
-    apiKey: string;
+    apiKey?: string;
   }> {
-    const providers: Array<{ provider: RouterLLMProvider; model: string; apiKey: string }> = [];
+    const providers: Array<{ provider: RouterLLMProvider; model: string; apiKey?: string }> = [];
 
-    if (this.config.openai.enabled && this.config.openai.apiKey) {
+    if (this.config.openai.enabled) {
       providers.push({
         provider: 'openai',
         model: this.config.openai.model,
         apiKey: this.config.openai.apiKey,
       });
     }
-    if (this.config.gemini.enabled && this.config.gemini.apiKey) {
+    if (this.config.gemini.enabled) {
       providers.push({
         provider: 'gemini',
         model: this.config.gemini.model,
@@ -146,22 +163,19 @@ export class RouterStartupPreflight {
     return providers;
   }
 
-  private healthStateForResult(result: RouterPreflightProviderResult): ProviderHealthState {
-    return result.status === 'pass' ? 'healthy' : 'unhealthy';
-  }
-
   private updateHealth(result: RouterPreflightProviderResult): void {
     const existing = this.healthStore.get(result.provider, result.model);
     const now = new Date().toISOString();
     const circuitBreakerState: CircuitBreakerState = existing?.circuitBreakerState ?? 'closed';
+    const existingFailures = existing?.consecutiveFailures ?? 0;
 
     this.healthStore.set({
       provider: result.provider,
       model: result.model,
-      healthState: this.healthStateForResult(result),
+      healthState: (result.status === 'pass' ? 'healthy' : 'unhealthy') as ProviderHealthState,
       circuitBreakerState,
       preflightStatus: result.status,
-      consecutiveFailures: existing?.consecutiveFailures ?? 0,
+      consecutiveFailures: result.status === 'fail' ? existingFailures + 1 : 0,
       lastSuccessAt: result.status === 'pass' ? now : existing?.lastSuccessAt,
       lastFailureAt: result.status === 'fail' ? now : existing?.lastFailureAt,
       lastError: result.status === 'fail' ? result.error : existing?.lastError,

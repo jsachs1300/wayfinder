@@ -53,6 +53,18 @@ function openAiFailureResponse() {
   };
 }
 
+function geminiFailureResponse() {
+  return {
+    ok: false,
+    status: 500,
+    json: async () => ({
+      error: {
+        message: 'gemini unavailable',
+      },
+    }),
+  };
+}
+
 describe('Router startup preflight policy', () => {
   const originalEnv = { ...process.env };
   const originalFetch = global.fetch;
@@ -85,8 +97,9 @@ describe('Router startup preflight policy', () => {
 
     const result = await createApp({ redis: new Redis() });
 
-    const preflightStatus = result.dependencies.routerProviderHealthStore?.get('openai', 'gpt-4o-mini')?.preflightStatus;
-    expect(preflightStatus).toBe('fail');
+    const snapshot = result.dependencies.routerProviderHealthStore?.get('openai', 'gpt-4o-mini');
+    expect(snapshot?.preflightStatus).toBe('fail');
+    expect(snapshot?.consecutiveFailures).toBe(1);
   });
 
   it('skips startup probes when preflight mode is off', async () => {
@@ -108,5 +121,34 @@ describe('Router startup preflight policy', () => {
     expect(snapshot?.preflightStatus).toBe('pass');
     expect(snapshot?.healthState).toBe('healthy');
   });
-});
 
+  it('records partial preflight failures when one provider passes and one fails', async () => {
+    process.env.ROUTER_PREFLIGHT_MODE = 'warn';
+    process.env.ROUTER_LLM_GEMINI_ENABLED = 'true';
+    process.env.ROUTER_LLM_GEMINI_API_KEY = 'test-gemini-key';
+
+    global.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('openai.com')) {
+        return Promise.resolve(openAiSuccessResponse() as Response);
+      }
+      return Promise.resolve(geminiFailureResponse() as Response);
+    });
+
+    const result = await createApp({ redis: new Redis() });
+
+    const openai = result.dependencies.routerProviderHealthStore?.get('openai', 'gpt-4o-mini');
+    const gemini = result.dependencies.routerProviderHealthStore?.get('gemini', 'gemini-1.5-flash');
+    expect(openai?.preflightStatus).toBe('pass');
+    expect(gemini?.preflightStatus).toBe('fail');
+    expect(gemini?.consecutiveFailures).toBe(1);
+  });
+
+  it('treats enabled provider without API key as failed preflight', async () => {
+    process.env.ROUTER_PREFLIGHT_MODE = 'strict';
+    delete process.env.ROUTER_LLM_OPENAI_API_KEY;
+    global.fetch = vi.fn();
+
+    await expect(createApp({ redis: new Redis() })).rejects.toBeInstanceOf(RouterStartupPreflightError);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+});
