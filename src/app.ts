@@ -39,6 +39,7 @@ import {
   RoutingEngine,
   StubRouterLLM,
   MultiProviderRouterLLM,
+  loadRouterLLMConfig,
   RouterStartupPreflight,
   RouterStartupPreflightError,
   InMemoryRouterProviderHealthStore,
@@ -599,6 +600,41 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
       adminApiKey &&
       req.get('X-Admin-Api-Key') === adminApiKey
     );
+    const routerProviderRawSnapshots = routerProviderHealthStore.list();
+    const routerProviderSnapshots = routerProviderRawSnapshots.map((snapshot) => ({
+      provider: snapshot.provider,
+      model: snapshot.model,
+      health_state: snapshot.healthState,
+      circuit_breaker_state: snapshot.circuitBreakerState,
+      preflight_status: snapshot.preflightStatus,
+      consecutive_failures: snapshot.consecutiveFailures,
+      last_success_at: snapshot.lastSuccessAt,
+      last_failure_at: snapshot.lastFailureAt,
+      // Keep `last_error` scoped to admin-authenticated diagnostics.
+      ...(includeSensitiveDiagnostics && snapshot.lastError
+        ? { last_error: snapshot.lastError }
+        : {}),
+      updated_at: snapshot.updatedAt,
+    }));
+    const routerConfig = (() => {
+      if (routerLLM instanceof MultiProviderRouterLLM) {
+        return routerLLM.getConfig();
+      }
+      try {
+        return loadRouterLLMConfig();
+      } catch {
+        return undefined;
+      }
+    })();
+    const routerProviderConfiguredCount = routerConfig
+      ? [routerConfig.openai.enabled, routerConfig.gemini.enabled].filter(Boolean).length
+      : 0;
+    const routerProviderHealthyCount = routerProviderRawSnapshots.filter(
+      (snapshot) => snapshot.healthState === 'healthy'
+    ).length;
+    const routerProviderUnhealthyCount = routerProviderRawSnapshots.filter(
+      (snapshot) => snapshot.healthState === 'unhealthy'
+    ).length;
     res.json({
       status: 'healthy',
       timestamp: new Date().toISOString(),
@@ -624,6 +660,11 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
         ? { langcache_last_error_at: cacheStatus.last_error_at }
         : {}),
       ...(cacheStatus?.last_success_at ? { langcache_last_success_at: cacheStatus.last_success_at } : {}),
+      router_provider_configured_count: routerProviderConfiguredCount,
+      router_provider_snapshot_count: routerProviderSnapshots.length,
+      router_provider_healthy_count: routerProviderHealthyCount,
+      router_provider_unhealthy_count: routerProviderUnhealthyCount,
+      ...(includeSensitiveDiagnostics ? { router_provider_health: routerProviderSnapshots } : {}),
     });
   });
 
@@ -748,6 +789,86 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
       count: modelRegistry.getAllModels().length,
       default: modelRegistry.getDefaultModel(),
     });
+  });
+
+  adminRouter.get('/router/providers', (_req: Request, res: Response) => {
+    const providers = routerProviderHealthStore.list().map((snapshot) => ({
+      provider: snapshot.provider,
+      model: snapshot.model,
+      health_state: snapshot.healthState,
+      circuit_breaker_state: snapshot.circuitBreakerState,
+      preflight_status: snapshot.preflightStatus,
+      consecutive_failures: snapshot.consecutiveFailures,
+      last_success_at: snapshot.lastSuccessAt,
+      last_failure_at: snapshot.lastFailureAt,
+      last_error: snapshot.lastError,
+      updated_at: snapshot.updatedAt,
+    }));
+
+    res.status(200).json({
+      providers,
+      count: providers.length,
+      timestamp: new Date().toISOString(),
+    });
+  });
+
+  const routerValidateMinIntervalMsRaw = Number.parseInt(
+    process.env.ROUTER_VALIDATE_MIN_INTERVAL_MS || '30000',
+    10
+  );
+  const routerValidateMinIntervalMs =
+    Number.isFinite(routerValidateMinIntervalMsRaw) && routerValidateMinIntervalMsRaw > 0
+      ? routerValidateMinIntervalMsRaw
+      : 0;
+  let lastRouterValidateAt = 0;
+
+  adminRouter.post('/router/validate', async (_req: Request, res: Response): Promise<void> => {
+    const note = 'Runs live provider probe calls and may incur LLM API cost.';
+    try {
+      const now = Date.now();
+      const elapsedMs = now - lastRouterValidateAt;
+      if (routerValidateMinIntervalMs > 0 && elapsedMs < routerValidateMinIntervalMs) {
+        const retryAfterMs = routerValidateMinIntervalMs - elapsedMs;
+        res.status(429).json({
+          error: 'TooManyRequests',
+          message: `Router validation cooldown active. Retry after ${retryAfterMs}ms.`,
+          retry_after_ms: retryAfterMs,
+          note,
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      lastRouterValidateAt = now;
+      const routerConfig = routerLLM instanceof MultiProviderRouterLLM
+        ? routerLLM.getConfig()
+        : loadRouterLLMConfig();
+      const preflight = new RouterStartupPreflight(
+        routerConfig,
+        routerProviderHealthStore,
+        logger,
+        undefined,
+        'admin'
+      );
+      const summary = await preflight.run();
+      const statusCode = summary.passCount > 0 ? 200 : 503;
+
+      res.status(statusCode).json({
+        mode: routerConfig.reliability.preflightMode,
+        summary,
+        note,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({
+        error: 'InternalError',
+        message: 'Failed to validate router providers',
+        details: { error: errorMessage },
+        note,
+        timestamp: new Date().toISOString(),
+      });
+    }
   });
 
   adminRouter.get('/default-token-profile', async (_req: Request, res: Response): Promise<void> => {

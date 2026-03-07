@@ -11,6 +11,7 @@ import {
   RouterLLMProviderError,
   RouterLLMTimeoutError,
 } from '../errors';
+import { recordLlmCompatibilityRetry } from '../../../observability/metrics';
 
 /**
  * Gemini API request body structure
@@ -188,6 +189,7 @@ export class GeminiClient implements ProviderClient {
             canRetryWithoutSchema &&
             this.shouldRetryWithoutSchema(message, response.status);
           if (retryableCompatibilityError) {
+            recordLlmCompatibilityRetry('gemini', 'schema', request.model);
             continue;
           }
           lastProviderError = new RouterLLMProviderError(

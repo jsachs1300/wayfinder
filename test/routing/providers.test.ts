@@ -3,6 +3,12 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+const metricsMocks = vi.hoisted(() => ({
+  recordLlmCompatibilityRetry: vi.fn(),
+}));
+vi.mock('../../src/observability/metrics', () => ({
+  recordLlmCompatibilityRetry: metricsMocks.recordLlmCompatibilityRetry,
+}));
 import { OpenAIClient } from '../../src/routing/router-llm/providers/openai-client';
 import { AnthropicClient } from '../../src/routing/router-llm/providers/anthropic-client';
 import { GeminiClient } from '../../src/routing/router-llm/providers/gemini-client';
@@ -211,6 +217,11 @@ describe('OpenAIClient', () => {
     expect(firstBody.max_completion_tokens).toBeUndefined();
     expect(secondBody.max_tokens).toBeUndefined();
     expect(secondBody.max_completion_tokens).toBe(500);
+    expect(metricsMocks.recordLlmCompatibilityRetry).toHaveBeenCalledWith(
+      'openai',
+      'token_parameter',
+      'gpt-4o'
+    );
   });
 
   it('does not retry compatibility when ROUTER_COMPAT_RETRY_ENABLED=false', async () => {
@@ -298,6 +309,7 @@ describe('AnthropicClient', () => {
   afterEach(() => {
     global.fetch = originalFetch;
     vi.restoreAllMocks();
+    metricsMocks.recordLlmCompatibilityRetry.mockReset();
   });
 
   it('should return provider name', () => {
@@ -631,6 +643,11 @@ describe('GeminiClient', () => {
     expect(firstBody.generationConfig.responseSchema).toBeDefined();
     expect(secondBody.generationConfig.responseSchema).toBeUndefined();
     expect(secondBody.generationConfig.responseMimeType).toBe('application/json');
+    expect(metricsMocks.recordLlmCompatibilityRetry).toHaveBeenCalledWith(
+      'gemini',
+      'schema',
+      'gemini-1.5-flash'
+    );
   });
 
   it('does not retry schema compatibility when ROUTER_COMPAT_RETRY_ENABLED=false', async () => {

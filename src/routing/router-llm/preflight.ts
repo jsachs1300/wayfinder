@@ -3,6 +3,7 @@ import { createProviderClient } from './providers';
 import type { ProviderClient } from './providers/types';
 import type { RouterProviderHealthStore, ProviderHealthState, CircuitBreakerState } from './provider-health';
 import type { Logger } from '../../logging/logger';
+import { recordRouterPreflightOutcome } from '../../observability/metrics';
 
 export interface RouterPreflightProviderResult {
   provider: RouterLLMProvider;
@@ -18,6 +19,8 @@ export interface RouterPreflightSummary {
   failCount: number;
 }
 
+export type RouterPreflightTrigger = 'startup' | 'admin';
+
 export class RouterStartupPreflightError extends Error {
   constructor(message: string, public readonly summary: RouterPreflightSummary) {
     super(message);
@@ -32,7 +35,8 @@ export class RouterStartupPreflight {
     private readonly config: RouterLLMConfig,
     private readonly healthStore: RouterProviderHealthStore,
     private readonly logger?: Pick<Logger, 'info' | 'warn'>,
-    private readonly clientFactory: ProviderClientFactory = createProviderClient
+    private readonly clientFactory: ProviderClientFactory = createProviderClient,
+    private readonly trigger: RouterPreflightTrigger = 'startup'
   ) {}
 
   async run(): Promise<RouterPreflightSummary> {
@@ -196,5 +200,13 @@ export class RouterStartupPreflight {
         error: result.error,
       });
     }
+
+    recordRouterPreflightOutcome(
+      result.provider,
+      result.model,
+      result.status,
+      result.latencyMs,
+      this.trigger
+    );
   }
 }

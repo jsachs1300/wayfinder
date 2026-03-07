@@ -12,6 +12,7 @@ import {
   RouterLLMProviderError,
   RouterLLMTimeoutError,
 } from '../errors';
+import { recordLlmCompatibilityRetry } from '../../../observability/metrics';
 
 /**
  * OpenAI API request body structure
@@ -145,6 +146,7 @@ export class OpenAIClient implements ProviderClient {
             compatRetryEnabled &&
             this.shouldRetryForTokenParameterCompatibility(message, response.status);
           if (retryableCompatibilityError) {
+            recordLlmCompatibilityRetry('openai', 'token_parameter', request.model);
             continue;
           }
           lastProviderError = new RouterLLMProviderError(

@@ -73,16 +73,31 @@ describe('API Integration Tests', () => {
   });
 
   describe('Health Endpoint', () => {
-    it('should return healthy status', async () => {
+    it('should return healthy status with public router summary only', async () => {
       const response = await request(app).get('/health');
 
       expect(response.status).toBe(200);
       expect(response.body.status).toBe('healthy');
       expect(response.body.timestamp).toBeDefined();
+      expect(response.body.router_provider_health).toBeUndefined();
+      expect(typeof response.body.router_provider_configured_count).toBe('number');
+      expect(typeof response.body.router_provider_snapshot_count).toBe('number');
+      expect(typeof response.body.router_provider_healthy_count).toBe('number');
+      expect(typeof response.body.router_provider_unhealthy_count).toBe('number');
       expect(response.body.redis_last_error).toBeUndefined();
       if (response.body.redis_last_error_kind !== undefined) {
         expect(typeof response.body.redis_last_error_kind).toBe('string');
       }
+    });
+
+    it('should include detailed router diagnostics when admin key is supplied', async () => {
+      const response = await request(app)
+        .get('/health')
+        .set('X-Admin-Api-Key', adminApiKey);
+
+      expect(response.status).toBe(200);
+      expect(Array.isArray(response.body.router_provider_health)).toBe(true);
+      expect(response.body.router_provider_snapshot_count).toBe(response.body.router_provider_health.length);
     });
   });
 
@@ -287,6 +302,33 @@ describe('API Integration Tests', () => {
       expect(response.status).toBe(200);
       expect(response.body.token).toBeDefined();
       expect(response.body.token).not.toBe(originalToken);
+    });
+  });
+
+  describe('Admin Router Diagnostics', () => {
+    it('should return router provider snapshots', async () => {
+      const response = await request(app)
+        .get('/admin/router/providers')
+        .set('X-Admin-Api-Key', adminApiKey);
+
+      expect(response.status).toBe(200);
+      expect(Array.isArray(response.body.providers)).toBe(true);
+      expect(typeof response.body.count).toBe('number');
+      expect(response.body.timestamp).toBeDefined();
+    });
+
+    it('should run router provider validation preflight', async () => {
+      const response = await request(app)
+        .post('/admin/router/validate')
+        .set('X-Admin-Api-Key', adminApiKey);
+
+      // In test mode with no providers enabled, preflight reports no healthy providers.
+      expect(response.status).toBe(503);
+      expect(response.body.summary).toBeDefined();
+      expect(Array.isArray(response.body.summary.results)).toBe(true);
+      expect(typeof response.body.summary.passCount).toBe('number');
+      expect(typeof response.body.summary.failCount).toBe('number');
+      expect(typeof response.body.note).toBe('string');
     });
   });
 
