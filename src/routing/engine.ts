@@ -420,7 +420,10 @@ export class DefaultRoutingEngine implements RoutingEngine {
     const rawDecision = await this.deps.routerLLM.invoke(request.prompt, eligibleModels, {
       tokenConfig: effectiveTokenConfig,
       preferModel: request.prefer_model,
-      requestMetadata: request.metadata,
+      requestMetadata: {
+        ...(request.metadata ?? {}),
+        router_model_requested: effectiveRouter,
+      },
       userLLMKeys, // Pass user's LLM keys if BYOLLM tier
       eligibleModelRegistry,
     });

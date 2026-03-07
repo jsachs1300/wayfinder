@@ -46,6 +46,9 @@ Use this runbook when changing router provider models or reliability settings.
 - Keeps other provider calls running asynchronously for health/telemetry updates.
 - Best for latency-sensitive paths.
 - Tradeoff: fewer provider rankings in immediate response.
+- Explicit provider routing (`router_model=openai|gemini`) is preserved; Wayfinder waits for the requested provider result when that provider is invocable.
+- Background calls still apply `ROUTER_LLM_MAX_RETRIES`; for tighter cost control in fast mode, consider `ROUTER_LLM_MAX_RETRIES=0`.
+- If only one provider is invocable (for example breaker-open on the other provider), fast mode falls back to single-provider standard flow.
 
 ## Latency Guardrails
 - Start with `full` in production unless latency SLO requires `fast`.
