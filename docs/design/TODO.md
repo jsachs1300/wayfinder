@@ -140,7 +140,7 @@
   - Add one-shot compatibility retry for known contract errors.
   - Add unit tests for retry transformation paths.
   - Gate: provider client tests pass + no behavior regressions.
-- [ ] **PR3: Circuit breaker runtime integration**
+- [x] **PR3: Circuit breaker runtime integration**
   - Add provider/model sliding-window failure tracking.
   - Add `closed/open/half_open` gating in multi-provider invocation path.
   - Add state-transition tests and failure-recovery tests.

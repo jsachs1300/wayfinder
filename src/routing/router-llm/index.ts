@@ -27,6 +27,11 @@ export {
 export { buildRoutingPrompt } from './prompt-builder';
 export { parseRouteDecision, parseRouteDecisionLenient, extractJSON } from './response-parser';
 export {
+  ProviderCircuitBreaker,
+  type CircuitBreakerConfig,
+  type CircuitBreakerDecision,
+} from './circuit-breaker';
+export {
   loadRouterLLMConfig,
   loadRouterLLMReliabilityConfig,
   type RouterLLMConfig,

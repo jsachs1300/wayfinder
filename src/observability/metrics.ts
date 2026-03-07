@@ -22,6 +22,10 @@ const routingLlmErrors = meter.createCounter('routing.llm_errors_total', {
   description: 'Total router LLM errors',
 });
 
+const routingLlmCircuitBreakerBlocks = meter.createCounter('routing.llm_circuit_breaker_blocks_total', {
+  description: 'Total router LLM provider calls blocked by circuit breaker',
+});
+
 const routingLlmLatency = meter.createHistogram('routing.llm_latency_ms', {
   description: 'Router LLM latency in milliseconds',
   unit: 'ms',
@@ -87,6 +91,13 @@ export function recordLlmCall(
 
 export function recordLlmError(provider: string, attributes: RoutingMetricAttributes): void {
   routingLlmErrors.add(1, { ...attributes, provider });
+}
+
+export function recordLlmCircuitBreakerBlock(
+  provider: string,
+  attributes: RoutingMetricAttributes
+): void {
+  routingLlmCircuitBreakerBlocks.add(1, { ...attributes, provider });
 }
 
 export function recordRoutingFallback(attributes: RoutingMetricAttributes): void {
