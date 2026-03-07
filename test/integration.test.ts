@@ -81,7 +81,7 @@ describe('API Integration Tests', () => {
       expect(response.body.timestamp).toBeDefined();
       expect(response.body.router_provider_health).toBeUndefined();
       expect(typeof response.body.router_provider_configured_count).toBe('number');
-      expect(typeof response.body.router_provider_health_count).toBe('number');
+      expect(typeof response.body.router_provider_snapshot_count).toBe('number');
       expect(typeof response.body.router_provider_healthy_count).toBe('number');
       expect(typeof response.body.router_provider_unhealthy_count).toBe('number');
       expect(response.body.redis_last_error).toBeUndefined();
@@ -97,7 +97,7 @@ describe('API Integration Tests', () => {
 
       expect(response.status).toBe(200);
       expect(Array.isArray(response.body.router_provider_health)).toBe(true);
-      expect(response.body.router_provider_health_count).toBe(response.body.router_provider_health.length);
+      expect(response.body.router_provider_snapshot_count).toBe(response.body.router_provider_health.length);
     });
   });
 

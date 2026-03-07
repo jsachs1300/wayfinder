@@ -595,6 +595,11 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
   app.get('/health', (req: Request, res: Response) => {
     const cacheStatus = cache?.getConnectionStatus();
     const redisDiagnostics = getSharedRedisDiagnostics();
+    const adminApiKey = process.env.ADMIN_API_KEY;
+    const includeSensitiveDiagnostics = !!(
+      adminApiKey &&
+      req.get('X-Admin-Api-Key') === adminApiKey
+    );
     const routerProviderRawSnapshots = routerProviderHealthStore.list();
     const routerProviderSnapshots = routerProviderRawSnapshots.map((snapshot) => ({
       provider: snapshot.provider,
@@ -605,29 +610,31 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
       consecutive_failures: snapshot.consecutiveFailures,
       last_success_at: snapshot.lastSuccessAt,
       last_failure_at: snapshot.lastFailureAt,
+      // Keep `last_error` scoped to admin-authenticated diagnostics.
+      ...(includeSensitiveDiagnostics && snapshot.lastError
+        ? { last_error: snapshot.lastError }
+        : {}),
       updated_at: snapshot.updatedAt,
     }));
-    const routerProviderConfiguredCount = (() => {
-      if (!(routerLLM instanceof MultiProviderRouterLLM)) {
-        return 0;
+    const routerConfig = (() => {
+      if (routerLLM instanceof MultiProviderRouterLLM) {
+        return routerLLM.getConfig();
       }
-      const config = routerLLM.getConfig();
-      let count = 0;
-      if (config.openai.enabled) count += 1;
-      if (config.gemini.enabled) count += 1;
-      return count;
+      try {
+        return loadRouterLLMConfig();
+      } catch {
+        return undefined;
+      }
     })();
+    const routerProviderConfiguredCount = routerConfig
+      ? [routerConfig.openai.enabled, routerConfig.gemini.enabled].filter(Boolean).length
+      : 0;
     const routerProviderHealthyCount = routerProviderRawSnapshots.filter(
       (snapshot) => snapshot.healthState === 'healthy'
     ).length;
     const routerProviderUnhealthyCount = routerProviderRawSnapshots.filter(
       (snapshot) => snapshot.healthState === 'unhealthy'
     ).length;
-    const adminApiKey = process.env.ADMIN_API_KEY;
-    const includeSensitiveDiagnostics = !!(
-      adminApiKey &&
-      req.get('X-Admin-Api-Key') === adminApiKey
-    );
     res.json({
       status: 'healthy',
       timestamp: new Date().toISOString(),
@@ -654,7 +661,7 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
         : {}),
       ...(cacheStatus?.last_success_at ? { langcache_last_success_at: cacheStatus.last_success_at } : {}),
       router_provider_configured_count: routerProviderConfiguredCount,
-      router_provider_health_count: routerProviderSnapshots.length,
+      router_provider_snapshot_count: routerProviderSnapshots.length,
       router_provider_healthy_count: routerProviderHealthyCount,
       router_provider_unhealthy_count: routerProviderUnhealthyCount,
       ...(includeSensitiveDiagnostics ? { router_provider_health: routerProviderSnapshots } : {}),
@@ -805,8 +812,34 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
     });
   });
 
+  const routerValidateMinIntervalMsRaw = Number.parseInt(
+    process.env.ROUTER_VALIDATE_MIN_INTERVAL_MS || '30000',
+    10
+  );
+  const routerValidateMinIntervalMs =
+    Number.isFinite(routerValidateMinIntervalMsRaw) && routerValidateMinIntervalMsRaw > 0
+      ? routerValidateMinIntervalMsRaw
+      : 0;
+  let lastRouterValidateAt = 0;
+
   adminRouter.post('/router/validate', async (_req: Request, res: Response): Promise<void> => {
+    const note = 'Runs live provider probe calls and may incur LLM API cost.';
     try {
+      const now = Date.now();
+      const elapsedMs = now - lastRouterValidateAt;
+      if (routerValidateMinIntervalMs > 0 && elapsedMs < routerValidateMinIntervalMs) {
+        const retryAfterMs = routerValidateMinIntervalMs - elapsedMs;
+        res.status(429).json({
+          error: 'TooManyRequests',
+          message: `Router validation cooldown active. Retry after ${retryAfterMs}ms.`,
+          retry_after_ms: retryAfterMs,
+          note,
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      lastRouterValidateAt = now;
       const routerConfig = routerLLM instanceof MultiProviderRouterLLM
         ? routerLLM.getConfig()
         : loadRouterLLMConfig();
@@ -823,7 +856,7 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
       res.status(statusCode).json({
         mode: routerConfig.reliability.preflightMode,
         summary,
-        note: 'Runs live provider probe calls and may incur LLM API cost.',
+        note,
         timestamp: new Date().toISOString(),
       });
     } catch (error) {
@@ -832,6 +865,7 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
         error: 'InternalError',
         message: 'Failed to validate router providers',
         details: { error: errorMessage },
+        note,
         timestamp: new Date().toISOString(),
       });
     }

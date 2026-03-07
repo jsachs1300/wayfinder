@@ -5,12 +5,16 @@ const metricsMocks = vi.hoisted(() => ({
   recordLlmCircuitBreakerBlock: vi.fn(),
   recordLlmCircuitBreakerTransition: vi.fn(),
 }));
-vi.mock('../../src/observability/metrics', () => ({
-  recordLlmCall: metricsMocks.recordLlmCall,
-  recordLlmError: metricsMocks.recordLlmError,
-  recordLlmCircuitBreakerBlock: metricsMocks.recordLlmCircuitBreakerBlock,
-  recordLlmCircuitBreakerTransition: metricsMocks.recordLlmCircuitBreakerTransition,
-}));
+vi.mock('../../src/observability/metrics', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/observability/metrics')>();
+  return {
+    ...actual,
+    recordLlmCall: metricsMocks.recordLlmCall,
+    recordLlmError: metricsMocks.recordLlmError,
+    recordLlmCircuitBreakerBlock: metricsMocks.recordLlmCircuitBreakerBlock,
+    recordLlmCircuitBreakerTransition: metricsMocks.recordLlmCircuitBreakerTransition,
+  };
+});
 import type { RouterLLMConfig } from '../../src/routing/config';
 import { MultiProviderRouterLLM } from '../../src/routing/router-llm/multi-provider-router-llm';
 import type { ProviderClient } from '../../src/routing/router-llm/providers/types';
@@ -237,5 +241,19 @@ describe('MultiProviderRouterLLM circuit breaker integration', () => {
     const openaiBlockedHealth = healthStore.get('openai', 'gpt-4o-mini');
     expect(openaiBlockedHealth?.circuitBreakerState).toBe('open');
     expect(openaiBlockedHealth?.lastError).toBe(originalLastError);
+  });
+
+  it('does not emit transition metric when breaker state remains unchanged', async () => {
+    const openaiInvoke = vi.fn().mockResolvedValue(providerResponse('gpt-4o-mini', 'openai'));
+    const geminiInvoke = vi.fn().mockResolvedValue(providerResponse('gemini-2.5-flash', 'gemini'));
+
+    const router = createRouterWithClients(
+      { invoke: openaiInvoke, getProviderName: () => 'openai' },
+      { invoke: geminiInvoke, getProviderName: () => 'gemini' }
+    );
+
+    await router.invoke('stable state', ['gpt-4o-mini', 'gemini-2.5-flash'], { tokenConfig });
+
+    expect(metricsMocks.recordLlmCircuitBreakerTransition).not.toHaveBeenCalled();
   });
 });

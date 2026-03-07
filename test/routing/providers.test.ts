@@ -32,7 +32,6 @@ describe('OpenAIClient', () => {
   afterEach(() => {
     global.fetch = originalFetch;
     vi.restoreAllMocks();
-    metricsMocks.recordLlmCompatibilityRetry.mockReset();
   });
 
   it('should return provider name', () => {
