@@ -57,6 +57,11 @@ export interface MultiProviderResult {
 }
 
 /**
+ * Request metadata key used by routing engine to indicate explicitly requested router provider.
+ */
+export const ROUTER_MODEL_REQUESTED_METADATA_KEY = 'router_model_requested';
+
+/**
  * Multi-Provider Router LLM implementation
  *
  * Queries both OpenAI and Gemini, then averages their rankings to produce
@@ -223,6 +228,21 @@ export class MultiProviderRouterLLM implements RouterLLM {
       preferModel: context.preferModel,
     });
 
+    if (this.config.reliability.consensusMode === 'fast' && invocableProviders.length > 1) {
+      const requestedProvider = this.extractRequestedProvider(context.requestMetadata);
+      return this.invokeFastConsensus(
+        invocableProviders,
+        routingPrompt,
+        eligibleModels,
+        metricAttributes,
+        requestedProvider
+      );
+    } else if (this.config.reliability.consensusMode === 'fast' && invocableProviders.length === 1) {
+      this.logger?.log('[MultiProviderRouterLLM] Fast consensus fallback to standard flow (single invocable provider)', {
+        invocable_count: invocableProviders.length,
+      });
+    }
+
     // Invoke all enabled providers in parallel using Promise.allSettled for resilience
     const startTime = Date.now();
     const results = await Promise.allSettled(
@@ -384,6 +404,175 @@ export class MultiProviderRouterLLM implements RouterLLM {
       provider_rankings: providerRankings,
       consensus: aggregatedDecision,
     };
+  }
+
+  private async invokeFastConsensus(
+    invocableProviders: Array<{ client: ProviderClient; model: string; name: RouterLLMProvider }>,
+    routingPrompt: string,
+    eligibleModels: string[],
+    metricAttributes: RoutingMetricAttributes,
+    requestedProvider?: string
+  ): Promise<MultiProviderResult> {
+    const startTime = Date.now();
+    const failedProviders: Array<{ name: string; error: Error }> = [];
+
+    const providerTasks = invocableProviders.map(async (provider) => {
+      try {
+        const decision = await this.invokeProvider(
+          provider.client,
+          provider.model,
+          provider.name,
+          routingPrompt,
+          eligibleModels,
+          metricAttributes
+        );
+
+        const previousState = this.circuitBreaker.getState(provider.name, provider.model);
+        this.circuitBreaker.recordSuccess(provider.name, provider.model);
+        const currentState = this.circuitBreaker.getState(provider.name, provider.model);
+        this.recordCircuitBreakerTransitionIfNeeded(
+          provider.name,
+          previousState,
+          currentState,
+          metricAttributes
+        );
+        this.updateProviderHealth(provider.name, provider.model, {
+          circuitBreakerState: currentState,
+          healthState: 'healthy',
+          consecutiveFailures: 0,
+          lastSuccessAt: new Date().toISOString(),
+          lastError: undefined,
+        });
+
+        return { provider, decision };
+      } catch (reason) {
+        const error = reason instanceof Error ? reason : new Error(String(reason));
+        const previousState = this.circuitBreaker.getState(provider.name, provider.model);
+        this.circuitBreaker.recordFailure(provider.name, provider.model);
+        const circuitBreakerState = this.circuitBreaker.getState(provider.name, provider.model);
+        this.recordCircuitBreakerTransitionIfNeeded(
+          provider.name,
+          previousState,
+          circuitBreakerState,
+          metricAttributes
+        );
+        this.updateProviderHealth(provider.name, provider.model, {
+          circuitBreakerState,
+          healthState: this.healthStateFromCircuitBreaker(circuitBreakerState),
+          consecutiveFailuresIncrement: 1,
+          lastFailureAt: new Date().toISOString(),
+          lastError: error.message,
+        });
+        failedProviders.push({ name: provider.name, error });
+        throw error;
+      }
+    });
+    const providersByName = new Map(
+      invocableProviders.map((provider, index) => [provider.name, providerTasks[index]])
+    );
+
+    let firstSuccess: {
+      provider: { client: ProviderClient; model: string; name: RouterLLMProvider };
+      decision: RankedRouteDecision;
+    };
+    try {
+      const requestedTask = requestedProvider
+        ? providersByName.get(requestedProvider as RouterLLMProvider)
+        : undefined;
+      if (requestedTask) {
+        try {
+          firstSuccess = await requestedTask;
+        } catch {
+          firstSuccess = await Promise.any(providerTasks);
+        }
+      } else {
+        firstSuccess = await Promise.any(providerTasks);
+      }
+    } catch (error) {
+      // Promise.any rejects with AggregateError after all tasks have rejected.
+      // Re-collect from settled tasks so error reporting is complete and deterministic.
+      const settledResults = await Promise.allSettled(providerTasks);
+      const allFailures = settledResults
+        .map((settled, index) => ({ settled, provider: invocableProviders[index] }))
+        .filter((item): item is {
+          settled: PromiseRejectedResult;
+          provider: { client: ProviderClient; model: string; name: RouterLLMProvider };
+        } => item.provider !== undefined && item.settled.status === 'rejected')
+        .map((item) => ({
+          name: item.provider.name,
+          error: item.settled.reason instanceof Error ? item.settled.reason : new Error(String(item.settled.reason)),
+        }));
+
+      const errorMessages = allFailures.map((failed) => `${failed.name}: ${failed.error.message}`).join('; ');
+      const fallbackError = allFailures[0]?.error ??
+        (error instanceof AggregateError && error.errors.length > 0 && error.errors[0] instanceof Error
+          ? error.errors[0]
+          : error instanceof Error
+            ? error
+            : new Error('All router LLM providers failed'));
+      throw new RouterLLMError(
+        `All router LLM providers failed: ${errorMessages}`,
+        fallbackError
+      );
+    }
+
+    const latencyMs = Date.now() - startTime;
+    const generatedAt = new Date().toISOString();
+    const providerName = firstSuccess.provider.name as 'openai' | 'gemini';
+    const providerRankings: MultiProviderResult['provider_rankings'] = {
+      [providerName]: {
+        provider: providerName,
+        decision: firstSuccess.decision,
+        generated_at: generatedAt,
+      },
+    };
+
+    if (failedProviders.length > 0) {
+      this.logger?.warn('[MultiProviderRouterLLM] Fast consensus observed provider failures before response', {
+        failed: failedProviders.map((failed) => ({ name: failed.name, error: failed.error.message })),
+        note: 'Additional provider failures may be logged after background completion.',
+      });
+    }
+
+    this.logger?.log('[MultiProviderRouterLLM] Fast consensus selected first successful provider', {
+      provider: firstSuccess.provider.name,
+      requested_provider: requestedProvider,
+      latencyMs,
+      top_model: firstSuccess.decision.ranked_models[0]?.model,
+      top_score: firstSuccess.decision.ranked_models[0]?.score,
+    });
+
+    // Keep other in-flight provider calls running for async health/telemetry updates.
+    // Note: tasks are already started and the winner has already completed; this callback only
+    // processes background rejections and does not duplicate success bookkeeping.
+    void Promise.allSettled(providerTasks).then((settledResults) => {
+      const backgroundFailures = settledResults
+        .map((settled, index) => ({ settled, provider: invocableProviders[index] }))
+        .filter((item): item is {
+          settled: PromiseRejectedResult;
+          provider: { client: ProviderClient; model: string; name: RouterLLMProvider };
+        } => item.provider !== undefined && item.settled.status === 'rejected')
+        .map((item) => ({
+          name: item.provider.name,
+          error: item.settled.reason instanceof Error ? item.settled.reason.message : String(item.settled.reason),
+        }));
+
+      if (backgroundFailures.length > 0) {
+        this.logger?.warn('[MultiProviderRouterLLM] Fast consensus background provider failures', {
+          failed: backgroundFailures,
+        });
+      }
+    });
+
+    return {
+      provider_rankings: providerRankings,
+      consensus: firstSuccess.decision,
+    };
+  }
+
+  private extractRequestedProvider(requestMetadata?: Record<string, unknown>): string | undefined {
+    const requested = requestMetadata?.[ROUTER_MODEL_REQUESTED_METADATA_KEY];
+    return typeof requested === 'string' ? requested : undefined;
   }
 
   /**

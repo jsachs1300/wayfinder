@@ -60,7 +60,16 @@ Typical fields:
 - `redis_connected`
 - `langcache_enabled`
 - `langcache_connected`
+- `router_provider_configured_count`
+- `router_provider_snapshot_count`
+- `router_provider_healthy_count`
+- `router_provider_unhealthy_count`
 - optional LangCache last error/success timestamps
+
+Admin-authenticated diagnostics:
+- Send `X-Admin-Api-Key` to include sensitive diagnostics in response:
+  - `router_provider_health` (per-provider snapshot detail)
+  - Redis/LangCache last error diagnostics
 
 ### GET /llm-spec
 Machine-readable integration spec for LLM/coding assistants.
@@ -159,6 +168,30 @@ Deprecated endpoint; returns `410`.
 
 #### GET /admin/models
 Returns full model list, count, and default model id.
+
+### Router Diagnostics
+
+#### GET /admin/router/providers
+Returns per-provider router health snapshots:
+- `provider`, `model`
+- `health_state`, `circuit_breaker_state`, `preflight_status`
+- `consecutive_failures`
+- `last_success_at`, `last_failure_at`, `last_error`
+- `updated_at`
+
+#### POST /admin/router/validate
+Runs live provider preflight probes (incurs provider API calls/cost).
+
+Response:
+- `mode`
+- `summary` (`results`, `passCount`, `failCount`)
+- `note`
+- `timestamp`
+
+Status behavior:
+- `200` at least one provider passed
+- `503` no providers passed
+- `429` validation cooldown active (`retry_after_ms` included)
 
 ### Model Registry
 

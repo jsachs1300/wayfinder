@@ -5,7 +5,11 @@
  */
 
 export { DefaultRouterLLM } from './default-router-llm';
-export { MultiProviderRouterLLM, type MultiProviderResult } from './multi-provider-router-llm';
+export {
+  MultiProviderRouterLLM,
+  type MultiProviderResult,
+  ROUTER_MODEL_REQUESTED_METADATA_KEY,
+} from './multi-provider-router-llm';
 export { BYOLLMRouterLLM } from './byollm-router-llm';
 export { StubRouterLLM } from './stub-router-llm';
 export { buildProviderInvocationPlan, type ProviderInvocationPlan } from './provider-adapter';

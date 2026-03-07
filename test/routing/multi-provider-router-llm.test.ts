@@ -76,9 +76,10 @@ function createRouterWithClients(
   openaiClient: ProviderClient,
   geminiClient: ProviderClient,
   config: RouterLLMConfig = baseConfig,
-  providerHealthStore?: InMemoryRouterProviderHealthStore
+  providerHealthStore?: InMemoryRouterProviderHealthStore,
+  logger?: Console
 ): MultiProviderRouterLLM {
-  const router = new MultiProviderRouterLLM(config, undefined, providerHealthStore);
+  const router = new MultiProviderRouterLLM(config, logger, providerHealthStore);
   const mutableRouter = router as unknown as {
     openaiClient: ProviderClient;
     geminiClient: ProviderClient;
@@ -127,6 +128,233 @@ describe('MultiProviderRouterLLM circuit breaker integration', () => {
       'closed',
       'open',
       {}
+    );
+  });
+
+  it('returns first successful provider in fast consensus mode', async () => {
+    vi.useFakeTimers();
+    const fastConfig: RouterLLMConfig = {
+      ...baseConfig,
+      reliability: {
+        ...baseConfig.reliability,
+        consensusMode: 'fast',
+      },
+    };
+
+    const openaiInvoke = vi.fn().mockResolvedValue(providerResponse('gpt-4o-mini', 'openai'));
+    const geminiInvoke = vi.fn().mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(() => {
+            void providerResponse('gemini-2.5-flash', 'gemini').then(resolve);
+          }, 1000);
+        })
+    );
+
+    const router = createRouterWithClients(
+      { invoke: openaiInvoke, getProviderName: () => 'openai' },
+      { invoke: geminiInvoke, getProviderName: () => 'gemini' },
+      fastConfig
+    );
+
+    const result = await router.invoke('fast route', ['gpt-4o-mini', 'gemini-2.5-flash'], { tokenConfig }) as {
+      provider_rankings: Record<string, unknown>;
+      consensus: { ranked_models: Array<{ model: string }> };
+    };
+
+    expect(result.provider_rankings.openai).toBeDefined();
+    expect(result.provider_rankings.gemini).toBeUndefined();
+    expect(result.consensus.ranked_models[0]?.model).toBe('gpt-4o-mini');
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+  });
+
+  it('still succeeds in fast consensus mode when one provider fails', async () => {
+    const fastConfig: RouterLLMConfig = {
+      ...baseConfig,
+      reliability: {
+        ...baseConfig.reliability,
+        consensusMode: 'fast',
+      },
+    };
+    const openaiInvoke = vi.fn().mockRejectedValue(new Error('openai unavailable'));
+    const geminiInvoke = vi.fn().mockResolvedValue(providerResponse('gemini-2.5-flash', 'gemini'));
+
+    const router = createRouterWithClients(
+      { invoke: openaiInvoke, getProviderName: () => 'openai' },
+      { invoke: geminiInvoke, getProviderName: () => 'gemini' },
+      fastConfig
+    );
+
+    const result = await router.invoke('fast route fallback', ['gpt-4o-mini', 'gemini-2.5-flash'], { tokenConfig }) as {
+      provider_rankings: Record<string, unknown>;
+    };
+
+    expect(result.provider_rankings.gemini).toBeDefined();
+    expect(metricsMocks.recordLlmCircuitBreakerTransition).toHaveBeenCalledWith(
+      'openai',
+      'closed',
+      'open',
+      {}
+    );
+  });
+
+  it('preserves explicit provider routing semantics in fast mode', async () => {
+    const fastConfig: RouterLLMConfig = {
+      ...baseConfig,
+      reliability: {
+        ...baseConfig.reliability,
+        consensusMode: 'fast',
+      },
+    };
+    const openaiInvoke = vi.fn().mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(() => {
+            void providerResponse('gpt-4o-mini', 'openai').then(resolve);
+          }, 20);
+        })
+    );
+    const geminiInvoke = vi.fn().mockResolvedValue(providerResponse('gemini-2.5-flash', 'gemini'));
+
+    const router = createRouterWithClients(
+      { invoke: openaiInvoke, getProviderName: () => 'openai' },
+      { invoke: geminiInvoke, getProviderName: () => 'gemini' },
+      fastConfig
+    );
+
+    const result = await router.invoke('explicit provider request', ['gpt-4o-mini', 'gemini-2.5-flash'], {
+      tokenConfig,
+      requestMetadata: {
+        router_model_requested: 'openai',
+      },
+    }) as {
+      provider_rankings: Record<string, unknown>;
+    };
+
+    expect(result.provider_rankings.openai).toBeDefined();
+    expect(result.provider_rankings.gemini).toBeUndefined();
+  });
+
+  it('falls back to another provider when explicitly requested provider fails in fast mode', async () => {
+    const fastConfig: RouterLLMConfig = {
+      ...baseConfig,
+      reliability: {
+        ...baseConfig.reliability,
+        consensusMode: 'fast',
+      },
+    };
+    const openaiInvoke = vi.fn().mockRejectedValue(new Error('openai failed'));
+    const geminiInvoke = vi.fn().mockResolvedValue(providerResponse('gemini-2.5-flash', 'gemini'));
+
+    const router = createRouterWithClients(
+      { invoke: openaiInvoke, getProviderName: () => 'openai' },
+      { invoke: geminiInvoke, getProviderName: () => 'gemini' },
+      fastConfig
+    );
+
+    const result = await router.invoke('explicit provider fallback', ['gpt-4o-mini', 'gemini-2.5-flash'], {
+      tokenConfig,
+      requestMetadata: {
+        router_model_requested: 'openai',
+      },
+    }) as {
+      provider_rankings: Record<string, unknown>;
+    };
+
+    expect(result.provider_rankings.gemini).toBeDefined();
+    expect(result.provider_rankings.openai).toBeUndefined();
+  });
+
+  it('logs background provider failures after fast response is returned', async () => {
+    const fastConfig: RouterLLMConfig = {
+      ...baseConfig,
+      reliability: {
+        ...baseConfig.reliability,
+        consensusMode: 'fast',
+      },
+    };
+    const logger = {
+      log: vi.fn(),
+      warn: vi.fn(),
+    } as unknown as Console;
+
+    const openaiInvoke = vi.fn().mockResolvedValue(providerResponse('gpt-4o-mini', 'openai'));
+    const geminiInvoke = vi.fn().mockImplementation(
+      () =>
+        new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('gemini timed out')), 5);
+        })
+    );
+
+    const router = createRouterWithClients(
+      { invoke: openaiInvoke, getProviderName: () => 'openai' },
+      { invoke: geminiInvoke, getProviderName: () => 'gemini' },
+      fastConfig,
+      undefined,
+      logger
+    );
+
+    await router.invoke('fast background failure', ['gpt-4o-mini', 'gemini-2.5-flash'], { tokenConfig });
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[MultiProviderRouterLLM] Fast consensus background provider failures',
+      expect.objectContaining({
+        failed: expect.arrayContaining([
+          expect.objectContaining({ name: 'gemini' }),
+        ]),
+      })
+    );
+  });
+
+  it('falls back to single-provider standard flow when fast mode has one invocable provider', async () => {
+    const logger = {
+      log: vi.fn(),
+      warn: vi.fn(),
+    } as unknown as Console;
+    const fastConfig: RouterLLMConfig = {
+      ...baseConfig,
+      gemini: {
+        ...baseConfig.gemini,
+        enabled: false,
+      },
+      reliability: {
+        ...baseConfig.reliability,
+        consensusMode: 'fast',
+      },
+    };
+    const openaiInvoke = vi.fn().mockResolvedValue({
+      content: JSON.stringify({
+        intent: 'test intent',
+        ranked_models: [
+          { rank: 1, model: 'gpt-4o-mini', score: 9, reason: 'good fit' },
+        ],
+      }),
+      metadata: {
+        model: 'gpt-4o-mini',
+        provider: 'openai',
+        latencyMs: 12,
+        inputTokens: 10,
+        outputTokens: 20,
+      },
+    });
+
+    const router = createRouterWithClients(
+      { invoke: openaiInvoke, getProviderName: () => 'openai' },
+      { invoke: vi.fn(), getProviderName: () => 'gemini' },
+      fastConfig,
+      undefined,
+      logger
+    );
+
+    const result = await router.invoke('single provider fast', ['gpt-4o-mini'], { tokenConfig }) as {
+      provider_rankings: Record<string, unknown>;
+    };
+
+    expect(result.provider_rankings.openai).toBeDefined();
+    expect(logger.log).toHaveBeenCalledWith(
+      '[MultiProviderRouterLLM] Fast consensus fallback to standard flow (single invocable provider)',
+      expect.objectContaining({ invocable_count: 1 })
     );
   });
 
