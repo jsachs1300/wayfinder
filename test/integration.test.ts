@@ -330,6 +330,20 @@ describe('API Integration Tests', () => {
       expect(typeof response.body.summary.failCount).toBe('number');
       expect(typeof response.body.note).toBe('string');
     });
+
+    it('should apply cooldown to repeated router validation calls', async () => {
+      const first = await request(app)
+        .post('/admin/router/validate')
+        .set('X-Admin-Api-Key', adminApiKey);
+      expect([200, 503]).toContain(first.status);
+
+      const second = await request(app)
+        .post('/admin/router/validate')
+        .set('X-Admin-Api-Key', adminApiKey);
+      expect(second.status).toBe(429);
+      expect(typeof second.body.retry_after_ms).toBe('number');
+      expect(typeof second.body.note).toBe('string');
+    });
   });
 
   describe('Feedback Endpoint', () => {

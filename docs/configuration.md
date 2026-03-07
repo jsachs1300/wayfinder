@@ -72,6 +72,19 @@ At least one provider must be enabled. Both can be enabled for multi-provider ra
 | `ROUTER_LLM_TEMPERATURE` | Sampling temperature (0.0-2.0) | `0.0` |
 | `ROUTER_LLM_MAX_TOKENS` | Maximum tokens in LLM response | `2000` |
 
+#### Router Reliability and Consensus
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `ROUTER_PREFLIGHT_MODE` | Startup/provider-validation mode: `strict`, `warn`, or `off` | `strict` in production, `warn` otherwise |
+| `ROUTER_PREFLIGHT_TIMEOUT_MS` | Per-provider probe timeout for startup/admin validation | `10000` |
+| `ROUTER_CIRCUIT_BREAKER_ERROR_THRESHOLD` | Failures in window before opening breaker | `3` |
+| `ROUTER_CIRCUIT_BREAKER_WINDOW_MS` | Sliding failure window duration | `60000` |
+| `ROUTER_CIRCUIT_BREAKER_OPEN_MS` | Time breaker remains open before half-open probe | `30000` |
+| `ROUTER_CONSENSUS_MODE` | `full` waits for all successful providers; `fast` returns first success and continues async telemetry | `full` |
+| `ROUTER_COMPAT_RETRY_ENABLED` | Enable one-shot provider compatibility retries (`true`/`false`) | `true` |
+| `ROUTER_VALIDATE_MIN_INTERVAL_MS` | Minimum interval between `POST /admin/router/validate` calls on a single instance | `30000` |
+
 #### Model Registry Provider Sync (Optional, Recommended)
 
 Use provider catalog sync to keep the system registry current. Sync can run at startup and/or on-demand via `POST /admin/registry/refresh`.
@@ -372,4 +385,3 @@ If you see `RouterLLMError` or `ROUTER_LLM_API_KEY` error, check:
 1. API key is set in `.env`
 2. API key is valid for your provider
 3. API key has sufficient quota
-

@@ -150,7 +150,7 @@
   - Persist and expose preflight status in provider health state.
   - Add startup tests for fail/pass behavior by mode.
   - Gate: strict mode blocks startup when all providers are unhealthy.
-- [ ] **PR5: Health/admin diagnostics + observability**
+- [x] **PR5: Health/admin diagnostics + observability**
   - Extend `/health` with router provider/model summary.
   - Add admin endpoints: `GET /admin/router/providers`, `POST /admin/router/validate`.
   - Add metrics/events for compatibility retries, breaker transitions, preflight outcomes.
@@ -160,6 +160,7 @@
   - Add `ROUTER_CONSENSUS_MODE=fast` runtime path with async secondary telemetry.
   - Add benchmarks and guardrails for latency-sensitive routes.
   - Gate: documented release playbook and target latency validation in staging.
+  - Status: runbook + fast mode implemented; latency benchmark harness still pending.
 
 ---
 

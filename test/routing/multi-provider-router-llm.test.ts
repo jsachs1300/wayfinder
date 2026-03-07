@@ -130,6 +130,73 @@ describe('MultiProviderRouterLLM circuit breaker integration', () => {
     );
   });
 
+  it('returns first successful provider in fast consensus mode', async () => {
+    vi.useFakeTimers();
+    const fastConfig: RouterLLMConfig = {
+      ...baseConfig,
+      reliability: {
+        ...baseConfig.reliability,
+        consensusMode: 'fast',
+      },
+    };
+
+    const openaiInvoke = vi.fn().mockResolvedValue(providerResponse('gpt-4o-mini', 'openai'));
+    const geminiInvoke = vi.fn().mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(() => {
+            void providerResponse('gemini-2.5-flash', 'gemini').then(resolve);
+          }, 1000);
+        })
+    );
+
+    const router = createRouterWithClients(
+      { invoke: openaiInvoke, getProviderName: () => 'openai' },
+      { invoke: geminiInvoke, getProviderName: () => 'gemini' },
+      fastConfig
+    );
+
+    const result = await router.invoke('fast route', ['gpt-4o-mini', 'gemini-2.5-flash'], { tokenConfig }) as {
+      provider_rankings: Record<string, unknown>;
+      consensus: { ranked_models: Array<{ model: string }> };
+    };
+
+    expect(result.provider_rankings.openai).toBeDefined();
+    expect(result.provider_rankings.gemini).toBeUndefined();
+    expect(result.consensus.ranked_models[0]?.model).toBe('gpt-4o-mini');
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+  });
+
+  it('still succeeds in fast consensus mode when one provider fails', async () => {
+    const fastConfig: RouterLLMConfig = {
+      ...baseConfig,
+      reliability: {
+        ...baseConfig.reliability,
+        consensusMode: 'fast',
+      },
+    };
+    const openaiInvoke = vi.fn().mockRejectedValue(new Error('openai unavailable'));
+    const geminiInvoke = vi.fn().mockResolvedValue(providerResponse('gemini-2.5-flash', 'gemini'));
+
+    const router = createRouterWithClients(
+      { invoke: openaiInvoke, getProviderName: () => 'openai' },
+      { invoke: geminiInvoke, getProviderName: () => 'gemini' },
+      fastConfig
+    );
+
+    const result = await router.invoke('fast route fallback', ['gpt-4o-mini', 'gemini-2.5-flash'], { tokenConfig }) as {
+      provider_rankings: Record<string, unknown>;
+    };
+
+    expect(result.provider_rankings.gemini).toBeDefined();
+    expect(metricsMocks.recordLlmCircuitBreakerTransition).toHaveBeenCalledWith(
+      'openai',
+      'closed',
+      'open',
+      {}
+    );
+  });
+
   it('allows a half-open probe after open timeout and closes on success', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
