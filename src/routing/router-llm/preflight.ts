@@ -3,6 +3,7 @@ import { createProviderClient } from './providers';
 import type { ProviderClient } from './providers/types';
 import type { RouterProviderHealthStore, ProviderHealthState, CircuitBreakerState } from './provider-health';
 import type { Logger } from '../../logging/logger';
+import { recordRouterPreflightOutcome } from '../../observability/metrics';
 
 export interface RouterPreflightProviderResult {
   provider: RouterLLMProvider;
@@ -196,5 +197,7 @@ export class RouterStartupPreflight {
         error: result.error,
       });
     }
+
+    recordRouterPreflightOutcome(result.provider, result.model, result.status, result.latencyMs);
   }
 }

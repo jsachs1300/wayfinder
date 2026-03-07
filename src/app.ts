@@ -39,6 +39,7 @@ import {
   RoutingEngine,
   StubRouterLLM,
   MultiProviderRouterLLM,
+  loadRouterLLMConfig,
   RouterStartupPreflight,
   RouterStartupPreflightError,
   InMemoryRouterProviderHealthStore,
@@ -594,6 +595,17 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
   app.get('/health', (req: Request, res: Response) => {
     const cacheStatus = cache?.getConnectionStatus();
     const redisDiagnostics = getSharedRedisDiagnostics();
+    const routerProviderSnapshots = routerProviderHealthStore.list().map((snapshot) => ({
+      provider: snapshot.provider,
+      model: snapshot.model,
+      health_state: snapshot.healthState,
+      circuit_breaker_state: snapshot.circuitBreakerState,
+      preflight_status: snapshot.preflightStatus,
+      consecutive_failures: snapshot.consecutiveFailures,
+      last_success_at: snapshot.lastSuccessAt,
+      last_failure_at: snapshot.lastFailureAt,
+      updated_at: snapshot.updatedAt,
+    }));
     const adminApiKey = process.env.ADMIN_API_KEY;
     const includeSensitiveDiagnostics = !!(
       adminApiKey &&
@@ -624,6 +636,8 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
         ? { langcache_last_error_at: cacheStatus.last_error_at }
         : {}),
       ...(cacheStatus?.last_success_at ? { langcache_last_success_at: cacheStatus.last_success_at } : {}),
+      router_provider_health: routerProviderSnapshots,
+      router_provider_health_count: routerProviderSnapshots.length,
     });
   });
 
@@ -748,6 +762,52 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
       count: modelRegistry.getAllModels().length,
       default: modelRegistry.getDefaultModel(),
     });
+  });
+
+  adminRouter.get('/router/providers', (_req: Request, res: Response) => {
+    const providers = routerProviderHealthStore.list().map((snapshot) => ({
+      provider: snapshot.provider,
+      model: snapshot.model,
+      health_state: snapshot.healthState,
+      circuit_breaker_state: snapshot.circuitBreakerState,
+      preflight_status: snapshot.preflightStatus,
+      consecutive_failures: snapshot.consecutiveFailures,
+      last_success_at: snapshot.lastSuccessAt,
+      last_failure_at: snapshot.lastFailureAt,
+      last_error: snapshot.lastError,
+      updated_at: snapshot.updatedAt,
+    }));
+
+    res.status(200).json({
+      providers,
+      count: providers.length,
+      timestamp: new Date().toISOString(),
+    });
+  });
+
+  adminRouter.post('/router/validate', async (_req: Request, res: Response): Promise<void> => {
+    try {
+      const routerConfig = routerLLM instanceof MultiProviderRouterLLM
+        ? routerLLM.getConfig()
+        : loadRouterLLMConfig();
+      const preflight = new RouterStartupPreflight(routerConfig, routerProviderHealthStore, logger);
+      const summary = await preflight.run();
+      const statusCode = summary.passCount > 0 ? 200 : 503;
+
+      res.status(statusCode).json({
+        mode: routerConfig.reliability.preflightMode,
+        summary,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).json({
+        error: 'InternalError',
+        message: 'Failed to validate router providers',
+        details: { error: errorMessage },
+        timestamp: new Date().toISOString(),
+      });
+    }
   });
 
   adminRouter.get('/default-token-profile', async (_req: Request, res: Response): Promise<void> => {

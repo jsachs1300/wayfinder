@@ -26,6 +26,23 @@ const routingLlmCircuitBreakerBlocks = meter.createCounter('routing.llm_circuit_
   description: 'Total router LLM provider calls blocked by circuit breaker',
 });
 
+const routingLlmCircuitBreakerTransitions = meter.createCounter('routing.llm_circuit_breaker_transitions_total', {
+  description: 'Total router LLM circuit breaker state transitions',
+});
+
+const routingLlmCompatibilityRetries = meter.createCounter('routing.llm_compatibility_retries_total', {
+  description: 'Total router LLM compatibility retries',
+});
+
+const routingPreflightOutcomes = meter.createCounter('routing.preflight_outcomes_total', {
+  description: 'Total router startup/admin preflight outcomes',
+});
+
+const routingPreflightLatency = meter.createHistogram('routing.preflight_latency_ms', {
+  description: 'Router preflight latency in milliseconds',
+  unit: 'ms',
+});
+
 const routingLlmLatency = meter.createHistogram('routing.llm_latency_ms', {
   description: 'Router LLM latency in milliseconds',
   unit: 'ms',
@@ -98,6 +115,50 @@ export function recordLlmCircuitBreakerBlock(
   attributes: RoutingMetricAttributes
 ): void {
   routingLlmCircuitBreakerBlocks.add(1, { ...attributes, provider });
+}
+
+export function recordLlmCircuitBreakerTransition(
+  provider: string,
+  fromState: 'closed' | 'open' | 'half_open',
+  toState: 'closed' | 'open' | 'half_open',
+  attributes: RoutingMetricAttributes
+): void {
+  routingLlmCircuitBreakerTransitions.add(1, {
+    ...attributes,
+    provider,
+    from_state: fromState,
+    to_state: toState,
+  });
+}
+
+export function recordLlmCompatibilityRetry(
+  provider: string,
+  retryType: 'token_parameter' | 'schema',
+  model: string
+): void {
+  routingLlmCompatibilityRetries.add(1, {
+    provider,
+    retry_type: retryType,
+    model,
+  });
+}
+
+export function recordRouterPreflightOutcome(
+  provider: string,
+  model: string,
+  status: 'pass' | 'fail',
+  latencyMs: number
+): void {
+  routingPreflightOutcomes.add(1, {
+    provider,
+    model,
+    status,
+  });
+  routingPreflightLatency.record(latencyMs, {
+    provider,
+    model,
+    status,
+  });
 }
 
 export function recordRoutingFallback(attributes: RoutingMetricAttributes): void {

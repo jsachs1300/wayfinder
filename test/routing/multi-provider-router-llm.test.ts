@@ -1,4 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+const metricsMocks = vi.hoisted(() => ({
+  recordLlmCall: vi.fn(),
+  recordLlmError: vi.fn(),
+  recordLlmCircuitBreakerBlock: vi.fn(),
+  recordLlmCircuitBreakerTransition: vi.fn(),
+}));
+vi.mock('../../src/observability/metrics', () => ({
+  recordLlmCall: metricsMocks.recordLlmCall,
+  recordLlmError: metricsMocks.recordLlmError,
+  recordLlmCircuitBreakerBlock: metricsMocks.recordLlmCircuitBreakerBlock,
+  recordLlmCircuitBreakerTransition: metricsMocks.recordLlmCircuitBreakerTransition,
+}));
 import type { RouterLLMConfig } from '../../src/routing/config';
 import { MultiProviderRouterLLM } from '../../src/routing/router-llm/multi-provider-router-llm';
 import type { ProviderClient } from '../../src/routing/router-llm/providers/types';
@@ -76,6 +88,10 @@ describe('MultiProviderRouterLLM circuit breaker integration', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.useRealTimers();
+    metricsMocks.recordLlmCall.mockReset();
+    metricsMocks.recordLlmError.mockReset();
+    metricsMocks.recordLlmCircuitBreakerBlock.mockReset();
+    metricsMocks.recordLlmCircuitBreakerTransition.mockReset();
   });
 
   it('opens the breaker on provider failure and falls back to remaining provider', async () => {
@@ -102,6 +118,12 @@ describe('MultiProviderRouterLLM circuit breaker integration', () => {
     expect(second.provider_rankings.gemini).toBeDefined();
     expect(openaiInvoke).toHaveBeenCalledTimes(1);
     expect(geminiInvoke).toHaveBeenCalledTimes(2);
+    expect(metricsMocks.recordLlmCircuitBreakerTransition).toHaveBeenCalledWith(
+      'openai',
+      'closed',
+      'open',
+      {}
+    );
   });
 
   it('allows a half-open probe after open timeout and closes on success', async () => {

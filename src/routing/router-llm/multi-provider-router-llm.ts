@@ -30,6 +30,7 @@ import {
   recordLlmCall,
   recordLlmError,
   recordLlmCircuitBreakerBlock,
+  recordLlmCircuitBreakerTransition,
   type RoutingMetricAttributes,
 } from '../../observability/metrics';
 import { dumpRawRouterResponse } from './raw-response-dump';
@@ -181,7 +182,15 @@ export class MultiProviderRouterLLM implements RouterLLM {
     const invocableProviders: Array<{ client: ProviderClient; model: string; name: RouterLLMProvider }> = [];
     const breakerBlockedProviders: Array<{ name: string; model: string; state: string }> = [];
     for (const provider of enabledProviders) {
+      const preDecisionState = this.circuitBreaker.getState(provider.name, provider.model);
       const decision = this.circuitBreaker.shouldAllowRequest(provider.name, provider.model);
+      const postDecisionState = this.circuitBreaker.getState(provider.name, provider.model);
+      this.recordCircuitBreakerTransitionIfNeeded(
+        provider.name,
+        preDecisionState,
+        postDecisionState,
+        metricAttributes
+      );
       if (!decision.allowed) {
         breakerBlockedProviders.push({
           name: provider.name,
@@ -241,9 +250,17 @@ export class MultiProviderRouterLLM implements RouterLLM {
       }
 
       if (result.status === 'fulfilled') {
+        const previousState = this.circuitBreaker.getState(provider.name, provider.model);
         this.circuitBreaker.recordSuccess(provider.name, provider.model);
+        const currentState = this.circuitBreaker.getState(provider.name, provider.model);
+        this.recordCircuitBreakerTransitionIfNeeded(
+          provider.name,
+          previousState,
+          currentState,
+          metricAttributes
+        );
         this.updateProviderHealth(provider.name, provider.model, {
-          circuitBreakerState: this.circuitBreaker.getState(provider.name, provider.model),
+          circuitBreakerState: currentState,
           healthState: 'healthy',
           consecutiveFailures: 0,
           lastSuccessAt: new Date().toISOString(),
@@ -251,8 +268,15 @@ export class MultiProviderRouterLLM implements RouterLLM {
         });
         decisions.push(result.value);
       } else {
+        const previousState = this.circuitBreaker.getState(provider.name, provider.model);
         this.circuitBreaker.recordFailure(provider.name, provider.model);
         const circuitBreakerState = this.circuitBreaker.getState(provider.name, provider.model);
+        this.recordCircuitBreakerTransitionIfNeeded(
+          provider.name,
+          previousState,
+          circuitBreakerState,
+          metricAttributes
+        );
         failedProviders.push({
           name: provider.name,
           error: result.reason instanceof Error ? result.reason : new Error(String(result.reason)),
@@ -650,5 +674,17 @@ export class MultiProviderRouterLLM implements RouterLLM {
       attributes.router_model_used = requestMetadata.router_model_used;
     }
     return attributes;
+  }
+
+  private recordCircuitBreakerTransitionIfNeeded(
+    provider: RouterLLMProvider,
+    fromState: CircuitBreakerState,
+    toState: CircuitBreakerState,
+    attributes: RoutingMetricAttributes
+  ): void {
+    if (fromState === toState) {
+      return;
+    }
+    recordLlmCircuitBreakerTransition(provider, fromState, toState, attributes);
   }
 }
