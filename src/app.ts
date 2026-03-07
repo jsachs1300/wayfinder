@@ -595,7 +595,8 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
   app.get('/health', (req: Request, res: Response) => {
     const cacheStatus = cache?.getConnectionStatus();
     const redisDiagnostics = getSharedRedisDiagnostics();
-    const routerProviderSnapshots = routerProviderHealthStore.list().map((snapshot) => ({
+    const routerProviderRawSnapshots = routerProviderHealthStore.list();
+    const routerProviderSnapshots = routerProviderRawSnapshots.map((snapshot) => ({
       provider: snapshot.provider,
       model: snapshot.model,
       health_state: snapshot.healthState,
@@ -606,6 +607,22 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
       last_failure_at: snapshot.lastFailureAt,
       updated_at: snapshot.updatedAt,
     }));
+    const routerProviderConfiguredCount = (() => {
+      if (!(routerLLM instanceof MultiProviderRouterLLM)) {
+        return 0;
+      }
+      const config = routerLLM.getConfig();
+      let count = 0;
+      if (config.openai.enabled) count += 1;
+      if (config.gemini.enabled) count += 1;
+      return count;
+    })();
+    const routerProviderHealthyCount = routerProviderRawSnapshots.filter(
+      (snapshot) => snapshot.healthState === 'healthy'
+    ).length;
+    const routerProviderUnhealthyCount = routerProviderRawSnapshots.filter(
+      (snapshot) => snapshot.healthState === 'unhealthy'
+    ).length;
     const adminApiKey = process.env.ADMIN_API_KEY;
     const includeSensitiveDiagnostics = !!(
       adminApiKey &&
@@ -636,8 +653,11 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
         ? { langcache_last_error_at: cacheStatus.last_error_at }
         : {}),
       ...(cacheStatus?.last_success_at ? { langcache_last_success_at: cacheStatus.last_success_at } : {}),
-      router_provider_health: routerProviderSnapshots,
+      router_provider_configured_count: routerProviderConfiguredCount,
       router_provider_health_count: routerProviderSnapshots.length,
+      router_provider_healthy_count: routerProviderHealthyCount,
+      router_provider_unhealthy_count: routerProviderUnhealthyCount,
+      ...(includeSensitiveDiagnostics ? { router_provider_health: routerProviderSnapshots } : {}),
     });
   });
 
@@ -790,13 +810,20 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
       const routerConfig = routerLLM instanceof MultiProviderRouterLLM
         ? routerLLM.getConfig()
         : loadRouterLLMConfig();
-      const preflight = new RouterStartupPreflight(routerConfig, routerProviderHealthStore, logger);
+      const preflight = new RouterStartupPreflight(
+        routerConfig,
+        routerProviderHealthStore,
+        logger,
+        undefined,
+        'admin'
+      );
       const summary = await preflight.run();
       const statusCode = summary.passCount > 0 ? 200 : 503;
 
       res.status(statusCode).json({
         mode: routerConfig.reliability.preflightMode,
         summary,
+        note: 'Runs live provider probe calls and may incur LLM API cost.',
         timestamp: new Date().toISOString(),
       });
     } catch (error) {

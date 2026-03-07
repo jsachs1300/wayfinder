@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const metricsMocks = vi.hoisted(() => ({
   recordRouterPreflightOutcome: vi.fn(),
@@ -38,6 +38,45 @@ const config: RouterLLMConfig = {
 };
 
 describe('RouterStartupPreflight', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('records admin trigger on admin-initiated preflight runs', async () => {
+    const store = new InMemoryRouterProviderHealthStore();
+
+    const preflight = new RouterStartupPreflight(
+      config,
+      store,
+      undefined,
+      (): ProviderClient => ({
+        getProviderName: () => 'openai',
+        invoke: async () => ({
+          content: JSON.stringify({
+            intent: 'startup_preflight',
+            ranked_models: [{ rank: 1, model: 'gpt-4o-mini', score: 10, reason: 'ok' }],
+          }),
+          metadata: {
+            model: 'gpt-4o-mini',
+            provider: 'openai',
+            latencyMs: 1,
+          },
+        }),
+      }),
+      'admin'
+    );
+
+    await preflight.run();
+
+    expect(metricsMocks.recordRouterPreflightOutcome).toHaveBeenCalledWith(
+      'openai',
+      'gpt-4o-mini',
+      'pass',
+      expect.any(Number),
+      'admin'
+    );
+  });
+
   it('records preflight outcome metrics for pass and fail results', async () => {
     const store = new InMemoryRouterProviderHealthStore();
 
@@ -75,14 +114,15 @@ describe('RouterStartupPreflight', () => {
       'openai',
       'gpt-4o-mini',
       'pass',
-      expect.any(Number)
+      expect.any(Number),
+      'startup'
     );
     expect(metricsMocks.recordRouterPreflightOutcome).toHaveBeenCalledWith(
       'gemini',
       'gemini-1.5-flash',
       'fail',
-      expect.any(Number)
+      expect.any(Number),
+      'startup'
     );
   });
 });
-

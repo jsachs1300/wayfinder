@@ -147,17 +147,20 @@ export function recordRouterPreflightOutcome(
   provider: string,
   model: string,
   status: 'pass' | 'fail',
-  latencyMs: number
+  latencyMs: number,
+  trigger: 'startup' | 'admin' = 'startup'
 ): void {
   routingPreflightOutcomes.add(1, {
     provider,
     model,
     status,
+    trigger,
   });
   routingPreflightLatency.record(latencyMs, {
     provider,
     model,
     status,
+    trigger,
   });
 }
 
