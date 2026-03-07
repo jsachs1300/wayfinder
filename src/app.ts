@@ -466,6 +466,9 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
         const preflight = new RouterStartupPreflight(config, routerProviderHealthStore, logger);
         const summary = await preflight.run();
 
+        // Strict mode enforces minimum availability (at least one healthy provider).
+        // It intentionally allows startup with partial failures so traffic can continue
+        // on healthy providers while degraded provider(s) are repaired.
         if (summary.passCount === 0) {
           const message =
             'Router startup preflight found no healthy providers. ' +
@@ -485,14 +488,14 @@ export async function createApp(deps?: Partial<AppDependencies>): Promise<{
             fail_count: summary.failCount,
             providers: summary.results,
           });
+        } else {
+          logger.info('Router startup preflight completed', {
+            mode: config.reliability.preflightMode,
+            pass_count: summary.passCount,
+            fail_count: summary.failCount,
+            providers: summary.results,
+          });
         }
-
-        logger.info('Router startup preflight completed', {
-          mode: config.reliability.preflightMode,
-          pass_count: summary.passCount,
-          fail_count: summary.failCount,
-          providers: summary.results,
-        });
       } else if (enabledProviders.length > 0) {
         logger.info('Router startup preflight disabled', {
           mode: config.reliability.preflightMode,

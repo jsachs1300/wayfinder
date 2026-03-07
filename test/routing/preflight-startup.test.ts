@@ -143,6 +143,26 @@ describe('Router startup preflight policy', () => {
     expect(gemini?.consecutiveFailures).toBe(1);
   });
 
+  it('allows startup in strict mode when at least one provider passes', async () => {
+    process.env.ROUTER_PREFLIGHT_MODE = 'strict';
+    process.env.ROUTER_LLM_GEMINI_ENABLED = 'true';
+    process.env.ROUTER_LLM_GEMINI_API_KEY = 'test-gemini-key';
+
+    global.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('openai.com')) {
+        return Promise.resolve(openAiSuccessResponse() as Response);
+      }
+      return Promise.resolve(geminiFailureResponse() as Response);
+    });
+
+    const result = await createApp({ redis: new Redis() });
+
+    const openai = result.dependencies.routerProviderHealthStore?.get('openai', 'gpt-4o-mini');
+    const gemini = result.dependencies.routerProviderHealthStore?.get('gemini', 'gemini-1.5-flash');
+    expect(openai?.preflightStatus).toBe('pass');
+    expect(gemini?.preflightStatus).toBe('fail');
+  });
+
   it('treats enabled provider without API key as failed preflight', async () => {
     process.env.ROUTER_PREFLIGHT_MODE = 'strict';
     delete process.env.ROUTER_LLM_OPENAI_API_KEY;
