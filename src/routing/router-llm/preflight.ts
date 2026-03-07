@@ -178,7 +178,7 @@ export class RouterStartupPreflight {
       consecutiveFailures: result.status === 'fail' ? existingFailures + 1 : 0,
       lastSuccessAt: result.status === 'pass' ? now : existing?.lastSuccessAt,
       lastFailureAt: result.status === 'fail' ? now : existing?.lastFailureAt,
-      lastError: result.status === 'fail' ? result.error : existing?.lastError,
+      lastError: result.status === 'fail' ? result.error : undefined,
       updatedAt: now,
     });
 
