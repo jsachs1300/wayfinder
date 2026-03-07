@@ -19,6 +19,7 @@ import type { Logger } from '../logging/logger';
 import type { SemanticCache } from '../cache';
 import { hashPrompt } from '../cache';
 import type { MultiProviderResult } from './router-llm';
+import { ROUTER_MODEL_REQUESTED_METADATA_KEY } from './router-llm';
 import { isDefaultToken, resolveEligibleModels, selectDefaultEligibleModelIds } from '../tokens/utils';
 import type { DefaultTokenProfileStore } from '../tokens/default-profile-store';
 import { recordCacheHit, recordCacheMiss } from '../observability/metrics';
@@ -422,7 +423,7 @@ export class DefaultRoutingEngine implements RoutingEngine {
       preferModel: request.prefer_model,
       requestMetadata: {
         ...(request.metadata ?? {}),
-        router_model_requested: effectiveRouter,
+        [ROUTER_MODEL_REQUESTED_METADATA_KEY]: effectiveRouter,
       },
       userLLMKeys, // Pass user's LLM keys if BYOLLM tier
       eligibleModelRegistry,

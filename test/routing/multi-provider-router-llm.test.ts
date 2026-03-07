@@ -235,6 +235,36 @@ describe('MultiProviderRouterLLM circuit breaker integration', () => {
     expect(result.provider_rankings.gemini).toBeUndefined();
   });
 
+  it('falls back to another provider when explicitly requested provider fails in fast mode', async () => {
+    const fastConfig: RouterLLMConfig = {
+      ...baseConfig,
+      reliability: {
+        ...baseConfig.reliability,
+        consensusMode: 'fast',
+      },
+    };
+    const openaiInvoke = vi.fn().mockRejectedValue(new Error('openai failed'));
+    const geminiInvoke = vi.fn().mockResolvedValue(providerResponse('gemini-2.5-flash', 'gemini'));
+
+    const router = createRouterWithClients(
+      { invoke: openaiInvoke, getProviderName: () => 'openai' },
+      { invoke: geminiInvoke, getProviderName: () => 'gemini' },
+      fastConfig
+    );
+
+    const result = await router.invoke('explicit provider fallback', ['gpt-4o-mini', 'gemini-2.5-flash'], {
+      tokenConfig,
+      requestMetadata: {
+        router_model_requested: 'openai',
+      },
+    }) as {
+      provider_rankings: Record<string, unknown>;
+    };
+
+    expect(result.provider_rankings.gemini).toBeDefined();
+    expect(result.provider_rankings.openai).toBeUndefined();
+  });
+
   it('logs background provider failures after fast response is returned', async () => {
     const fastConfig: RouterLLMConfig = {
       ...baseConfig,

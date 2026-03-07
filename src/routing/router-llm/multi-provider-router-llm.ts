@@ -57,6 +57,11 @@ export interface MultiProviderResult {
 }
 
 /**
+ * Request metadata key used by routing engine to indicate explicitly requested router provider.
+ */
+export const ROUTER_MODEL_REQUESTED_METADATA_KEY = 'router_model_requested';
+
+/**
  * Multi-Provider Router LLM implementation
  *
  * Queries both OpenAI and Gemini, then averages their rankings to produce
@@ -69,7 +74,6 @@ export class MultiProviderRouterLLM implements RouterLLM {
   private readonly logger?: Console;
   private readonly circuitBreaker: ProviderCircuitBreaker;
   private readonly providerHealthStore?: RouterProviderHealthStore;
-  private readonly providerOrder: ReadonlyArray<RouterLLMProvider> = ['openai', 'gemini'];
 
   /**
    * Creates a new MultiProviderRouterLLM instance
@@ -233,7 +237,7 @@ export class MultiProviderRouterLLM implements RouterLLM {
         metricAttributes,
         requestedProvider
       );
-    } else if (this.config.reliability.consensusMode === 'fast' && invocableProviders.length <= 1) {
+    } else if (this.config.reliability.consensusMode === 'fast' && invocableProviders.length === 1) {
       this.logger?.log('[MultiProviderRouterLLM] Fast consensus fallback to standard flow (single invocable provider)', {
         invocable_count: invocableProviders.length,
       });
@@ -407,7 +411,7 @@ export class MultiProviderRouterLLM implements RouterLLM {
     routingPrompt: string,
     eligibleModels: string[],
     metricAttributes: RoutingMetricAttributes,
-    requestedProvider?: RouterLLMProvider
+    requestedProvider?: string
   ): Promise<MultiProviderResult> {
     const startTime = Date.now();
     const failedProviders: Array<{ name: string; error: Error }> = [];
@@ -463,14 +467,18 @@ export class MultiProviderRouterLLM implements RouterLLM {
         throw error;
       }
     });
-    const providersByName = new Map(invocableProviders.map((provider, index) => [provider.name, providerTasks[index]]));
+    const providersByName = new Map(
+      invocableProviders.map((provider, index) => [provider.name, providerTasks[index]])
+    );
 
     let firstSuccess: {
       provider: { client: ProviderClient; model: string; name: RouterLLMProvider };
       decision: RankedRouteDecision;
     };
     try {
-      const requestedTask = requestedProvider ? providersByName.get(requestedProvider) : undefined;
+      const requestedTask = requestedProvider
+        ? providersByName.get(requestedProvider as RouterLLMProvider)
+        : undefined;
       if (requestedTask) {
         try {
           firstSuccess = await requestedTask;
@@ -481,10 +489,27 @@ export class MultiProviderRouterLLM implements RouterLLM {
         firstSuccess = await Promise.any(providerTasks);
       }
     } catch (error) {
-      const errorMessages = failedProviders.map((failed) => `${failed.name}: ${failed.error.message}`).join('; ');
-      const fallbackError = failedProviders[0]?.error ?? (
-        error instanceof Error ? error : new Error('All router LLM providers failed')
-      );
+      // Promise.any rejects with AggregateError after all tasks have rejected.
+      // Re-collect from settled tasks so error reporting is complete and deterministic.
+      const settledResults = await Promise.allSettled(providerTasks);
+      const allFailures = settledResults
+        .map((settled, index) => ({ settled, provider: invocableProviders[index] }))
+        .filter((item): item is {
+          settled: PromiseRejectedResult;
+          provider: { client: ProviderClient; model: string; name: RouterLLMProvider };
+        } => item.provider !== undefined && item.settled.status === 'rejected')
+        .map((item) => ({
+          name: item.provider.name,
+          error: item.settled.reason instanceof Error ? item.settled.reason : new Error(String(item.settled.reason)),
+        }));
+
+      const errorMessages = allFailures.map((failed) => `${failed.name}: ${failed.error.message}`).join('; ');
+      const fallbackError = allFailures[0]?.error ??
+        (error instanceof AggregateError && error.errors.length > 0 && error.errors[0] instanceof Error
+          ? error.errors[0]
+          : error instanceof Error
+            ? error
+            : new Error('All router LLM providers failed'));
       throw new RouterLLMError(
         `All router LLM providers failed: ${errorMessages}`,
         fallbackError
@@ -518,6 +543,8 @@ export class MultiProviderRouterLLM implements RouterLLM {
     });
 
     // Keep other in-flight provider calls running for async health/telemetry updates.
+    // Note: tasks are already started and the winner has already completed; this callback only
+    // processes background rejections and does not duplicate success bookkeeping.
     void Promise.allSettled(providerTasks).then((settledResults) => {
       const backgroundFailures = settledResults
         .map((settled, index) => ({ settled, provider: invocableProviders[index] }))
@@ -543,14 +570,9 @@ export class MultiProviderRouterLLM implements RouterLLM {
     };
   }
 
-  private extractRequestedProvider(requestMetadata?: Record<string, unknown>): RouterLLMProvider | undefined {
-    const requested = requestMetadata?.router_model_requested;
-    if (typeof requested !== 'string') {
-      return undefined;
-    }
-    return this.providerOrder.includes(requested as RouterLLMProvider)
-      ? (requested as RouterLLMProvider)
-      : undefined;
+  private extractRequestedProvider(requestMetadata?: Record<string, unknown>): string | undefined {
+    const requested = requestMetadata?.[ROUTER_MODEL_REQUESTED_METADATA_KEY];
+    return typeof requested === 'string' ? requested : undefined;
   }
 
   /**
