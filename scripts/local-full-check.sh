@@ -64,7 +64,9 @@ if [[ -n "${LLM_KEY_ENCRYPTION_KEY:-}" && ! "${LLM_KEY_ENCRYPTION_KEY}" =~ ^[A-F
 fi
 
 if [[ "${LANGCACHE_INTEGRATION_TEST:-false}" != "true" ]]; then
-  echo "[WARN] LANGCACHE_INTEGRATION_TEST is not true. Real LangCache integration suite will be skipped."
+  echo "[ERROR] LANGCACHE_INTEGRATION_TEST must be true for local-full integration runs."
+  echo "        This gate is intended to exercise real LangCache behavior, not mock mode."
+  exit 1
 fi
 
 echo "[INFO] Pinging Redis at ${REDIS_URL}..."

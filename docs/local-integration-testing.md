@@ -44,6 +44,7 @@ This validates:
 - required vars are present
 - encryption key format is valid
 - Redis is reachable
+- `LANGCACHE_INTEGRATION_TEST=true` is enforced for local-full runs
 
 ## 4. Run full local integration test path
 
