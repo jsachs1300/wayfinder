@@ -57,7 +57,7 @@ This command:
 2. runs local env validation
 3. runs `npm test` with your local integration settings
 
-## 5. Optional smoke test against a running local server
+## 5. Optional manual smoke test against a running local server
 
 Start app:
 
@@ -70,7 +70,16 @@ In a second terminal:
 
 ```bash
 set -a; source .env.local.integration; source .env.local.secrets; set +a
-node scripts/smoke-test.js
+curl -sS http://localhost:3000/health
+```
+
+For a route smoke call, use a valid token and call:
+
+```bash
+curl -sS http://localhost:3000/route \
+  -H "Content-Type: application/json" \
+  -H "X-Wayfinder-Token: $WAYFINDER_TOKEN" \
+  -d '{"prompt":"Write a TypeScript function to group items by key","router_model":"consensus"}'
 ```
 
 ## 6. Tear down local dependencies
