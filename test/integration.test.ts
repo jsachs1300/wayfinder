@@ -322,15 +322,17 @@ describe('API Integration Tests', () => {
         .post('/admin/router/validate')
         .set('X-Admin-Api-Key', adminApiKey);
 
-      // Preflight status depends on CI/provider env:
-      // - 200 when at least one provider probe passes
-      // - 503 when no provider probes pass
-      expect([200, 503]).toContain(response.status);
       expect(response.body.summary).toBeDefined();
       expect(Array.isArray(response.body.summary.results)).toBe(true);
       expect(typeof response.body.summary.passCount).toBe('number');
       expect(typeof response.body.summary.failCount).toBe('number');
       expect(typeof response.body.note).toBe('string');
+
+      // Preserve behavioral contract across environments:
+      // - if any provider probe passes => 200
+      // - if none pass => 503
+      const passCount = response.body.summary.passCount as number;
+      expect(response.status).toBe(passCount > 0 ? 200 : 503);
     });
 
     it('should apply cooldown to repeated router validation calls', async () => {

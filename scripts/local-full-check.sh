@@ -25,9 +25,13 @@ require_var() {
   fi
 }
 
-echo "[INFO] Loading local integration env files..."
-load_env_file "$INTEGRATION_ENV_FILE"
-load_env_file "$SECRETS_ENV_FILE"
+if [[ "${WAYFINDER_LOCAL_FULL_ENV_LOADED:-false}" == "true" ]]; then
+  echo "[INFO] Using already-loaded local integration env."
+else
+  echo "[INFO] Loading local integration env files..."
+  load_env_file "$INTEGRATION_ENV_FILE"
+  load_env_file "$SECRETS_ENV_FILE"
+fi
 
 echo "[INFO] Validating required configuration..."
 require_var ADMIN_API_KEY
@@ -70,6 +74,17 @@ if [[ "${LANGCACHE_INTEGRATION_TEST:-false}" != "true" ]]; then
 fi
 
 echo "[INFO] Pinging Redis at ${REDIS_URL}..."
+if ! command -v node >/dev/null 2>&1; then
+  echo "[ERROR] Node.js is required for local-full checks but was not found in PATH."
+  exit 1
+fi
+
+if ! node -e 'require.resolve("ioredis")' >/dev/null 2>&1; then
+  echo "[ERROR] Missing dependency: ioredis"
+  echo "        Run 'npm install' before running local full-integration checks."
+  exit 1
+fi
+
 node -e '
 const Redis = require("ioredis");
 const url = process.env.REDIS_URL;
