@@ -58,6 +58,7 @@ Frontend-oriented API spec:
 ## Documentation
 
 - `docs/index.md` - Documentation index
+- `docs/local-integration-testing.md` - Full local integration workflow (recommended pre-PR gate)
 - `docs/quick-start.md` - Expanded setup and local dev
 - `docs/core-concepts.md` - Routing/policy/cache/model concepts
 - `docs/configuration.md` - Environment and runtime config
@@ -66,6 +67,17 @@ Frontend-oriented API spec:
 - `docs/architecture.md` - Service architecture and structure
 - `docs/troubleshooting.md` - Troubleshooting guide
 - `PRODUCTION.md` - Deployment and production operations
+
+## Pre-PR Checklist
+
+Before opening a PR, run the local full integration workflow:
+
+```bash
+npm run local:deps:up
+npm run test:integration:local-full
+```
+
+Setup details are in `docs/local-integration-testing.md`.
 
 ## License
 

@@ -322,13 +322,17 @@ describe('API Integration Tests', () => {
         .post('/admin/router/validate')
         .set('X-Admin-Api-Key', adminApiKey);
 
-      // In test mode with no providers enabled, preflight reports no healthy providers.
-      expect(response.status).toBe(503);
       expect(response.body.summary).toBeDefined();
       expect(Array.isArray(response.body.summary.results)).toBe(true);
       expect(typeof response.body.summary.passCount).toBe('number');
       expect(typeof response.body.summary.failCount).toBe('number');
       expect(typeof response.body.note).toBe('string');
+
+      // Preserve behavioral contract across environments:
+      // - if any provider probe passes => 200
+      // - if none pass => 503
+      const passCount = response.body.summary.passCount as number;
+      expect(response.status).toBe(passCount > 0 ? 200 : 503);
     });
 
     it('should apply cooldown to repeated router validation calls', async () => {

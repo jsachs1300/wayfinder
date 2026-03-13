@@ -632,15 +632,15 @@
   - “Run this before opening PR” checklist command bundle.
 
 ### Deliverables (Implementation Tasks)
-- [ ] Add `.env.local.integration.example` and `.env.local.secrets.example`.
-- [ ] Add `docker-compose.local-integration.yml` (Redis service).
-- [ ] Add `scripts/local-full-check.sh` for env validation.
-- [ ] Add npm scripts:
+- [x] Add `.env.local.integration.example` and `.env.local.secrets.example`.
+- [x] Add `docker-compose.local-integration.yml` (Redis service).
+- [x] Add `scripts/local-full-check.sh` for env validation.
+- [x] Add npm scripts:
   - `test:integration:local-full`
   - `local:deps:up`
   - `local:deps:down`
-- [ ] Add docs page: `docs/local-integration-testing.md` with copy/paste setup instructions.
-- [ ] Add pre-PR checklist in `README.md` linking local-full workflow.
+- [x] Add docs page: `docs/local-integration-testing.md` with copy/paste setup instructions.
+- [x] Add pre-PR checklist in `README.md` linking local-full workflow.
 
 ### Acceptance Criteria
 - Developer can clone repo, add local env files, and run full local integration path in <20 minutes.

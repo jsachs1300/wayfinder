@@ -9,6 +9,8 @@ dist/
 .env.local
 .env.*.local
 .env.backup
+.env.local.integration
+.env.local.secrets
 
 # IDE
 .vscode/
